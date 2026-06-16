@@ -294,6 +294,31 @@ pub fn format_human(
 
             if let Some(ref reason) = result.skip_reason {
                 output.push_str(&format!("  Model check skipped: {}\n", reason));
+                // Show convertibility report blockers/warnings so agent knows what to fix
+                if let Some(ref report) = result.convertibility_report {
+                    if !report.blockers.is_empty() {
+                        output.push_str(&format!(
+                            "  {} blocker(s):\n",
+                            report.blockers.len()
+                        ));
+                        for b in &report.blockers {
+                            output.push_str(&format!(
+                                "    [BLOCKER] {} at {}\n",
+                                b.element, b.location
+                            ));
+                            output.push_str(&format!("              {}\n", b.detail));
+                            if let Some(ref fix) = b.fix {
+                                output.push_str(&format!("              Fix: {}\n", fix));
+                            }
+                        }
+                    }
+                    if !report.warnings.is_empty() {
+                        output.push_str(&format!(
+                            "  {} warning(s).  Use --phase convertibility --verbose for details.\n",
+                            report.warnings.len()
+                        ));
+                    }
+                }
             } else if annotated.is_empty() {
                 output.push_str("  All constraints satisfied.\n");
             } else {
