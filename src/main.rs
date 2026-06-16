@@ -305,6 +305,8 @@ const BOOTSTRAP_RULES: &str = r#"rules:
     - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
     - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
     - Avoid vague SHALLs ('be robust', 'be user-friendly')
+    - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
+    - BAD: "The system SHALL auto-detect changes" (no task ID, no temporal keyword — NonFormalizable)
     - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
   design:
     - Each task maps to a single state variable
@@ -347,6 +349,8 @@ rules:
     - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
     - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
     - Avoid vague SHALLs ('be robust', 'be user-friendly')
+    - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
+    - BAD: "The system SHALL auto-detect changes" (no task ID, no temporal keyword — NonFormalizable)
     - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
   design:
     - Each task maps to a single state variable

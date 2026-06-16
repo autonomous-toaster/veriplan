@@ -280,7 +280,7 @@ fn check_task_references(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
 
 fn check_classifiability(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<CheckItem>) {
     let mut blockers = Vec::new();
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     let mut info = Vec::new();
 
     let mut formalizable_count = 0;
@@ -290,8 +290,8 @@ fn check_classifiability(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<
         let cat = translator::classify(&req.statement);
         if cat == ConstraintCategory::NonFormalizable {
             non_formalizable_count += 1;
-            warnings.push(CheckItem {
-                severity: "warning".into(),
+            blockers.push(CheckItem {
+                severity: "blocker".into(),
                 check: "non_formalizable".into(),
                 element: format!("Requirement '{}'", req.id),
                 location: format!("{}:{}", req.source.file, req.source.start_line),
