@@ -47,7 +47,7 @@ T6.4 SHALL run SPIN AFTER T6.1 SHALL generate the Promela model. SPIN SHALL be d
 
 ### Requirement: Built-in BFS fallback (Deprecated)
 
-T6.7 SHALL provide a built-in BFS explorer for plans with ≤20 tasks. (Note: T6.4 now SHALL fail hard when SPIN is missing — T6.7 exists as a safety net for development environments that cannot install SPIN.)
+T6.7 MAY provide a built-in BFS explorer for plans with ≤20 tasks. (Deprecated: BFS fallback was removed — T6.4 fails hard when SPIN is missing.)
 
 #### Scenario: SPIN not available, model valid
 - **GIVEN** `spin` binary is not installed and a plan with 4 tasks and 2 LTL properties

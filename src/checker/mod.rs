@@ -289,6 +289,10 @@ fn check_classifiability(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<
     let mut non_formalizable_count = 0;
 
     for req in &plan.requirements {
+        // Skip informational (May) requirements — they're not verified
+        if req.strength == crate::ir::Rfc2119Strength::May {
+            continue;
+        }
         let cat = translator::classify(&req.statement);
         if cat == ConstraintCategory::NonFormalizable {
             non_formalizable_count += 1;
