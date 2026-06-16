@@ -307,6 +307,8 @@ const BOOTSTRAP_RULES: &str = r#"rules:
     - Avoid vague SHALLs ('be robust', 'be user-friendly')
     - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
     - BAD: "The system SHALL auto-detect changes" (no task ID, no temporal keyword — NonFormalizable)
+    - IF...THEN is for failure-recovery: "IF T1.1 fails THEN T2.1 SHALL run"
+    - For branching/decision logic, use BEFORE instead: "T1.5 SHALL complete BEFORE T1.4"
     - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
   design:
     - Each task maps to a single state variable
@@ -351,6 +353,8 @@ rules:
     - Avoid vague SHALLs ('be robust', 'be user-friendly')
     - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
     - BAD: "The system SHALL auto-detect changes" (no task ID, no temporal keyword — NonFormalizable)
+    - IF...THEN is for failure-recovery: "IF T1.1 fails THEN T2.1 SHALL run"
+    - For branching/decision logic, use BEFORE instead: "T1.5 SHALL complete BEFORE T1.4"
     - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
   design:
     - Each task maps to a single state variable

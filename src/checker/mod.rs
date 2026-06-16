@@ -1144,7 +1144,7 @@ fn suggest_fix(
         }
         crate::ir::ConstraintCategory::Conditional => {
             Some(
-                "The trigger task fails non-deterministically but the consequent task never activates.\n  Either make the conditional dependency structural (e.g., by adding an explicit ordering\n  in the plan), or mark this constraint as aspirational by removing IF...THEN."
+                "The trigger task fails non-deterministically but the consequent task never activates.\n  IF...THEN is designed for **failure-recovery** patterns (e.g. 'IF T1.1 fails THEN T1.2 SHALL run').\n  For **branching/decision logic** (e.g. 'IF X THEN A, IF not X THEN B'), use Sequential ordering instead:\n  \"T1.5 SHALL complete BEFORE T1.4 SHALL run\".\n  Otherwise mark this constraint as aspirational by removing IF...THEN."
                     .into(),
             )
         }

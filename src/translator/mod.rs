@@ -211,15 +211,19 @@ pub fn generate_ltl(
 
 /// Extract task ID references from a statement using a PlanIR.
 pub fn extract_task_refs(statement: &str, plan: &PlanIR) -> Vec<String> {
-    let mut refs = Vec::new();
+    // Find all referenced task IDs and sort by their position in the statement
+    let mut refs_with_pos: Vec<(usize, String)> = Vec::new();
     for task in &plan.tasks {
         let id_pattern = format!("T{}", task.id);
         let alt_pattern = format!("t{}", task.id);
-        if statement.contains(&id_pattern) || statement.contains(&alt_pattern) {
-            refs.push(task.id.clone());
+        if let Some(pos) = statement.find(&id_pattern) {
+            refs_with_pos.push((pos, task.id.clone()));
+        } else if let Some(pos) = statement.find(&alt_pattern) {
+            refs_with_pos.push((pos, task.id.clone()));
         }
     }
-    refs
+    refs_with_pos.sort_by_key(|(pos, _)| *pos);
+    refs_with_pos.into_iter().map(|(_, id)| id).collect()
 }
 
 /// Extract task ID references from a statement given a list of known IDs.

@@ -3,8 +3,8 @@
 - [ ] 1.1 Change `change` field in `Commands::Check` from `String` to `Option<String>`
 - [ ] 1.2 Add `--format` argument with default value `"openspec"` and validate against known formats
 - [ ] 1.3 Implement no-arg mode: when no change is given, scan `openspec/changes/` in CWD, exclude `archive/`, collect all active change directories
-- [ ] 1.4 Implement directory-path mode: when argument is a path (not a change name), resolve openspec relative to that path instead of CWD
 - [ ] 1.5 Implement disambiguation logic: try as change name first; fall back to directory path only if change doesn't exist AND argument looks like a path
+- [ ] 1.4 Implement directory-path mode: when argument is a path (not a change name), resolve openspec relative to that path instead of CWD
 
 ## 2. Parser: Project-root-aware change discovery
 
