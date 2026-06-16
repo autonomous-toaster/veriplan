@@ -24,6 +24,27 @@ scenarios with GIVEN / WHEN / THEN steps, and phase groupings.
 If the markdown is malformed or missing required fields, parsing fails
 with a clear error.
 
+### 0. Setting up a project: `veriplan init`
+
+Before writing any tasks or requirements, run `veriplan init` once to
+embed the structural rules directly into your OpenSpec configuration:
+
+```bash
+veriplan init
+```
+
+This adds a `context` field and `rules` to `openspec/config.yaml` that
+describe the temporal keyword grammar, task ID format, scenario structure,
+and RFC 2119 conventions — in plain language, without mentioning Promela,
+SPIN, or LTL. The idea is that whoever writes the plan (including an AI
+assistant) sees these rules up front and can follow them from the start.
+
+The config is a gentle nudge, not a straitjacket. An AI assistant may
+still write requirements that don't follow the temporal grammar — that's
+what the convertibility check is for. But with `init`, the rules are
+there in the project configuration from day one, making it more likely
+that specs come out structurally sound on the first try.
+
 ### 2. Convertibility check: "Can this plan be built?"
 
 Before running any heavy analysis, veriplan asks seven questions:
