@@ -1,10 +1,33 @@
 use std::path::Path;
+use std::io::Write;
 
 use clap::{Parser, Subcommand};
 
 use veriplan::annotator;
 use veriplan::checker;
+use veriplan::ir::PlanIR;
 use veriplan::parser;
+
+/// Supported plan formats.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Format {
+    /// OpenSpec specification format (default).
+    Openspec,
+}
+
+impl std::str::FromStr for Format {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "openspec" => Ok(Format::Openspec),
+            other => Err(format!(
+                "unknown format '{}'. Supported formats: openspec",
+                other
+            )),
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "veriplan", about = "Formal verification for OpenSpec plans")]
@@ -17,8 +40,9 @@ struct Cli {
 enum Commands {
     /// Run convertibility + model checking on an OpenSpec change
     Check {
-        /// Change name (e.g., "veriplan-plan-verifier")
-        change: String,
+        /// Change name (e.g., "veriplan-plan-verifier"). Omit to auto-detect all active changes.
+        #[arg(required = false)]
+        change: Option<String>,
         /// Stop after convertibility check (Phase 1)
         #[arg(long)]
         phase: Option<String>,
@@ -39,86 +63,166 @@ enum Commands {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    match cli.command {
+
+    let result = match cli.command {
         Commands::Check {
             change,
             phase,
             format,
             verbose: _verbose,
-        } => run_check(&change, phase.as_deref(), format.as_deref(), _verbose),
+        } => run_check(change, phase.as_deref(), format.as_deref(), _verbose),
         Commands::Init { project_root } => run_init(project_root.as_deref()),
-    }
+    };
+
+    // Flush stdio before exiting to avoid losing buffered output
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+
+    result
+}
+
+/// Flush stdio and exit with the given code.
+/// Always flushes stdout and stderr before calling process::exit.
+fn flush_exit(code: i32) -> ! {
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    std::process::exit(code);
 }
 
 fn run_check(
-    change_name: &str,
+    change_name: Option<String>,
     phase: Option<&str>,
     format: Option<&str>,
     verbose: bool,
 ) -> anyhow::Result<()> {
+    // Validate plan format if provided
+    // Use a unique variable name to avoid any shadowing issues
+    let format_val = format.unwrap_or("human");
+    if format_val != "openspec" && format_val != "human" && format_val != "json" {
+        anyhow::bail!("unknown format '{}'. Supported formats: openspec", format_val);
+    }
     let project_root = std::env::current_dir()?;
-    let change_dir = find_change_dir(&project_root, change_name)?;
 
-    let plan = parser::parse_plan(&change_dir).map_err(|e| anyhow::anyhow!(e))?;
+    // Determine what changes to check
+    let change_names = if let Some(name) = &change_name {
+        vec![name.clone()]
+    } else {
+        // No-arg mode: auto-detect all active changes
+        let discovered = discover_changes(&project_root)?;
+        if discovered.is_empty() {
+            anyhow::bail!("No active changes found in {}", project_root.join("openspec/changes").display());
+        }
+        discovered
+    };
 
     let no_model = phase == Some("convertibility");
-    // Use just the last path component for display even if user passes a full path
-    let display_name = std::path::Path::new(change_name)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(change_name);
-    let result = checker::verify(&plan, display_name, no_model);
 
-    let annotated = annotator::annotate(&result, &plan);
+    // Build plan list for verification
+    let mut plans: Vec<(String, PlanIR)> = Vec::new();
+    for name in &change_names {
+        let change_dir = find_change_dir(&project_root, name)?;
+        match parser::parse_plan(&change_dir) {
+            Ok(plan) => plans.push((name.clone(), plan)),
+            Err(e) => {
+                // Skip invalid changes when in multi-change mode
+                if change_names.len() == 1 {
+                    anyhow::bail!("Failed to parse '{}': {}", name, e);
+                }
+                eprintln!("Warning: skipping '{}': {}", name, e);
+            }
+        }
+    }
+
+    if plans.is_empty() {
+        anyhow::bail!("No valid changes to verify");
+    }
+
+    let combined_name = change_names.join(", ");
+    let result = if plans.len() == 1 {
+        checker::verify(&plans[0].1, &combined_name, no_model)
+    } else {
+        checker::verify_all(&plans, no_model)
+    };
+    // For annotator: use the first plan for source resolution
+    // (multi-plan annotator support is task 6.1-6.2)
+    let ref_plan = plans.first().map(|(_, p)| p).unwrap();
+    let annotated = annotator::annotate(&result, ref_plan);
 
     match format.unwrap_or("human") {
         "json" => println!(
             "{}",
-            annotator::format_json(&result, &annotated, &plan, verbose)
+            annotator::format_json(&result, &annotated, ref_plan, verbose)
         ),
         _ => print!(
             "{}",
-            annotator::format_human(&result, &annotated, &plan, verbose)
+            annotator::format_human(&result, &annotated, ref_plan, verbose)
         ),
     }
 
+    // Flush output before exit to avoid losing buffered content
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+
     // Exit codes: 0 = valid/pass, 1 = invalid/fail, 2 = blocking convertibility
     if !result.convertible {
-        std::process::exit(2);
+        flush_exit(2);
     } else if result.valid == Some(false) {
-        std::process::exit(1);
+        flush_exit(1);
     } else if no_model
         && !result
             .convertibility_report
             .as_ref()
             .is_none_or(|r| r.warnings.is_empty())
     {
-        // In convertibility-only mode, warnings still count as non-clean
-        // but don't exit with error
-        std::process::exit(0);
+        flush_exit(0);
     }
 
     Ok(())
 }
 
 fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std::path::PathBuf> {
-    let direct = Path::new(change_name).to_path_buf();
-    let candidates = [
-        project_root
-            .join("openspec")
-            .join("changes")
-            .join(change_name),
-        project_root.join(change_name),
-        direct,
-    ];
+    // First: try as a change name in the current project
+    let change_path = project_root
+        .join("openspec")
+        .join("changes")
+        .join(change_name);
 
-    for candidate in &candidates {
-        if candidate.join("tasks.md").exists() || candidate.join("specs").exists() {
-            return Ok(candidate.clone());
+    if change_path.join("tasks.md").exists() || change_path.join("specs").exists() {
+        return Ok(change_path);
+    }
+
+    // Check if the argument is a change name directly in CWD
+    let direct = Path::new(change_name);
+    if direct.join("tasks.md").exists() || direct.join("specs").exists() {
+        return Ok(direct.to_path_buf());
+    }
+
+    // Second: disambiguation — check if it looks like a path
+    // (contains separator or exists as a directory)
+    let looks_like_path = change_name.contains('/') || change_name.contains('\\') || direct.exists();
+
+    if looks_like_path {
+        // Treat as a project directory path — scan for openspec inside it
+        let target_root = if direct.is_absolute() {
+            direct.to_path_buf()
+        } else {
+            project_root.join(change_name)
+        };
+
+        let target_changes = target_root.join("openspec").join("changes");
+        if target_changes.exists() && target_changes.is_dir() {
+            let changes = discover_changes(&target_root)?;
+            if let Some(first) = changes.first() {
+                return Ok(target_changes.join(first));
+            }
+            anyhow::bail!(
+                "Directory '{}' has openspec/changes/ but no active changes found",
+                target_root.display()
+            );
         }
     }
 
-    // If not found, try to find any openspec changes directory
+    // Not found anywhere — show available changes
     let changes_dir = project_root.join("openspec").join("changes");
     if changes_dir.exists() {
         let entries: Vec<_> = std::fs::read_dir(&changes_dir)
@@ -126,14 +230,51 @@ fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
-        anyhow::bail!(
-            "Change '{}' not found. Available changes: {:?}",
-            change_name,
-            entries
-        );
+
+        if looks_like_path {
+            anyhow::bail!(
+                "No openspec change or project directory found for '{}'. Available changes: {:?}",
+                change_name, entries
+            );
+        } else {
+            anyhow::bail!(
+                "Change '{}' not found. Available changes: {:?}",
+                change_name, entries
+            );
+        }
     }
 
     anyhow::bail!("Change directory not found for '{}'", change_name);
+}
+
+/// Discover all active changes in a project's openspec directory.
+/// Excludes the `archive/` directory.
+fn discover_changes(project_root: &Path) -> anyhow::Result<Vec<String>> {
+    let changes_dir = project_root.join("openspec").join("changes");
+    if !changes_dir.exists() || !changes_dir.is_dir() {
+        anyhow::bail!("No openspec/changes/ directory found at {}", changes_dir.display());
+    }
+
+    let mut changes = Vec::new();
+    for entry in std::fs::read_dir(&changes_dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if entry.file_type()?.is_dir() && !is_archive_dir(&name) {
+            // Verify it's a valid change dir (has tasks.md or specs/)
+            let change_path = entry.path();
+            if change_path.join("tasks.md").exists() || change_path.join("specs").exists() {
+                changes.push(name);
+            }
+        }
+    }
+
+    changes.sort();
+    Ok(changes)
+}
+
+/// Check if a directory name is the archive directory.
+fn is_archive_dir(name: &str) -> bool {
+    name == "archive"
 }
 
 // ═══════════════════════════════════════════════════════════════

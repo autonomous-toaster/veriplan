@@ -612,6 +612,74 @@ pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool) -> VerificationRes
     run_spin_check(plan, plan_name, &constraints, conv_report)
 }
 
+/// Verify multiple plans and merge the results into a single report.
+pub fn verify_all(plans: &[(String, PlanIR)], no_model: bool) -> VerificationResult {
+    let mut all_results: Vec<VerificationResult> = Vec::new();
+    for (name, plan) in plans {
+        let result = verify(plan, name, no_model);
+        all_results.push(result);
+    }
+    merge_results(&all_results)
+}
+
+/// Merge multiple verification results into a combined report.
+pub fn merge_results(results: &[VerificationResult]) -> VerificationResult {
+    if results.is_empty() {
+        return VerificationResult {
+            plan_name: String::new(),
+            phase: "full".into(),
+            convertible: true,
+            convertibility_report: None,
+            valid: Some(true),
+            violations: vec![],
+            total_constraints: 0,
+            satisfied_constraints: 0,
+            constraints_summary: vec![],
+            skip_reason: None,
+        };
+    }
+
+    if results.len() == 1 {
+        return results[0].clone();
+    }
+
+    let names: Vec<&str> = results.iter().map(|r| r.plan_name.as_str()).collect();
+    let combined_name = names.join(", ");
+
+    // Merge: worst outcome wins
+    let all_convertible = results.iter().all(|r| r.convertible);
+    let any_invalid = results.iter().any(|r| r.valid == Some(false));
+    let any_skipped = results.iter().any(|r| r.skip_reason.is_some());
+    let any_valid = results.iter().any(|r| r.valid == Some(true));
+
+    let mut combined = VerificationResult {
+        plan_name: combined_name,
+        phase: "full".into(),
+        convertible: all_convertible,
+        convertibility_report: None,
+        valid: if !all_convertible {
+            None
+        } else if any_invalid {
+            Some(false)
+        } else if any_skipped && !any_valid {
+            None
+        } else {
+            Some(true)
+        },
+        violations: results.iter().flat_map(|r| r.violations.clone()).collect(),
+        total_constraints: results.iter().map(|r| r.total_constraints).sum(),
+        satisfied_constraints: results.iter().map(|r| r.satisfied_constraints).sum(),
+        constraints_summary: results.iter().flat_map(|r| r.constraints_summary.clone()).collect(),
+        skip_reason: None,
+    };
+
+    if any_skipped && !any_valid {
+        combined.skip_reason = Some("One or more changes were skipped".into());
+    }
+
+    combined
+}
+
 /// Generate a Promela model and run SPIN.
 fn run_spin_check(
     plan: &PlanIR,
