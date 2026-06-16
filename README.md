@@ -153,6 +153,20 @@ guarantee — they are spec-plan mismatches, not implementation bugs.
 
 ## Quick start
 
+**Before using veriplan, install SPIN and gcc:**
+
+```bash
+# macOS
+brew install spin gcc
+
+# Debian / Ubuntu
+sudo apt install spin gcc
+```
+
+SPIN is the model checker that runs the formal proofs. gcc compiles
+SPIN's generated C code. Both are checked at startup — missing either
+produces a clear error with install instructions.
+
 ```bash
 # Build
 cargo build --release
