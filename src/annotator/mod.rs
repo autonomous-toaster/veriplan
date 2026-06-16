@@ -174,9 +174,12 @@ pub fn format_human(
 
             output.push_str(&format!("Plan: {} — {}\n\n", plan_name, status));
 
-            output.push_str(
-                "  Verification model: the plan's task-phase structure is modeled as a\n  state machine. Each spec constraint is checked as an LTL property\n  against this model. A violation means the spec demands behavior\n  that the plan structure cannot guarantee.\n\n",
-            );
+            // Model explanation header: only when there are violations to interpret
+            if !annotated.is_empty() {
+                output.push_str(
+                    "  Verification model: the plan's task-phase structure is modeled as a\n  state machine. Each spec constraint is checked as an LTL property\n  against this model. A violation means the spec demands behavior\n  that the plan structure cannot guarantee.\n\n",
+                );
+            }
 
             if let Some(ref reason) = result.skip_reason {
                 output.push_str(&format!("  Model check skipped: {}\n", reason));
@@ -226,26 +229,30 @@ pub fn format_human(
                     result.total_constraints
                 ));
 
-                // Per-category breakdown
+                // Per-category breakdown — only when there are violations
                 let break_down = category_breakdown(annotated);
                 if !break_down.is_empty() {
                     output.push_str(&format!("  Violations by category: {}\n", break_down));
                 }
 
+                // Per-constraint list: always show when invalid, only in verbose when valid
                 if !result.constraints_summary.is_empty() {
-                    output.push_str("\n  Constraints:\n");
-                    for cs in &result.constraints_summary {
-                        let mark = if cs.unchecked {
-                            "~"
-                        } else if cs.satisfied {
-                            "✓"
-                        } else {
-                            "✗"
-                        };
-                        output.push_str(&format!(
-                            "    {}  {}  {}\n",
-                            mark, cs.category, cs.requirement_id
-                        ));
+                    let show_constraints = !annotated.is_empty() || verbose;
+                    if show_constraints {
+                        output.push_str("\n  Constraints:\n");
+                        for cs in &result.constraints_summary {
+                            let mark = if cs.unchecked {
+                                "~"
+                            } else if cs.satisfied {
+                                "✓"
+                            } else {
+                                "✗"
+                            };
+                            output.push_str(&format!(
+                                "    {}  {}  {}\n",
+                                mark, cs.category, cs.requirement_id
+                            ));
+                        }
                     }
                 }
 
@@ -285,10 +292,9 @@ fn verbose_section(output: &mut String, plan: &PlanIR, _result: &VerificationRes
             if !phase_tasks.is_empty() {
                 output.push_str(&format!("    {}:\n", phase.name));
                 for task in &phase_tasks {
-                    let loc = &task.source;
                     output.push_str(&format!(
-                        "      {}  {}  ({}.{})\n",
-                        task.id, task.description, loc.file, loc.start_line
+                        "      {}  {}\n",
+                        task.id, task.description
                     ));
                 }
             }
@@ -300,10 +306,10 @@ fn verbose_section(output: &mut String, plan: &PlanIR, _result: &VerificationRes
     for req in &plan.requirements {
         let strength_str = format!("{:?}", req.strength);
         let cat_str = format!("{:?}", req.category);
-        let loc = &req.source;
+        let _loc = &req.source;
         output.push_str(&format!(
-            "    {}  strength={}  category={}  ({}:{})\n",
-            req.id, strength_str, cat_str, loc.file, loc.start_line
+            "    {}  strength={}  category={}\n",
+            req.id, strength_str, cat_str
         ));
     }
     output.push('\n');

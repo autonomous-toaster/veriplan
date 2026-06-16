@@ -23,7 +23,7 @@ T4.1 SHALL validate task structure BEFORE T4.2 SHALL check requirement reference
 
 ### Requirement: Check requirement structure
 
-T4.2 SHALL verify task references BEFORE T4.4 SHALL classify temporal categories. T4.2 AND T4.3 SHALL run CONCURRENTLY.
+T4.2 SHALL verify task references BEFORE T4.4 SHALL classify temporal categories. T4.2 SHALL complete BEFORE T4.3 SHALL run.
 
 #### Scenario: SHALL references existing task
 - **GIVEN** a requirement "T1.1 SHALL complete before T1.2" and tasks exist for "1.1" and "1.2"
@@ -98,7 +98,7 @@ T4.6 SHALL check scenario completeness BEFORE T4.9 SHALL produce the report.
 
 ### Requirement: Check constraint diversity
 
-T4.7 SHALL inspect category distribution AFTER T4.4 SHALL classify all requirements. T4.7 SHALL run CONCURRENTLY with T4.6.
+T4.7 SHALL inspect category distribution AFTER T4.4 SHALL classify all requirements. T4.6 SHALL complete scenario completeness BEFORE T4.7 SHALL inspect category distribution.
 
 #### Scenario: Single-category plan
 - **GIVEN** a plan where all 5 formalizable requirements are `SequentialOrder`

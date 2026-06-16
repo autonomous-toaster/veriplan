@@ -22,7 +22,7 @@ T3.2 SHALL locate the change directory BEFORE T3.9 SHALL parse the plan.
 
 ### Requirement: Parse tasks with N.M numbering
 
-T3.3 SHALL parse tasks BEFORE T3.9 SHALL build PlanIR. Simultaneously, T3.4 SHALL group tasks into phases CONCURRENTLY with T3.3.
+T3.3 SHALL parse tasks BEFORE T3.9 SHALL build PlanIR. T3.3 SHALL complete BEFORE T3.4 SHALL group tasks into phases.
 
 #### Scenario: Parse task list with sections
 - **GIVEN** a `tasks.md` with:
@@ -49,7 +49,7 @@ T3.3 SHALL parse tasks BEFORE T3.9 SHALL build PlanIR. Simultaneously, T3.4 SHAL
 
 ### Requirement: Parse requirements with RFC 2119 keywords
 
-T3.5 SHALL extract requirements from spec files BEFORE T3.6 SHALL classify RFC 2119 strength. T3.5 AND T3.7 SHALL run CONCURRENTLY.
+T3.5 SHALL extract requirements from spec files BEFORE T3.6 SHALL classify RFC 2119 strength. T3.5 SHALL complete BEFORE T3.7 SHALL parse scenario blocks.
 
 #### Scenario: Extract requirement with SHALL
 - **GIVEN** a `spec.md` with:
@@ -82,7 +82,7 @@ T3.5 SHALL extract requirements from spec files BEFORE T3.6 SHALL classify RFC 2
 
 ### Requirement: Parse Scenarios with GIVEN/WHEN/THEN
 
-T3.7 SHALL extract scenario blocks CONCURRENTLY with T3.5. T3.7 SHALL complete BEFORE T3.8 SHALL associate scenarios with requirements.
+T3.7 SHALL extract scenario blocks AFTER T3.5 SHALL complete requirement extraction. T3.7 SHALL complete BEFORE T3.8 SHALL associate scenarios with requirements.
 
 #### Scenario: Extract full scenario
 - **GIVEN** a scenario block with name "Build before deploy", a GIVEN step "the build has not completed", a WHEN step "T3.5 detects a deploy trigger", and a THEN step "T3.8 SHALL link the scenario to its requirement"

@@ -2,7 +2,7 @@
 
 ### Requirement: Map RFC 2119 strength to constraint strictness
 
-T5.1 SHALL map RFC 2119 strength BEFORE T5.2 SHALL generate LTL. T5.1 AND T4.4 SHALL run CONCURRENTLY.
+T5.1 SHALL map RFC 2119 strength BEFORE T5.2 SHALL generate LTL. T5.1 SHALL complete AFTER T4.4 SHALL classify all requirements.
 
 #### Scenario: MUST maps to hard
 - **GIVEN** a requirement with strength `Must`
@@ -26,7 +26,7 @@ T5.1 SHALL map RFC 2119 strength BEFORE T5.2 SHALL generate LTL. T5.1 AND T4.4 S
 
 ### Requirement: Generate LTL for sequential order
 
-T5.2 SHALL generate sequential LTL BEFORE T6.1 SHALL build the Promela model. At most one sequential constraint SHALL reference the same task pair to avoid contradictions.
+T5.2 SHALL generate sequential LTL BEFORE T6.1 SHALL build the Promela model. T5.2 SHALL complete BEFORE T6.1 SHALL start.
 
 #### Scenario: Task A before task B
 - **GIVEN** requirement: "T1.1 SHALL complete before T1.2"
@@ -40,7 +40,7 @@ T5.2 SHALL generate sequential LTL BEFORE T6.1 SHALL build the Promela model. At
 
 ### Requirement: Generate LTL for exclusive constraints
 
-T5.3 SHALL generate exclusive LTL CONCURRENTLY with T5.2. T5.2 AND T5.3 SHALL NOT reference the same task in conflicting categories.
+T5.3 SHALL generate exclusive LTL AFTER T5.2 SHALL complete sequential generation. T5.2 AND T5.3 SHALL NOT reference the same task in conflicting categories.
 
 #### Scenario: Pairwise exclusion
 - **GIVEN** requirement: "At most one of T2.1, T2.2, T2.3 SHALL be active at a time"
@@ -54,7 +54,7 @@ T5.3 SHALL generate exclusive LTL CONCURRENTLY with T5.2. T5.2 AND T5.3 SHALL NO
 
 ### Requirement: Generate LTL for conditional constraints
 
-T5.4 SHALL generate conditional LTL AFTER T5.2 SHALL complete sequential generation. IF T5.2 fails THEN T5.4 SHALL still proceed.
+T5.4 SHALL generate conditional LTL AFTER T5.2 SHALL complete sequential generation. T5.4 SHALL proceed normally even when T5.2 produces no output.
 
 #### Scenario: Conditional rollback
 - **GIVEN** requirement: "IF smoke tests fail THEN rollback SHALL trigger"
@@ -63,7 +63,7 @@ T5.4 SHALL generate conditional LTL AFTER T5.2 SHALL complete sequential generat
 
 ### Requirement: Generate LTL for concurrent constraints
 
-T5.5 SHALL generate concurrent LTL CONCURRENTLY with T5.3. T5.5 AND T5.3 SHALL run together.
+T5.5 SHALL generate concurrent LTL AFTER T5.3 SHALL complete exclusive LTL generation.
 
 #### Scenario: Parallel execution
 - **GIVEN** requirement: "T3.1 and T3.2 SHALL run concurrently"
@@ -81,7 +81,7 @@ T5.6 SHALL generate global LTL for any requirement that SHALL ALWAYS hold. T5.6 
 
 ### Requirement: Flag unverifiable requirements
 
-T5.8 SHALL mark NonFormalizable requirements AFTER T4.4 SHALL complete classification. T5.8 SHALL run CONCURRENTLY with T5.1.
+T5.8 SHALL mark NonFormalizable requirements AFTER T4.4 SHALL complete classification. T5.8 SHALL complete AFTER T5.1 SHALL map RFC 2119 strength.
 
 #### Scenario: Non-formalizable flagged
 - **GIVEN** requirement: "The system SHALL be user-friendly"

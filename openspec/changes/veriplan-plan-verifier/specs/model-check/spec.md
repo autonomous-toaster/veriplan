@@ -2,7 +2,7 @@
 
 ### Requirement: Generate Promela model from PlanIR
 
-T6.1 SHALL generate the Promela model BEFORE T6.4 SHALL run SPIN. T6.1 AND T6.3 SHALL run CONCURRENTLY — T6.1 builds the model while T6.3 generates LTL properties.
+T6.1 SHALL generate the Promela model BEFORE T6.4 SHALL run SPIN. T6.1 SHALL complete BEFORE T6.3 SHALL generate LTL properties.
 
 #### Scenario: Single-phase Promela model
 - **GIVEN** a PlanIR with 3 tasks (1.1, 1.2, 1.3) in one phase and one sequential constraint "T1.1 SHALL complete before T1.2"
@@ -24,7 +24,7 @@ T6.1 SHALL generate the Promela model BEFORE T6.4 SHALL run SPIN. T6.1 AND T6.3 
 
 ### Requirement: Run SPIN model checker
 
-T6.4 SHALL run SPIN AFTER T6.1 SHALL generate the Promela model. SPIN SHALL be discovered on PATH — if missing, the checker SHALL fail hard.
+T6.4 SHALL run SPIN AFTER T6.1 SHALL generate the Promela model. SPIN SHALL be discovered on PATH — the checker SHALL fail hard when SPIN is absent.
 
 #### Scenario: SPIN available, model valid
 - **GIVEN** the `spin` binary is on PATH and the Promela model is consistent
@@ -45,9 +45,9 @@ T6.4 SHALL run SPIN AFTER T6.1 SHALL generate the Promela model. SPIN SHALL be d
 - **THEN** SPIN SHALL report invalid end state (deadlock)
 - **AND** T7.1 SHALL mark the plan INVALID
 
-### Requirement: Built-in BFS fallback
+### Requirement: Built-in BFS fallback (Deprecated)
 
-T6.7 SHALL provide a built-in BFS explorer IF SPIN is not available AND the plan has ≤20 tasks. (Deprecated: T6.4 now SHALL fail hard when SPIN is missing.)
+T6.7 SHALL provide a built-in BFS explorer for plans with ≤20 tasks. (Note: T6.4 now SHALL fail hard when SPIN is missing — T6.7 exists as a safety net for development environments that cannot install SPIN.)
 
 #### Scenario: SPIN not available, model valid
 - **GIVEN** `spin` binary is not installed and a plan with 4 tasks and 2 LTL properties
@@ -57,7 +57,7 @@ T6.7 SHALL provide a built-in BFS explorer IF SPIN is not available AND the plan
 
 ### Requirement: Annotate counterexample with source locations
 
-T7.1 SHALL map each counterexample to source locations AFTER T6.6 SHALL parse the trail file. T7.1 AND T7.2 SHALL run CONCURRENTLY.
+T7.1 SHALL map each counterexample to source locations AFTER T6.6 SHALL parse the trail file. T7.1 SHALL complete BEFORE T7.2 SHALL map each violating state.
 
 #### Scenario: Ordering violation annotated
 - **GIVEN** a SPIN trail showing task 1.2 active before task 1.1 done
@@ -74,7 +74,7 @@ T7.1 SHALL map each counterexample to source locations AFTER T6.6 SHALL parse th
 
 ### Requirement: Generate human-readable and JSON report
 
-T7.3 SHALL generate the final report AFTER T7.1 SHALL complete annotation. T7.3 AND T7.4 SHALL run CONCURRENTLY for human and JSON formats.
+T7.3 SHALL generate the final human-readable report AFTER T7.1 SHALL complete annotation. T7.3 SHALL complete BEFORE T7.4 SHALL generate the JSON report.
 
 #### Scenario: VALID report
 - **GIVEN** a plan where all LTL properties pass
