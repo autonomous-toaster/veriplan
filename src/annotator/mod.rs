@@ -31,6 +31,53 @@ fn task_ids_from_ltl(ltl: &str) -> Vec<String> {
     ids
 }
 
+/// Parse trigger and consequent from a Conditional LTL formula.
+/// Conditional LTL: `[] ( failed_t<X>_<Y> -> <> active_t<A>_<B> )`
+/// Returns (trigger_id, consequent_id) like ("1.4", "1.5").
+fn parse_conditional_ltl(ltl: &str) -> Option<(String, String)> {
+    let ltl_bytes = ltl.as_bytes();
+    let n = ltl_bytes.len();
+
+    // Find "failed_t" and extract trigger
+    let failed_idx = ltl.find("failed_t")?;
+    let mut i = failed_idx + 8; // skip "failed_t"
+    // read digits until '_'
+    let mut major = String::new();
+    let mut minor = String::new();
+    while i < n && ltl_bytes[i].is_ascii_digit() {
+        major.push(ltl_bytes[i] as char);
+        i += 1;
+    }
+    // skip '_'
+    if i < n && ltl_bytes[i] == b'_' { i += 1; }
+    while i < n && ltl_bytes[i].is_ascii_digit() {
+        minor.push(ltl_bytes[i] as char);
+        i += 1;
+    }
+    if major.is_empty() || minor.is_empty() { return None; }
+    let trigger = format!("{}.{}", major, minor);
+
+    // Find "active_t" and extract consequent
+    let active_idx = ltl.find("active_t")?;
+    let mut i = active_idx + 8; // skip "active_t"
+    let mut major = String::new();
+    let mut minor = String::new();
+    while i < n && ltl_bytes[i].is_ascii_digit() {
+        major.push(ltl_bytes[i] as char);
+        i += 1;
+    }
+    // skip '_'
+    if i < n && ltl_bytes[i] == b'_' { i += 1; }
+    while i < n && ltl_bytes[i].is_ascii_digit() {
+        minor.push(ltl_bytes[i] as char);
+        i += 1;
+    }
+    if major.is_empty() || minor.is_empty() { return None; }
+    let consequent = format!("{}.{}", major, minor);
+
+    Some((trigger, consequent))
+}
+
 /// Build phase context string like "T4.2 (Phase 4), T4.4 (Phase 4)".
 fn build_phase_context(ltl: &str, plan: &PlanIR) -> Option<String> {
     let task_ids = task_ids_from_ltl(ltl);
@@ -197,7 +244,16 @@ pub fn format_human(
                         v.constraint_id, v.category
                     ));
                     output.push_str(&format!("     Statement: {}\n", v.requirement_statement));
-                    output.push_str(&format!("     LTL: {}\n", v.ltl));
+                    output.push_str(&format!("     LTL: {}
+", v.ltl));
+                    // For Conditional violations, show trigger/consequent breakdown
+                    if v.category == "conditional"
+                        && let Some((trigger, consequent)) = parse_conditional_ltl(&v.ltl) {
+                            output.push_str(&format!(
+                                "     Trigger: T{} (when this task fails)\n     Consequent: T{} (this task should activate)\n",
+                                trigger, consequent
+                            ));
+                        }
                     if let Some(ref ctx) = v.phase_context {
                         output.push_str(&format!("     Tasks: {}\n", ctx));
                     }
