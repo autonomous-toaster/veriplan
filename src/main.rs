@@ -190,13 +190,13 @@ fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std
         .join("changes")
         .join(change_name);
 
-    if change_path.join("tasks.md").exists() || change_path.join("specs").exists() {
+    if change_path.join("tasks.md").exists() && change_path.join("specs").exists() {
         return Ok(change_path);
     }
 
     // Check if the argument is a change name directly in CWD
     let direct = Path::new(change_name);
-    if direct.join("tasks.md").exists() || direct.join("specs").exists() {
+    if direct.join("tasks.md").exists() && direct.join("specs").exists() {
         return Ok(direct.to_path_buf());
     }
 
