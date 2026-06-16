@@ -26,8 +26,8 @@
 
 ## 6. Annotator: Multi-change output
 
-- [ ] 6.1 Update `format_human` to handle combined multi-change results (print per-change sections)
-- [ ] 6.2 Update `format_json` to output an array of per-change results under a `changes` key
+- [x] 6.1 Update `format_human` to handle combined multi-change results (print per-change sections)
+- [x] 6.2 Update `format_json` to output an array of per-change results under a `changes` key
 
 ## 7. Format extensibility scaffold
 

@@ -1,5 +1,5 @@
-use std::path::Path;
 use std::io::Write;
+use std::path::Path;
 
 use clap::{Parser, Subcommand};
 
@@ -99,7 +99,10 @@ fn run_check(
     // Use a unique variable name to avoid any shadowing issues
     let format_val = format.unwrap_or("human");
     if format_val != "openspec" && format_val != "human" && format_val != "json" {
-        anyhow::bail!("unknown format '{}'. Supported formats: openspec", format_val);
+        anyhow::bail!(
+            "unknown format '{}'. Supported formats: openspec",
+            format_val
+        );
     }
     let project_root = std::env::current_dir()?;
 
@@ -110,7 +113,10 @@ fn run_check(
         // No-arg mode: auto-detect all active changes
         let discovered = discover_changes(&project_root)?;
         if discovered.is_empty() {
-            anyhow::bail!("No active changes found in {}", project_root.join("openspec/changes").display());
+            anyhow::bail!(
+                "No active changes found in {}",
+                project_root.join("openspec/changes").display()
+            );
         }
         discovered
     };
@@ -143,19 +149,16 @@ fn run_check(
     } else {
         checker::verify_all(&plans, no_model)
     };
-    // For annotator: use the first plan for source resolution
-    // (multi-plan annotator support is task 6.1-6.2)
-    let ref_plan = plans.first().map(|(_, p)| p).unwrap();
-    let annotated = annotator::annotate(&result, ref_plan);
+    let annotated = annotator::annotate(&result, &plans);
 
     match format.unwrap_or("human") {
         "json" => println!(
             "{}",
-            annotator::format_json(&result, &annotated, ref_plan, verbose)
+            annotator::format_json(&result, &annotated, &plans, verbose)
         ),
         _ => print!(
             "{}",
-            annotator::format_human(&result, &annotated, ref_plan, verbose)
+            annotator::format_human(&result, &annotated, &plans, verbose)
         ),
     }
 
@@ -199,7 +202,8 @@ fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std
 
     // Second: disambiguation — check if it looks like a path
     // (contains separator or exists as a directory)
-    let looks_like_path = change_name.contains('/') || change_name.contains('\\') || direct.exists();
+    let looks_like_path =
+        change_name.contains('/') || change_name.contains('\\') || direct.exists();
 
     if looks_like_path {
         // Treat as a project directory path — scan for openspec inside it
@@ -234,12 +238,14 @@ fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std
         if looks_like_path {
             anyhow::bail!(
                 "No openspec change or project directory found for '{}'. Available changes: {:?}",
-                change_name, entries
+                change_name,
+                entries
             );
         } else {
             anyhow::bail!(
                 "Change '{}' not found. Available changes: {:?}",
-                change_name, entries
+                change_name,
+                entries
             );
         }
     }
@@ -252,7 +258,10 @@ fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std
 fn discover_changes(project_root: &Path) -> anyhow::Result<Vec<String>> {
     let changes_dir = project_root.join("openspec").join("changes");
     if !changes_dir.exists() || !changes_dir.is_dir() {
-        anyhow::bail!("No openspec/changes/ directory found at {}", changes_dir.display());
+        anyhow::bail!(
+            "No openspec/changes/ directory found at {}",
+            changes_dir.display()
+        );
     }
 
     let mut changes = Vec::new();

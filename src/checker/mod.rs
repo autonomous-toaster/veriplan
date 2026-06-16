@@ -26,6 +26,8 @@ pub struct Violation {
     pub task_source: Option<String>,
     pub req_source: Option<String>,
     pub suggested_fix: Option<String>,
+    /// The plan/change this violation belongs to (used for multi-change output).
+    pub plan: String,
 }
 
 /// Summary of one checked constraint with pass/fail status.
@@ -786,6 +788,7 @@ fn run_spin_check(
                 task_source: None,
                 req_source: None,
                 suggested_fix: fix,
+                plan: plan_name.to_string(),
             });
         } else {
             satisfied += 1;
@@ -952,6 +955,7 @@ fn run_bfs_check(
                             task_source: None,
                             req_source: None,
                             suggested_fix: None,
+                            plan: plan_name.to_string(),
                         });
                     }
         }

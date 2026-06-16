@@ -1,6 +1,6 @@
 //! Annotator: maps model checker results to human-readable + JSON output.
 
-use crate::checker::{VerificationResult, Violation};
+use crate::checker::{ConstraintSummary, VerificationResult, Violation};
 use crate::ir::PlanIR;
 
 /// Helper: extract task IDs like "4.2" from LTL formula (active_t4_2 → "4.2").
@@ -130,13 +130,46 @@ pub struct AnnotatedViolation {
 }
 
 /// Annotate a verification result with source locations from PlanIR.
-pub fn annotate(result: &VerificationResult, plan: &PlanIR) -> Vec<AnnotatedViolation> {
+/// `plans` is a list of (plan_name, PlanIR) pairs for multi-change resolution.
+pub fn annotate(
+    result: &VerificationResult,
+    plans: &[(String, PlanIR)],
+) -> Vec<AnnotatedViolation> {
+    // Build a map: plan_name → &PlanIR for quick lookup
+    let plan_map: std::collections::HashMap<&str, &PlanIR> = plans
+        .iter()
+        .map(|(name, plan)| (name.as_str(), plan))
+        .collect();
+
     result
         .violations
         .iter()
         .map(|v| {
-            let (src_file, src_line) = resolve_source(v, plan);
-            let phase_ctx = build_phase_context(&v.ltl, plan);
+            // Look up the correct plan for this violation
+            let v_plan = if v.plan.is_empty() {
+                plan_map
+                    .values()
+                    .next()
+                    .copied()
+                    .unwrap_or_else(|| &plans[0].1)
+            } else {
+                plan_map.get(v.plan.as_str()).copied().unwrap_or_else(|| {
+                    // Fallback: scan all plans for matching requirement
+                    plans
+                        .iter()
+                        .find_map(|(_, p)| {
+                            if p.requirements.iter().any(|r| r.id == v.constraint_id) {
+                                Some(p)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(|| &plans[0].1)
+                })
+            };
+
+            let (src_file, src_line) = resolve_source(v, v_plan);
+            let phase_ctx = build_phase_context(&v.ltl, v_plan);
             AnnotatedViolation {
                 constraint_id: v.constraint_id.clone(),
                 requirement_statement: v.requirement_statement.clone(),
@@ -166,7 +199,7 @@ fn resolve_source(v: &Violation, plan: &PlanIR) -> (Option<String>, Option<usize
 pub fn format_human(
     result: &VerificationResult,
     annotated: &[AnnotatedViolation],
-    plan: &PlanIR,
+    plans: &[(String, PlanIR)],
     verbose: bool,
 ) -> String {
     let mut output = String::new();
@@ -211,15 +244,46 @@ pub fn format_human(
             }
         }
         "model_check" | "full" => {
-            let status = if result.valid.unwrap_or(false) {
+            let status = if result.valid == Some(true) {
                 "✓ VALID"
             } else if result.skip_reason.is_some() {
                 "⚠ SKIPPED"
+            } else if plans.len() > 1 && result.valid.is_none() && !result.convertible {
+                // Mixed: some changes passed, some failed convertibility
+                "⚠ PARTIAL"
+            } else if result.valid.is_none() && !result.convertible {
+                "✗ BLOCKED"
             } else {
                 "✗ INVALID"
             };
 
             output.push_str(&format!("Plan: {} — {}\n\n", plan_name, status));
+
+            // Per-change status breakdown (only for multi-change)
+            if plans.len() > 1 {
+                output.push_str(&format!("  Changes ({}/{}):\n", plans.len(), plans.len()));
+                for (name, plan) in plans {
+                    // Check if this change was skipped (has tasks but no constraints fulfilled)
+                    let has_requirements = !plan.requirements.is_empty();
+                    let matching_constraints = result
+                        .constraints_summary
+                        .iter()
+                        .any(|cs| plan.requirements.iter().any(|r| r.id == cs.requirement_id));
+                    let has_violations = annotated
+                        .iter()
+                        .any(|v| plan.requirements.iter().any(|r| r.id == v.constraint_id));
+
+                    let (chk, note) = if has_violations {
+                        ("✗", " (has violations)")
+                    } else if has_requirements && !matching_constraints {
+                        ("⚠", " (skipped — not convertible)")
+                    } else {
+                        ("✓", "")
+                    };
+                    output.push_str(&format!("    {} {}{}\n", chk, name, note));
+                }
+                output.push('\n');
+            }
 
             // Model explanation header: only when there are violations to interpret
             if !annotated.is_empty() {
@@ -294,8 +358,8 @@ pub fn format_human(
                 // Per-constraint list: always show when invalid, only in verbose when valid
                 if !result.constraints_summary.is_empty() {
                     let show_constraints = !annotated.is_empty() || verbose;
-                    if show_constraints {
-                        output.push_str("\n  Constraints:\n");
+                if show_constraints {
+                    output.push_str("\n  Constraints:\n");
                         for cs in &result.constraints_summary {
                             let mark = if cs.unchecked {
                                 "~"
@@ -312,9 +376,10 @@ pub fn format_human(
                     }
                 }
 
-                if verbose {
-                    verbose_section(&mut output, plan, result);
-                }
+                if verbose
+                    && let Some(first_plan) = plans.first().map(|(_, p)| p) {
+                        verbose_section(&mut output, first_plan, result);
+                    }
             }
         }
         _ => {
@@ -375,9 +440,30 @@ fn verbose_section(output: &mut String, plan: &PlanIR, _result: &VerificationRes
 pub fn format_json(
     result: &VerificationResult,
     annotated: &[AnnotatedViolation],
-    _plan: &PlanIR,
+    plans: &[(String, PlanIR)],
     _verbose: bool,
 ) -> String {
+    // Build per-change data
+    let changes: Vec<serde_json::Value> = plans
+        .iter()
+        .map(|(name, plan)| {
+            let change_annotated: Vec<&AnnotatedViolation> = annotated
+                .iter()
+                .filter(|v| plan.requirements.iter().any(|r| r.id == v.constraint_id))
+                .collect();
+            let matching_constraints: Vec<&ConstraintSummary> = result
+                .constraints_summary
+                .iter()
+                .filter(|cs| plan.requirements.iter().any(|r| r.id == cs.requirement_id))
+                .collect();
+            serde_json::json!({
+                "name": name,
+                "constraints": matching_constraints.len(),
+                "violations": change_annotated.len(),
+            })
+        })
+        .collect();
+
     let json_output = serde_json::json!({
         "plan": result.plan_name,
         "phase": result.phase,
@@ -400,6 +486,11 @@ pub fn format_json(
             })
         }).collect::<Vec<_>>(),
         "convertibility_report": result.convertibility_report,
+        "changes": if changes.is_empty() || changes.len() == 1 {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::Array(changes)
+        },
     });
     serde_json::to_string_pretty(&json_output).unwrap_or_default()
 }
