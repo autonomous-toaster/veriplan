@@ -216,24 +216,28 @@ pub fn parse_tasks(
         },
     );
 
-    // Build phases from grouping
+    // Build phases from grouping, preserving first-occurrence order
     let mut phase_map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut phase_order: Vec<String> = Vec::new();
     for task in &tasks {
-        phase_map
-            .entry(task.phase.clone())
-            .or_default()
-            .push(task.id.clone());
+        let name = task.phase.clone();
+        if !phase_map.contains_key(&name) {
+            phase_order.push(name.clone());
+        }
+        phase_map.entry(name).or_default().push(task.id.clone());
     }
-    for (name, task_ids) in phase_map {
-        phases.push(Phase {
-            mode: if concurrent_phases.contains(&name) {
-                PhaseMode::Concurrent
-            } else {
-                PhaseMode::Sequential
-            },
-            name,
-            task_ids,
-        });
+    for name in &phase_order {
+        if let Some(task_ids) = phase_map.remove(name) {
+            phases.push(Phase {
+                mode: if concurrent_phases.contains(name) {
+                    PhaseMode::Concurrent
+                } else {
+                    PhaseMode::Sequential
+                },
+                name: name.clone(),
+                task_ids,
+            });
+        }
     }
 
     Ok((tasks, phases))

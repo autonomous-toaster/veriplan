@@ -138,6 +138,34 @@ If there are violations, each one includes:
 Violations mean the spec demands something the plan structure cannot
 guarantee — they are spec-plan mismatches, not implementation bugs.
 
+### 6. Visualize the plan: `veriplan visualize`
+
+Generate a state-machine diagram of the plan from tasks.md + specs:
+
+```
+$ veriplan visualize my-change
+```
+
+Three output formats:
+
+| Format | Output | Best for |
+|--------|--------|----------|
+| `mermaid` (default) | `flowchart TB` with phase subgraphs | Rendering in Obsidian, GitHub, or docs |
+| `dot` | Graphviz `digraph` with clusters | Advanced graph layout with Graphviz tools |
+| `markdown` | Table with task relationships and source links | Plain-text review, copy-paste into plans |
+
+The diagram shows:
+
+- **Phase subgraphs** — numbered groups with phase mode (`[concurrent]` if marked)
+- **Task nodes** — ✅ prefix for checked/completed tasks, plain for pending
+- **Structural edges** — unlabeled arrows showing phase execution order
+- **Constraint edges** — dashed arrows labeled with the temporal keyword
+- **Results overlay** — if `.veriplan/results.json` exists from a previous `check`,
+  constraint edges are colour-coded (green = passed, red = violated, orange = timed out)
+
+Markdown format includes a **Task Index** appendix with clickable source links
+(`tasks.md#L<N>`) for every task — useful for navigation and code review.
+
 ---
 
 ## Requirements
@@ -191,6 +219,17 @@ cargo build --release
 
 # Auto-configure an OpenSpec project
 ./target/release/veriplan init
+
+# Generate a state-machine diagram
+./target/release/veriplan visualize my-change
+
+# Alternative formats
+./target/release/veriplan visualize my-change --format dot
+./target/release/veriplan visualize my-change --format markdown
+
+# Write to a file
+./target/release/veriplan visualize my-change -o plan-diagram.md
+```
 ```
 
 ## Exit codes
@@ -203,7 +242,7 @@ cargo build --release
 
 ---
 
-## How the model works (non‑technical)
+## How the model works
 
 Imagine your plan as a row of dominoes arranged in phases. Tasks
 within a phase can fall one after another. Phases happen in order.
@@ -236,6 +275,7 @@ src/
   ir/          — Intermediate representation (tasks, requirements, phases)
   checker/     — Convertibility checks + SPIN orchestration
   translator/  — Map SHALL statements to LTL formulas
+  visualizer/  — Generate diagrams (Mermaid, DOT, markdown)
   annotator/   — Human-readable and JSON report formatting
   main.rs      — CLI entry point
 ```

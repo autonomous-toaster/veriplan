@@ -91,3 +91,13 @@
 - [x] 9.3 `veriplan bootstrap` auto-configures config.yaml with rules + context
 - [ ] 9.4 Create a deliberately inconsistent spec and verify it's flagged as invalid
 - [x] 9.5 Verify JSON output is parseable for both valid and invalid cases
+
+## 10. Visualize: state-machine diagram of plan
+
+- [x] 10.1 Modify `check` to write `.veriplan/results.json` cache (per-constraint pass/fail/timeout)
+- [x] 10.2 Generate Mermaid flowchart: phase subgraphs + task nodes + constraint edges
+- [x] 10.3 Generate DOT digraph (alternative format)
+- [x] 10.4 Generate markdown table (fallback format)
+- [x] 10.5 Add `veriplan visualize` CLI subcommand with `--format` and `-o` flags
+- [x] 10.6 Overlay verification results on diagram (green/red edges)
+- [x] 10.7 Test: `veriplan visualize veriplan-plan-verifier` produces valid Mermaid in stdout

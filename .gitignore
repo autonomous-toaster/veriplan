@@ -1,2 +1,7 @@
+.veriplan
 /target
 veriplan_*.pml.trail
+
+# veriplan init — SPIN model checker artifacts
+*.trail
+pan.*

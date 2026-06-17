@@ -7,6 +7,9 @@ use veriplan::annotator;
 use veriplan::checker;
 use veriplan::ir::PlanIR;
 use veriplan::parser;
+use veriplan::results;
+use veriplan::translator;
+use veriplan::visualizer;
 
 /// Supported plan formats.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,6 +62,18 @@ enum Commands {
         #[arg(long)]
         project_root: Option<String>,
     },
+    /// Visualize the plan as a state-machine diagram
+    Visualize {
+        /// Change name (e.g., "veriplan-plan-verifier")
+        #[arg(required = false)]
+        change: Option<String>,
+        /// Output format: mermaid, dot, or markdown (default: mermaid)
+        #[arg(long, default_value = "mermaid")]
+        format: Option<String>,
+        /// Output file (omit for stdout)
+        #[arg(short)]
+        output: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -72,6 +87,11 @@ fn main() -> anyhow::Result<()> {
             verbose: _verbose,
         } => run_check(change, phase.as_deref(), format.as_deref(), _verbose),
         Commands::Init { project_root } => run_init(project_root.as_deref()),
+        Commands::Visualize {
+            change,
+            format,
+            output,
+        } => run_visualize(change, format.as_deref(), output.as_deref()),
     };
 
     // Flush stdio before exiting to avoid losing buffered output
@@ -162,6 +182,31 @@ fn run_check(
         ),
     }
 
+    // Write results cache for visualize (only if model check ran)
+    if !no_model && !result.constraints_summary.is_empty() {
+        let cache = results::CheckResults {
+            plan_name: change_names.join(", "),
+            valid: result.valid.unwrap_or(false),
+            total: result.total_constraints,
+            satisfied: result.satisfied_constraints,
+            constraints: result
+                .constraints_summary
+                .iter()
+                .map(|c| results::ConstraintResult {
+                    requirement_id: c.requirement_id.clone(),
+                    ltl: String::new(), // not critical for visualization
+                    category: c.category.clone(),
+                    passed: c.satisfied && !c.unchecked,
+                    violated: !c.satisfied && !c.unchecked,
+                    timed_out: c.unchecked,
+                })
+                .collect(),
+        };
+        if let Err(e) = results::write_results(&cache, &project_root) {
+            eprintln!("Warning: could not write results cache: {}", e);
+        }
+    }
+
     // Flush output before exit to avoid losing buffered content
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
@@ -178,6 +223,54 @@ fn run_check(
             .is_none_or(|r| r.warnings.is_empty())
     {
         flush_exit(0);
+    }
+
+    Ok(())
+}
+
+fn run_visualize(
+    change_name: Option<String>,
+    format: Option<&str>,
+    output: Option<&str>,
+) -> anyhow::Result<()> {
+    let project_root = std::env::current_dir()?;
+
+    // Determine which change to visualize
+    let change_dir = if let Some(name) = &change_name {
+        find_change_dir(&project_root, name)?
+    } else {
+        // Auto-detect: if exactly one active change, use it
+        let changes = discover_changes(&project_root)?;
+        match changes.len() {
+            0 => anyhow::bail!("No active changes found — specify a change name"),
+            1 => project_root.join("openspec/changes").join(&changes[0]),
+            _ => anyhow::bail!("Multiple active changes found. Specify one: {:?}", changes),
+        }
+    };
+
+    // Parse plan
+    let plan: PlanIR = parser::parse_plan(&change_dir).map_err(|e| anyhow::anyhow!(e))?;
+
+    // Translate constraints
+    let constraints = translator::translate_all(&plan);
+
+    // Read results cache (optional)
+    let cached_results = results::read_results(&project_root);
+
+    // Generate output
+    let format = format.unwrap_or("mermaid");
+    let diagram = match format {
+        "mermaid" => visualizer::format_mermaid(&plan, &constraints, cached_results.as_ref()),
+        "dot" => visualizer::format_dot(&plan, &constraints, cached_results.as_ref()),
+        "markdown" => visualizer::format_markdown(&plan, &constraints, cached_results.as_ref()),
+        other => anyhow::bail!("Unknown format '{}'. Use: mermaid, dot, or markdown", other),
+    };
+
+    if let Some(path) = output {
+        std::fs::write(path, &diagram)?;
+        println!("✓ Visualization written to {}", path);
+    } else {
+        print!("{}", diagram);
     }
 
     Ok(())
@@ -313,6 +406,48 @@ fn run_init(project_root: Option<&str>) -> anyhow::Result<()> {
         println!("  Merged rules into existing config.yaml (no duplicates)");
     }
 
+    // Update .gitignore with SPIN trail files
+    update_gitignore(&root)?;
+
+    Ok(())
+}
+
+/// Add SPIN trail-file entries to .gitignore if missing.
+fn update_gitignore(root: &Path) -> anyhow::Result<()> {
+    let gitignore_path = root.join(".gitignore");
+    let mut content = String::new();
+    let mut has_veriplan_marker = false;
+
+    if gitignore_path.exists() {
+        content = std::fs::read_to_string(&gitignore_path)?;
+        has_veriplan_marker = content.contains("# veriplan init");
+    }
+
+    if has_veriplan_marker {
+        return Ok(()); // already configured
+    }
+
+    // Append SPIN-related entries
+    let entries = vec![
+        "",
+        "# veriplan init — SPIN model checker artifacts",
+        "*.trail",
+        "pan.*",
+    ];
+
+    // If .gitignore is non-empty and doesn't end with newline, add one
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+
+    for line in &entries {
+        content.push_str(line);
+        content.push('\n');
+    }
+
+    std::fs::write(&gitignore_path, &content)?;
+    println!("  Added SPIN trail-file entries to .gitignore");
+
     Ok(())
 }
 
@@ -427,7 +562,8 @@ fn get_rules_for_artifact(key: &str) -> Vec<&'static str> {
 
 const BOOTSTRAP_CONTEXT: &str = r#"context: |-
   Every OpenSpec artifact must be machine-parseable into a formal
-  state machine model. Write tasks, requirements, and constraints
+  state machine model AND clearly readable by a human reviewer.
+  Write tasks, requirements, and constraints
   so they translate directly to states, transitions, and invariants.
 
   Structural rules:
@@ -453,6 +589,9 @@ const BOOTSTRAP_RULES: &str = r#"rules:
     - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')
     - Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE
     - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
+    - Every spec file MUST open with a Task Reference section: a table listing each T N.M ID used
+      in the file with a one-line description, placed before the first requirement heading.
+      This helps human reviewers see which tasks are involved at a glance.
     - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
     - Avoid vague SHALLs ('be robust', 'be user-friendly')
     - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
@@ -473,7 +612,8 @@ const BOOTSTRAP_CONFIG: &str = r#"schema: spec-driven
 # Added by veriplan init
 context: |-
   Every OpenSpec artifact must be machine-parseable into a formal
-  state machine model. Write tasks, requirements, and constraints
+  state machine model AND clearly readable by a human reviewer.
+  Write tasks, requirements, and constraints
   so they translate directly to states, transitions, and invariants.
 
   Structural rules:
@@ -499,6 +639,9 @@ rules:
     - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')
     - Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE
     - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
+    - Every spec file MUST open with a Task Reference section: a table listing each T N.M ID used
+      in the file with a one-line description, placed before the first requirement heading.
+      This helps human reviewers see which tasks are involved at a glance.
     - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
     - Avoid vague SHALLs ('be robust', 'be user-friendly')
     - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)

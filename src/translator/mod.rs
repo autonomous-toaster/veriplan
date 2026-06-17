@@ -125,6 +125,7 @@ pub fn classify(statement: &str) -> ConstraintCategory {
     NonFormalizable
 }
 
+/// Check if the text references actual clock/calendar time (not task IDs).
 fn is_time_ref(text: &str) -> bool {
     text.contains("min")
         || text.contains("hour")
