@@ -11,10 +11,7 @@ use crate::ir::{PhaseMode, PlanIR};
 use crate::translator::TranslatedConstraint;
 
 /// Generate a Mermaid flowchart diagram.
-pub fn format_mermaid(
-    plan: &PlanIR,
-    constraints: &[TranslatedConstraint],
-) -> String {
+pub fn format_mermaid(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String {
     let mut s = String::new();
     s.push_str("flowchart TB\n");
     s.push_str("%% Legend:\n");
@@ -107,10 +104,7 @@ pub fn format_mermaid(
 }
 
 /// Generate a Graphviz DOT digraph.
-pub fn format_dot(
-    plan: &PlanIR,
-    constraints: &[TranslatedConstraint],
-) -> String {
+pub fn format_dot(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String {
     let mut s = String::new();
     s.push_str("digraph plan {\n");
     s.push_str("    rankdir=TB;\n");
@@ -213,10 +207,7 @@ pub fn format_dot(
 }
 
 /// Generate a plain markdown table.
-pub fn format_markdown(
-    plan: &PlanIR,
-    constraints: &[TranslatedConstraint],
-) -> String {
+pub fn format_markdown(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String {
     let mut s = String::new();
     s.push_str("| Phase | Task | Status | Constraints |\n");
     s.push_str("|-------|------|--------|-------------|\n");
