@@ -7,7 +7,6 @@ use veriplan::annotator;
 use veriplan::checker;
 use veriplan::ir::PlanIR;
 use veriplan::parser;
-use veriplan::results;
 use veriplan::translator;
 use veriplan::visualizer;
 
@@ -182,31 +181,6 @@ fn run_check(
         ),
     }
 
-    // Write results cache for visualize (only if model check ran)
-    if !no_model && !result.constraints_summary.is_empty() {
-        let cache = results::CheckResults {
-            plan_name: change_names.join(", "),
-            valid: result.valid.unwrap_or(false),
-            total: result.total_constraints,
-            satisfied: result.satisfied_constraints,
-            constraints: result
-                .constraints_summary
-                .iter()
-                .map(|c| results::ConstraintResult {
-                    requirement_id: c.requirement_id.clone(),
-                    ltl: String::new(), // not critical for visualization
-                    category: c.category.clone(),
-                    passed: c.satisfied && !c.unchecked,
-                    violated: !c.satisfied && !c.unchecked,
-                    timed_out: c.unchecked,
-                })
-                .collect(),
-        };
-        if let Err(e) = results::write_results(&cache, &project_root) {
-            eprintln!("Warning: could not write results cache: {}", e);
-        }
-    }
-
     // Flush output before exit to avoid losing buffered content
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
@@ -254,15 +228,12 @@ fn run_visualize(
     // Translate constraints
     let constraints = translator::translate_all(&plan);
 
-    // Read results cache (optional)
-    let cached_results = results::read_results(&project_root);
-
     // Generate output
     let format = format.unwrap_or("mermaid");
     let diagram = match format {
-        "mermaid" => visualizer::format_mermaid(&plan, &constraints, cached_results.as_ref()),
-        "dot" => visualizer::format_dot(&plan, &constraints, cached_results.as_ref()),
-        "markdown" => visualizer::format_markdown(&plan, &constraints, cached_results.as_ref()),
+        "mermaid" => visualizer::format_mermaid(&plan, &constraints),
+        "dot" => visualizer::format_dot(&plan, &constraints),
+        "markdown" => visualizer::format_markdown(&plan, &constraints),
         other => anyhow::bail!("Unknown format '{}'. Use: mermaid, dot, or markdown", other),
     };
 

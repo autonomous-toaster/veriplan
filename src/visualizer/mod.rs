@@ -8,14 +8,12 @@
 use std::fmt::Write;
 
 use crate::ir::{PhaseMode, PlanIR};
-use crate::results::CheckResults;
 use crate::translator::TranslatedConstraint;
 
 /// Generate a Mermaid flowchart diagram.
 pub fn format_mermaid(
     plan: &PlanIR,
     constraints: &[TranslatedConstraint],
-    results: Option<&CheckResults>,
 ) -> String {
     let mut s = String::new();
     s.push_str("flowchart TB\n");
@@ -83,25 +81,7 @@ pub fn format_mermaid(
                 for pair in task_ids.windows(2) {
                     let a = node_id(&pair[0]);
                     let b = node_id(&pair[1]);
-                    let (color, status_mark) = if let Some(r) = results {
-                        if is_trivial_category(&c.category) {
-                            ("", "")
-                        } else if let Some(cr) = r.for_requirement(&c.requirement_id) {
-                            if cr.violated {
-                                ("red", " ❌")
-                            } else if cr.passed {
-                                ("green", " ✅")
-                            } else if cr.timed_out {
-                                ("orange", " ⏱")
-                            } else {
-                                ("", "")
-                            }
-                        } else {
-                            ("", "")
-                        }
-                    } else {
-                        ("", "")
-                    };
+                    let (color, status_mark) = ("", "");
 
                     writeln!(
                         s,
@@ -130,7 +110,6 @@ pub fn format_mermaid(
 pub fn format_dot(
     plan: &PlanIR,
     constraints: &[TranslatedConstraint],
-    results: Option<&CheckResults>,
 ) -> String {
     let mut s = String::new();
     s.push_str("digraph plan {\n");
@@ -205,23 +184,7 @@ pub fn format_dot(
             let task_ids = crate::translator::extract_task_refs(&c.statement, plan);
             if task_ids.len() >= 2 {
                 let label = display_label(c);
-                let edge_color = if let Some(r) = results {
-                    if is_trivial_category(&c.category) {
-                        "gray"
-                    } else if let Some(cr) = r.for_requirement(&c.requirement_id) {
-                        if cr.violated {
-                            "red"
-                        } else if cr.passed {
-                            "green"
-                        } else {
-                            "gray"
-                        }
-                    } else {
-                        "gray"
-                    }
-                } else {
-                    "gray"
-                };
+                let edge_color = "gray";
 
                 let style = if c.category == crate::ir::ConstraintCategory::SequentialOrder {
                     "bold"
@@ -253,7 +216,6 @@ pub fn format_dot(
 pub fn format_markdown(
     plan: &PlanIR,
     constraints: &[TranslatedConstraint],
-    results: Option<&CheckResults>,
 ) -> String {
     let mut s = String::new();
     s.push_str("| Phase | Task | Status | Constraints |\n");
@@ -279,27 +241,7 @@ pub fn format_markdown(
                 if c.ltl.is_some() {
                     let refs = crate::translator::extract_task_refs(&c.statement, plan);
                     if refs.contains(&task.id) {
-                        // Check result overlay
-                        let result_mark = if let Some(r) = results {
-                            if is_trivial_category(&c.category) {
-                                ""
-                            } else if let Some(cr) = r.for_requirement(&c.requirement_id) {
-                                if cr.violated {
-                                    " ❌"
-                                } else if cr.passed {
-                                    " ✅"
-                                } else if cr.timed_out {
-                                    " ⏱"
-                                } else {
-                                    ""
-                                }
-                            } else {
-                                ""
-                            }
-                        } else {
-                            ""
-                        };
-                        con_refs.push(format!("{}{}", markdown_label(c, plan), result_mark));
+                        con_refs.push(markdown_label(c, plan));
                     }
                 }
             }
@@ -369,12 +311,6 @@ fn source_markdown_link(task: &crate::ir::Task) -> String {
         file.as_str()
     };
     format!("{}#L{}", rel_path, line)
-}
-
-/// Categories whose LTL is trivial ("true") — no real model checking happened.
-fn is_trivial_category(cat: &crate::ir::ConstraintCategory) -> bool {
-    use crate::ir::ConstraintCategory::*;
-    matches!(cat, FixedTime | Global)
 }
 
 /// Display label for a constraint edge in diagrams (Mermaid/DOT).
