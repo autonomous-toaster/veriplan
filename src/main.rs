@@ -427,160 +427,28 @@ fn update_gitignore(root: &Path) -> anyhow::Result<()> {
 fn merge_config(existing: &str) -> String {
     let existing = existing.trim();
 
-    // If empty, emit the full config
+    // Empty → full config
     if existing.is_empty() {
         return BOOTSTRAP_CONFIG.to_string();
     }
 
-    // Parse existing to check what's already there
-    let has_context = existing.contains("context:");
-    let has_rules = existing.contains("rules:");
+    // If our marker exists, replace everything from it onward (reentrant)
+    // Try full old marker first, then new marker (substring-safe)
+    let marker_pos = existing.find("# Added by veriplan init")
+        .or_else(|| existing.find(VERIPLAN_MARKER));
 
-    let mut result = String::new();
-    let mut lines: Vec<String> = existing.lines().map(|l| l.to_string()).collect();
-
-    // We need to be careful about YAML merging.
-    // Simple approach: check if context is present, add if not
-    // Check if rules keys are present, add missing ones
-
-    if !has_context {
-        // Find schema line and insert context after it
-        let insert_pos = lines.iter().position(|l| l.starts_with("schema:"));
-        if let Some(pos) = insert_pos {
-            lines.insert(pos + 1, String::new());
-            lines.insert(pos + 2, "# Added by veriplan init".to_string());
-            let context_lines: Vec<&str> = BOOTSTRAP_CONTEXT.trim().lines().collect();
-            let start_idx = pos + 3;
-            for (i, line) in context_lines.iter().enumerate() {
-                lines.insert(start_idx + i, line.to_string());
-            }
-        }
+    if let Some(pos) = marker_pos {
+        let before = existing[..pos].trim_end();
+        return format!("{}\n\n{}", before, BOOTSTRAP_SUFFIX.trim());
     }
 
-    if !has_rules {
-        // Append rules at the end
-        lines.push(String::new());
-        lines.push("# Rules added by veriplan init".to_string());
-        let rules_lines: Vec<&str> = BOOTSTRAP_RULES.trim().lines().collect();
-        for line in &rules_lines {
-            lines.push(line.to_string());
-        }
-    } else {
-        // Rules section exists — check for missing artifact keys
-        // Parse existing artifact keys (owned to avoid borrow conflict)
-        let existing_keys: Vec<String> = lines
-            .iter()
-            .filter(|l| l.starts_with("  ") && !l.starts_with("    ") && l.contains(':'))
-            .map(|l| l.trim().trim_end_matches(':').trim().to_string())
-            .collect();
-
-        let wanted_keys = ["proposal", "specs", "design", "tasks"];
-        let rules_line_idx = lines.iter().position(|l| l.trim() == "rules:");
-
-        for key in &wanted_keys {
-            if existing_keys.iter().any(|k| k == key) {
-                continue;
-            }
-            if let Some(rules_line) = rules_line_idx {
-                let insert_at = rules_line + 1 + existing_keys.len();
-                if insert_at <= lines.len() {
-                    lines.insert(insert_at, format!("  {}:", key));
-                    let template_rules = get_rules_for_artifact(key);
-                    for rule in &template_rules {
-                        lines.push(format!("    - {}", rule));
-                    }
-                }
-            }
-        }
-    }
-
-    result.push_str(&lines.join("\n"));
-    result.push('\n');
-    result
+    // No marker yet — append the suffix at end
+    format!("{}\n\n{}", existing.trim_end(), BOOTSTRAP_SUFFIX.trim())
 }
 
-fn get_rules_for_artifact(key: &str) -> Vec<&'static str> {
-    match key {
-        "proposal" => vec![
-            "State the problem as a gap a state machine model can detect",
-            "List non-goals to bound the formal model",
-        ],
-        "specs" => vec![
-            "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)",
-            "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')",
-            "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE",
-            "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed",
-            "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')",
-            "Avoid vague SHALLs ('be robust', 'be user-friendly')",
-            "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional",
-        ],
-        "design" => vec![
-            "Each task maps to a single state variable",
-            "For every requirement, note its temporal category and the task IDs involved",
-            "If a constraint cannot be formalised, mark it 'human review only'",
-        ],
-        "tasks" => vec![
-            "Every task MUST have an N.M identifier (e.g. '1.3')",
-            "Group tasks under ## Phase headings",
-        ],
-        _ => vec![],
-    }
-}
+const VERIPLAN_MARKER: &str = "# veriplan init";
 
-// ═══════════════════════════════════════════════════════════════
-// Bootstrap config template (compact)
-// ═══════════════════════════════════════════════════════════════
-
-const BOOTSTRAP_CONTEXT: &str = r#"context: |-
-  Every OpenSpec artifact must be machine-parseable into a formal
-  state machine model AND clearly readable by a human reviewer.
-  Write tasks, requirements, and constraints
-  so they translate directly to states, transitions, and invariants.
-
-  Structural rules:
-  - Every task MUST have a unique N.M ID and belong to a named phase.
-  - Phases execute in order. Tasks within a phase execute one at a time.
-    Mark a phase heading with [concurrent] if tasks are meant to run simultaneously.
-  - Every requirement MUST use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY/MUST NOT).
-  - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T3.2 SHALL complete before T3.9').
-  - Every SHALL MUST use ONE temporal keyword: BEFORE (sequential),
-    AT MOST ONE (exclusive), IF...THEN (conditional), CONCURRENTLY (concurrent),
-    or ALWAYS (global invariant).
-  - Put the SHALL sentence in a body paragraph — the heading alone is not parsed.
-  - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs').
-  - Every scenario MUST have WHEN + THEN with an RFC 2119 keyword.
-  - No vague verbs ("be robust", "be user-friendly")."#;
-
-const BOOTSTRAP_RULES: &str = r#"rules:
-  proposal:
-    - State the problem as a gap a state machine model can detect
-    - List non-goals to bound the formal model
-  specs:
-    - Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)
-    - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')
-    - Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE
-    - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
-    - Every spec file MUST open with a Task Reference section: a table listing each T N.M ID used
-      in the file with a one-line description, placed before the first requirement heading.
-      This helps human reviewers see which tasks are involved at a glance.
-    - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
-    - Avoid vague SHALLs ('be robust', 'be user-friendly')
-    - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
-    - BAD: "The system SHALL auto-detect changes" (no task ID, no temporal keyword — NonFormalizable)
-    - IF...THEN is for failure-recovery: "IF T1.1 fails THEN T2.1 SHALL run"
-    - For branching/decision logic, use BEFORE instead: "T1.5 SHALL complete BEFORE T1.4"
-    - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
-  design:
-    - Each task maps to a single state variable
-    - For every requirement, note its temporal category and the task IDs involved
-    - If a constraint cannot be formalised, mark it 'human review only'
-  tasks:
-    - Every task MUST have an N.M identifier (e.g. '1.3')
-    - Group tasks under ## Phase headings"#;
-
-const BOOTSTRAP_CONFIG: &str = r#"schema: spec-driven
-
-# Added by veriplan init
+const BOOTSTRAP_SUFFIX: &str = r#"# veriplan init
 context: |-
   Every OpenSpec artifact must be machine-parseable into a formal
   state machine model AND clearly readable by a human reviewer.
@@ -606,25 +474,72 @@ rules:
     - State the problem as a gap a state machine model can detect
     - List non-goals to bound the formal model
   specs:
-    - Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)
-    - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')
-    - Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE
-    - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
-    - Every spec file MUST open with a Task Reference section: a table listing each T N.M ID used
-      in the file with a one-line description, placed before the first requirement heading.
-      This helps human reviewers see which tasks are involved at a glance.
-    - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
-    - Avoid vague SHALLs ('be robust', 'be user-friendly')
-    - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
-    - BAD: "The system SHALL auto-detect changes" (no task ID, no temporal keyword — NonFormalizable)
-    - IF...THEN is for failure-recovery: "IF T1.1 fails THEN T2.1 SHALL run"
-    - For branching/decision logic, use BEFORE instead: "T1.5 SHALL complete BEFORE T1.4"
-    - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
+    - "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)"
+    - "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')"
+    - "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE"
+    - "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed"
+    - "Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance."
+    - "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')"
+    - "Avoid vague SHALLs ('be robust', 'be user-friendly')"
+    - "GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)"
+    - "BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)"
+    - "IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run"
+    - "For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4"
+    - "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional"
   design:
     - Each task maps to a single state variable
-    - For every requirement, note its temporal category and the task IDs involved
-    - If a constraint cannot be formalised, mark it 'human review only'
+    - "For every requirement, note its temporal category and the task IDs involved"
+    - "If a constraint cannot be formalised, mark it 'human review only'"
   tasks:
-    - Every task MUST have an N.M identifier (e.g. '1.3')
-    - Group tasks under ## Phase headings
+    - "Every task MUST have an N.M identifier (e.g. '1.3')"
+    - "Group tasks under ## Phase headings"
+"#;
+
+const BOOTSTRAP_CONFIG: &str = r#"schema: spec-driven
+
+# veriplan init
+context: |-
+  Every OpenSpec artifact must be machine-parseable into a formal
+  state machine model AND clearly readable by a human reviewer.
+  Write tasks, requirements, and constraints
+  so they translate directly to states, transitions, and invariants.
+
+  Structural rules:
+  - Every task MUST have a unique N.M ID and belong to a named phase.
+  - Phases execute in order. Tasks within a phase execute one at a time.
+    Mark a phase heading with [concurrent] if tasks are meant to run simultaneously.
+  - Every requirement MUST use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY/MUST NOT).
+  - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T3.2 SHALL complete before T3.9').
+  - Every SHALL MUST use ONE temporal keyword: BEFORE (sequential),
+    AT MOST ONE (exclusive), IF...THEN (conditional), CONCURRENTLY (concurrent),
+    or ALWAYS (global invariant).
+  - Put the SHALL sentence in a body paragraph — the heading alone is not parsed.
+  - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs').
+  - Every scenario MUST have WHEN + THEN with an RFC 2119 keyword.
+  - No vague verbs ("be robust", "be user-friendly").
+
+rules:
+  proposal:
+    - State the problem as a gap a state machine model can detect
+    - List non-goals to bound the formal model
+  specs:
+    - "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)"
+    - "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')"
+    - "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE"
+    - "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed"
+    - "Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance."
+    - "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')"
+    - "Avoid vague SHALLs ('be robust', 'be user-friendly')"
+    - "GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)"
+    - "BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)"
+    - "IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run"
+    - "For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4"
+    - "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional"
+  design:
+    - Each task maps to a single state variable
+    - "For every requirement, note its temporal category and the task IDs involved"
+    - "If a constraint cannot be formalised, mark it 'human review only'"
+  tasks:
+    - "Every task MUST have an N.M identifier (e.g. '1.3')"
+    - "Group tasks under ## Phase headings"
 "#;
