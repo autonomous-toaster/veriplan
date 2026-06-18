@@ -1,9 +1,10 @@
 schema: spec-driven
 
-# Added by veriplan init
+# veriplan init
 context: |-
   Every OpenSpec artifact must be machine-parseable into a formal
-  state machine model. Write tasks, requirements, and constraints
+  state machine model AND clearly readable by a human reviewer.
+  Write tasks, requirements, and constraints
   so they translate directly to states, transitions, and invariants.
 
   Structural rules:
@@ -25,21 +26,22 @@ rules:
     - State the problem as a gap a state machine model can detect
     - List non-goals to bound the formal model
   specs:
-    - Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)
-    - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')
-    - Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE
-    - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
-    - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
-    - Avoid vague SHALLs ('be robust', 'be user-friendly')
-    - GOOD: "T2.1 SHALL complete BEFORE T3.1 SHALL run" (references task IDs + temporal keyword)
-    - BAD: "The system SHALL auto-detect changes" (no task ID, no temporal keyword — NonFormalizable)
-    - IF...THEN is for **failure-recovery**: "IF T1.1 fails THEN T2.1 SHALL run"
-    - For branching/decision logic, use BEFORE instead: "T1.5 SHALL complete BEFORE T1.4"
-    - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
+    - "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)"
+    - "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')"
+    - "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE"
+    - "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed"
+    - "Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance."
+    - "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')"
+    - "Avoid vague SHALLs ('be robust', 'be user-friendly')"
+    - "GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)"
+    - "BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)"
+    - "IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run"
+    - "For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4"
+    - "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional"
   design:
     - Each task maps to a single state variable
-    - For every requirement, note its temporal category and the task IDs involved
-    - If a constraint cannot be formalised, mark it 'human review only'
+    - "For every requirement, note its temporal category and the task IDs involved"
+    - "If a constraint cannot be formalised, mark it 'human review only'"
   tasks:
-    - Every task MUST have an N.M identifier (e.g. '1.3')
-    - Group tasks under ## Phase headings
+    - "Every task MUST have an N.M identifier (e.g. '1.3')"
+    - "Group tasks under ## Phase headings"
