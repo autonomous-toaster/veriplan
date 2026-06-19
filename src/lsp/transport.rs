@@ -189,24 +189,55 @@ fn handle_notification(
             let params: DidOpenTextDocumentParams =
                 serde_json::from_value(not.params).context("Bad didOpen params")?;
             let file_path = params.text_document.uri.to_file_path().unwrap_or_default();
-            let change_name = { store.read().unwrap().resolve_change(&file_path) };
+            eprintln!("[veriplan-lsp] didOpen: {}", file_path.display());
+
+            // Try to resolve the change. If not found, rescan — the change
+            // may have been created after the LSP started.
+            let change_name = {
+                let read_store = store.read().unwrap();
+                let resolved = read_store.resolve_change(&file_path);
+                drop(read_store);
+                if resolved.is_none() {
+                    // Re-scan to pick up newly created change directories
+                    store.write().unwrap().rescan();
+                    store.read().unwrap().resolve_change(&file_path)
+                } else {
+                    resolved
+                }
+            };
 
             if let Some(change) = change_name {
-                // Publish diagnostics for this file
-                let diagnostics = {
-                    let store = store.read().unwrap();
-                    let plan = store.get_plan(&change);
-                    let report = store.get_report(&change);
-                    match (plan, report) {
-                        (Some(_), Some(r)) => diag::report_to_diagnostics(r, store.project_root()),
-                        _ => Vec::new(),
-                    }
-                };
+                // Refresh: re-parse and re-check this change, then publish diagnostics
+                let diagnostics = store.write().unwrap().refresh(&change);
+                eprintln!(
+                    "[veriplan-lsp] didOpen: resolved change '{}', {} diagnostic files",
+                    change,
+                    diagnostics.len()
+                );
                 for (path, diags) in diagnostics {
-                    let uri = lsp_types::Url::from_file_path(&path).unwrap();
+                    if let Ok(uri) = lsp_types::Url::from_file_path(&path) {
+                        eprintln!(
+                            "[veriplan-lsp] publishDiagnostics: {} ({} diagnostics)",
+                            uri,
+                            diags.len()
+                        );
+                        let params = PublishDiagnosticsParams {
+                            uri,
+                            diagnostics: diags,
+                            version: None,
+                        };
+                        let notif =
+                            Notification::new("textDocument/publishDiagnostics".to_string(), params);
+                        let _ = connection.sender.send(Message::Notification(notif));
+                    }
+                }
+            } else {
+                eprintln!("[veriplan-lsp] didOpen: file not in any change, publishing empty diagnostics");
+                // File not in any change — publish empty diagnostics to clear stale markers
+                if let Ok(uri) = lsp_types::Url::from_file_path(&file_path) {
                     let params = PublishDiagnosticsParams {
                         uri,
-                        diagnostics: diags,
+                        diagnostics: Vec::new(),
                         version: None,
                     };
                     let notif =
@@ -215,18 +246,107 @@ fn handle_notification(
                 }
             }
         }
+        "textDocument/didChange" => {
+            // Treat didChange like didSave — refresh diagnostics for the
+            // affected change. pi-lens sends didChange after didOpen when
+            // the file content is synced; we re-parse and republish.
+            let params: DidChangeTextDocumentParams =
+                serde_json::from_value(not.params).context("Bad didChange params")?;
+            let file_path = params.text_document.uri.to_file_path().unwrap_or_default();
+            eprintln!("[veriplan-lsp] didChange: {}", file_path.display());
+
+            // Try to resolve the change. If not found, rescan.
+            let change_name = {
+                let read_store = store.read().unwrap();
+                let resolved = read_store.resolve_change(&file_path);
+                drop(read_store);
+                if resolved.is_none() {
+                    store.write().unwrap().rescan();
+                    store.read().unwrap().resolve_change(&file_path)
+                } else {
+                    resolved
+                }
+            };
+
+            let diagnostics_per_file = if let Some(change) = change_name {
+                eprintln!("[veriplan-lsp] didChange: resolved change '{}', refreshing...", change);
+                store.write().unwrap().refresh(&change)
+            } else {
+                eprintln!("[veriplan-lsp] didChange: file not in any change");
+                Vec::new()
+            };
+
+            for (path, diags) in &diagnostics_per_file {
+                if let Ok(uri) = lsp_types::Url::from_file_path(path) {
+                    eprintln!("[veriplan-lsp] publishDiagnostics: {} ({} diagnostics)", uri, diags.len());
+                    let params = PublishDiagnosticsParams {
+                        uri,
+                        diagnostics: diags.clone(),
+                        version: None,
+                    };
+                    let notif =
+                        Notification::new("textDocument/publishDiagnostics".to_string(), params);
+                    let _ = connection.sender.send(Message::Notification(notif));
+                }
+            }
+
+            // Clear diagnostics for files in the change that didn't get diagnostics
+            if let Some(change) = store.read().unwrap().resolve_change(&file_path) {
+                let change_dir = store
+                    .read()
+                    .unwrap()
+                    .project_root()
+                    .join("openspec")
+                    .join("changes")
+                    .join(&change);
+                if let Ok(entries) = walk_files_for_clear(&change_dir) {
+                    let published_uris: Vec<_> = diagnostics_per_file
+                        .iter()
+                        .map(|(p, _)| p.clone())
+                        .collect();
+                    for path in entries {
+                        if !published_uris.contains(&path)
+                            && let Ok(uri) = lsp_types::Url::from_file_path(&path) {
+                                let params = PublishDiagnosticsParams {
+                                    uri,
+                                    diagnostics: Vec::new(),
+                                    version: None,
+                                };
+                                let notif = Notification::new(
+                                    "textDocument/publishDiagnostics".to_string(),
+                                    params,
+                                );
+                                let _ = connection.sender.send(Message::Notification(notif));
+                            }
+                    }
+                }
+            }
+        }
         "textDocument/didSave" => {
             let params: DidSaveTextDocumentParams =
                 serde_json::from_value(not.params).context("Bad didSave params")?;
             let file_path = params.text_document.uri.to_file_path().unwrap_or_default();
+            eprintln!("[veriplan-lsp] didSave: {}", file_path.display());
 
-            // Check if file belongs to a change
-            let change_name = { store.read().unwrap().resolve_change(&file_path) };
+            // Try to resolve the change. If not found, rescan.
+            let change_name = {
+                let read_store = store.read().unwrap();
+                let resolved = read_store.resolve_change(&file_path);
+                drop(read_store);
+                if resolved.is_none() {
+                    store.write().unwrap().rescan();
+                    store.read().unwrap().resolve_change(&file_path)
+                } else {
+                    resolved
+                }
+            };
 
             let diagnostics_per_file = if let Some(change) = change_name {
+                eprintln!("[veriplan-lsp] didSave: resolved change '{}', refreshing...", change);
                 // Refresh and get diagnostics
                 store.write().unwrap().refresh(&change)
             } else {
+                eprintln!("[veriplan-lsp] didSave: file not in any change");
                 Vec::new()
             };
 

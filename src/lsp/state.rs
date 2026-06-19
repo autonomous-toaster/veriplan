@@ -150,6 +150,13 @@ impl ChangeStore {
         self.reports.get(change)
     }
 
+    /// Re-scan the changes directory for newly added change directories.
+    /// Call this when a file belongs to no known change — the change
+    /// may have been created after the LSP started.
+    pub fn rescan(&mut self) {
+        self.scan_changes();
+    }
+
     /// Check if a file path belongs to a known change.
     pub fn has_change(&self, path: &Path) -> bool {
         self.resolve_change(path).is_some()
