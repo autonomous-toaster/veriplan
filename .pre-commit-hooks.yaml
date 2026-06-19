@@ -3,7 +3,7 @@
   description: Formal verification for OpenSpec plans
   entry: veriplan check --pre-commit
   language: rust
-  files: 'openspec/'
+  files: "openspec/"
   pass_filenames: false
   stages: [pre-commit, pre-push, manual]
 
@@ -12,6 +12,6 @@
   description: Formal verification (requires veriplan in PATH)
   entry: veriplan check --pre-commit
   language: system
-  files: 'openspec/'
+  files: "openspec/"
   pass_filenames: false
   stages: [pre-commit, pre-push, manual]
