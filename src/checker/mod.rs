@@ -540,7 +540,7 @@ pub fn require_spin() -> Result<(), String> {
 }
 
 /// Run the full verification pipeline (Phase 1 + Phase 2).
-pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool) -> VerificationResult {
+pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool) -> VerificationResult {
     // Phase 1: Convertibility check
     let conv_report = check_convertibility(plan);
 
@@ -601,6 +601,22 @@ pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool) -> VerificationRes
     }
 
     if let Err(msg) = require_spin() {
+        // In pre-commit mode, missing SPIN is a warning, not a hard failure.
+        // The plan is still convertible — we just can't prove validity.
+        if pre_commit {
+            return VerificationResult {
+                plan_name: plan_name.to_string(),
+                phase: "model_check".into(),
+                convertible: true,
+                convertibility_report: Some(conv_report),
+                valid: None, // Unknown — can't prove without SPIN
+                violations: vec![],
+                total_constraints: formalizable.len(),
+                satisfied_constraints: 0,
+                constraints_summary: vec![],
+                skip_reason: Some(msg),
+            };
+        }
         return VerificationResult {
             plan_name: plan_name.to_string(),
             phase: "model_check".into(),
@@ -619,10 +635,10 @@ pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool) -> VerificationRes
 }
 
 /// Verify multiple plans and merge the results into a single report.
-pub fn verify_all(plans: &[(String, PlanIR)], no_model: bool) -> VerificationResult {
+pub fn verify_all(plans: &[(String, PlanIR)], no_model: bool, pre_commit: bool) -> VerificationResult {
     let mut all_results: Vec<VerificationResult> = Vec::new();
     for (name, plan) in plans {
-        let result = verify(plan, name, no_model);
+        let result = verify(plan, name, no_model, pre_commit);
         all_results.push(result);
     }
     merge_results(&all_results)
