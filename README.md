@@ -166,6 +166,54 @@ The diagram shows:
 Markdown format includes a **Task Index** appendix with clickable source links
 (`tasks.md#L<N>`) for every task — useful for navigation and code review.
 
+### 7. LSP server: `veriplan lsp`
+
+veriplan includes a built-in Language Server Protocol (LSP) server for
+real-time feedback in editors that support LSP (VS Code, Neovim,
+Helix, etc.). The server provides:
+
+- **Diagnostics** — convertibility errors and warnings on save
+- **Completions** — task ID suggestions (type `T`) and temporal keywords
+  (type `SHALL`, `MUST`, etc.)
+- **Go-to-definition** — jump from `T3.2` in a spec to its definition
+  in tasks.md
+- **Hover** — see task description and phase on hover over task references
+- **Document symbols** — outline of phases/tasks (tasks.md) and
+  requirements/scenarios (spec.md)
+- **Code actions** — quick fixes for convertibility diagnostics
+
+The LSP server runs **convertibility check only** (Phase 1). Model
+checking (SPIN) is too expensive for real-time feedback.
+
+```bash
+# Start the LSP server (for editor integration)
+veriplan lsp --stdio
+```
+
+#### pi-lens configuration
+
+Create a `.pi-lens/lsp.json` in your project root:
+
+```json
+{
+  "servers": {
+    "veriplan": {
+      "command": "veriplan",
+      "args": ["lsp", "--stdio"],
+      "extensions": ["tasks.md", "spec.md"],
+      "rootMarkers": ["openspec/config.yaml"]
+    }
+  }
+}
+```
+
+The `extensions` field matches files by **basename** (not file extension),
+so `"tasks.md"` and `"spec.md"` are matched regardless of directory.
+This is intentional: using `".md"` would activate the LSP for every
+markdown file in the project, but veriplan only processes files named
+`tasks.md` or `spec.md`. The `rootMarkers` field tells pi-lens where
+the workspace root is.
+
 ---
 
 ## Requirements
@@ -229,6 +277,9 @@ cargo build --release
 
 # Write to a file
 ./target/release/veriplan visualize my-change -o plan-diagram.md
+
+# Start LSP server for editor integration
+./target/release/veriplan lsp --stdio
 ```
 ```
 
@@ -276,6 +327,7 @@ src/
   checker/     — Convertibility checks + SPIN orchestration
   translator/  — Map SHALL statements to LTL formulas
   visualizer/  — Generate diagrams (Mermaid, DOT, markdown)
+  lsp/         — Language Server Protocol (diagnostics, completions, navigation)
   annotator/   — Human-readable and JSON report formatting
   main.rs      — CLI entry point
 ```

@@ -12,6 +12,7 @@ use veriplan::visualizer;
 
 /// Supported plan formats.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum Format {
     /// OpenSpec specification format (default).
     Openspec,
@@ -73,6 +74,12 @@ enum Commands {
         #[arg(short)]
         output: Option<String>,
     },
+    /// Run the LSP server over stdio (for editor integration)
+    Lsp {
+        /// Use stdio transport
+        #[arg(long)]
+        stdio: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -91,6 +98,7 @@ fn main() -> anyhow::Result<()> {
             format,
             output,
         } => run_visualize(change, format.as_deref(), output.as_deref()),
+        Commands::Lsp { stdio: _stdio } => veriplan::lsp::run_lsp(),
     };
 
     // Flush stdio before exiting to avoid losing buffered output
@@ -434,7 +442,8 @@ fn merge_config(existing: &str) -> String {
 
     // If our marker exists, replace everything from it onward (reentrant)
     // Try full old marker first, then new marker (substring-safe)
-    let marker_pos = existing.find("# Added by veriplan init")
+    let marker_pos = existing
+        .find("# Added by veriplan init")
         .or_else(|| existing.find(VERIPLAN_MARKER));
 
     if let Some(pos) = marker_pos {

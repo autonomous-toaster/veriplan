@@ -5,3 +5,10 @@ veriplan_*.pml.trail
 # veriplan init — SPIN model checker artifacts
 *.trail
 pan.*
+
+# pi-lens local state (keep lsp.json)
+.pi-lens/cache/
+.pi-lens/sessions/
+.pi-lens/change-log.jsonl
+.pi-lens/code-quality-warnings.jsonl
+.pi-lens/turn-state.json
