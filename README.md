@@ -143,7 +143,7 @@ guarantee — they are spec-plan mismatches, not implementation bugs.
 Generate a state-machine diagram of the plan from tasks.md + specs:
 
 ```
-$ veriplan visualize my-change
+veriplan visualize my-change
 ```
 
 Three output formats:
@@ -214,6 +214,85 @@ markdown file in the project, but veriplan only processes files named
 `tasks.md` or `spec.md`. The `rootMarkers` field tells pi-lens where
 the workspace root is.
 
+### 8. Pre-commit hook
+
+veriplan can run as a **pre-commit hook** to catch spec violations
+before they reach code review. The hook runs the full verification
+pipeline (convertibility + SPIN model checking when available).
+
+```bash
+# Run manually with pre-commit mode
+veriplan check --pre-commit
+
+# Or set the environment variable
+PRE_COMMIT=1 veriplan check
+```
+
+In pre-commit mode:
+
+- **Blockers and violations** → exit 1 (blocks the commit)
+- **Warnings** → exit 0 (doesn't block the commit)
+- **SPIN not found** → exit 0 with warning (doesn't block the commit)
+
+This is different from normal `veriplan check` where missing SPIN
+causes exit code 2 (hard failure). In pre-commit mode, you don't
+want to block every commit just because someone doesn't have SPIN
+installed locally.
+
+#### Using the pre-commit framework
+
+Add to your `.pre-commit-config.yaml`:
+
+**Option A: Auto-install (compiles from source)**
+
+```yaml
+repos:
+  - repo: https://github.com/autonomous-toaster/veriplan
+    rev: v0.1.0  # Use the latest tag
+    hooks:
+      - id: veriplan
+```
+
+**Option B: System install (veriplan must be in PATH)**
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: veriplan
+        name: veriplan
+        entry: veriplan check --pre-commit
+        language: system
+        files: 'openspec/'
+        pass_filenames: false
+        stages: [pre-commit, pre-push, manual]
+```
+
+**Option C: Reference the repo's hook IDs**
+
+```yaml
+repos:
+  - repo: https://github.com/autonomous-toaster/veriplan
+    rev: v0.1.0
+    hooks:
+      - id: veriplan-system  # Uses veriplan from PATH
+```
+
+The hook only runs when `openspec/` files are staged — other commits
+skip it entirely. veriplan auto-detects which changes to check.
+
+To skip the hook for a specific commit:
+
+```bash
+VERIPLAN_SKIP=1 git commit -m "work in progress"
+# or skip all hooks:
+git commit --no-verify -m "work in progress"
+```
+
+**For CI:** Run `veriplan check` (without `--pre-commit`) for full
+verification including SPIN model checking. The pre-commit hook is a
+fast guard rail; CI is the authoritative check.
+
 ---
 
 ## Requirements
@@ -281,6 +360,7 @@ cargo build --release
 # Start LSP server for editor integration
 ./target/release/veriplan lsp --stdio
 ```
+
 ```
 
 ## Exit codes
@@ -321,6 +401,7 @@ you exactly which requirement is unrealistic and why.
 ## Project structure
 
 ```
+
 src/
   parser/      — Parse OpenSpec markdown into structured data
   ir/          — Intermediate representation (tasks, requirements, phases)
@@ -330,6 +411,7 @@ src/
   lsp/         — Language Server Protocol (diagnostics, completions, navigation)
   annotator/   — Human-readable and JSON report formatting
   main.rs      — CLI entry point
+
 ```
 
 ## Related

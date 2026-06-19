@@ -55,6 +55,9 @@ enum Commands {
         /// Verbose output
         #[arg(long, short)]
         verbose: bool,
+        /// Pre-commit mode: missing SPIN is non-blocking, blockers exit 1, warnings exit 0
+        #[arg(long)]
+        pre_commit: bool,
     },
     /// Init openspec/config.yaml with formal-verification-friendly rules
     Init {
@@ -91,7 +94,8 @@ fn main() -> anyhow::Result<()> {
             phase,
             format,
             verbose: _verbose,
-        } => run_check(change, phase.as_deref(), format.as_deref(), _verbose),
+            pre_commit,
+        } => run_check(change, phase.as_deref(), format.as_deref(), _verbose, pre_commit),
         Commands::Init { project_root } => run_init(project_root.as_deref()),
         Commands::Visualize {
             change,
@@ -121,6 +125,7 @@ fn run_check(
     phase: Option<&str>,
     format: Option<&str>,
     verbose: bool,
+    pre_commit: bool,
 ) -> anyhow::Result<()> {
     // Validate plan format if provided
     // Use a unique variable name to avoid any shadowing issues
@@ -150,6 +155,9 @@ fn run_check(
 
     let no_model = phase == Some("convertibility");
 
+    // Detect PRE_COMMIT env var for auto-enabling pre-commit mode
+    let pre_commit = pre_commit || std::env::var("PRE_COMMIT").as_deref() == Ok("1");
+
     // Build plan list for verification
     let mut plans: Vec<(String, PlanIR)> = Vec::new();
     for name in &change_names {
@@ -172,9 +180,9 @@ fn run_check(
 
     let combined_name = change_names.join(", ");
     let result = if plans.len() == 1 {
-        checker::verify(&plans[0].1, &combined_name, no_model)
+        checker::verify(&plans[0].1, &combined_name, no_model, pre_commit)
     } else {
-        checker::verify_all(&plans, no_model)
+        checker::verify_all(&plans, no_model, pre_commit)
     };
     let annotated = annotator::annotate(&result, &plans);
 
@@ -193,11 +201,30 @@ fn run_check(
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
 
-    // Exit codes: 0 = valid/pass, 1 = invalid/fail, 2 = blocking convertibility
+    // Exit codes depend on mode:
+    //   Normal:      0 = valid, 1 = violations, 2 = not convertible / missing SPIN
+    //   Pre-commit:  0 = valid/warnings/missing-SPIN, 1 = blockers/violations
     if !result.convertible {
-        flush_exit(2);
+        if pre_commit {
+            // In pre-commit mode, blockers exit 1 (not 2)
+            eprintln!("\nCommit blocked. Fix blockers above, or skip with: VERIPLAN_SKIP=1 git commit");
+            flush_exit(1);
+        } else {
+            flush_exit(2);
+        }
     } else if result.valid == Some(false) {
+        if pre_commit {
+            eprintln!("\nCommit blocked. Fix violations above, or skip with: VERIPLAN_SKIP=1 git commit");
+        }
         flush_exit(1);
+    } else if let Some(_reason) = &result.skip_reason {
+        if pre_commit {
+            // Missing SPIN in pre-commit mode: warn but don't block
+            eprintln!("⚠ SPIN not found — skipping model checking. Install SPIN for full verification.");
+            flush_exit(0);
+        } else {
+            flush_exit(2);
+        }
     } else if no_model
         && !result
             .convertibility_report

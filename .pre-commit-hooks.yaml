@@ -1,0 +1,17 @@
+- id: veriplan
+  name: veriplan
+  description: Formal verification for OpenSpec plans
+  entry: veriplan check --pre-commit
+  language: rust
+  files: 'openspec/'
+  pass_filenames: false
+  stages: [pre-commit, pre-push, manual]
+
+- id: veriplan-system
+  name: veriplan (system)
+  description: Formal verification (requires veriplan in PATH)
+  entry: veriplan check --pre-commit
+  language: system
+  files: 'openspec/'
+  pass_filenames: false
+  stages: [pre-commit, pre-push, manual]
