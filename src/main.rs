@@ -95,7 +95,13 @@ fn main() -> anyhow::Result<()> {
             format,
             verbose: _verbose,
             pre_commit,
-        } => run_check(change, phase.as_deref(), format.as_deref(), _verbose, pre_commit),
+        } => run_check(
+            change,
+            phase.as_deref(),
+            format.as_deref(),
+            _verbose,
+            pre_commit,
+        ),
         Commands::Init { project_root } => run_init(project_root.as_deref()),
         Commands::Visualize {
             change,
@@ -207,20 +213,26 @@ fn run_check(
     if !result.convertible {
         if pre_commit {
             // In pre-commit mode, blockers exit 1 (not 2)
-            eprintln!("\nCommit blocked. Fix blockers above, or skip with: VERIPLAN_SKIP=1 git commit");
+            eprintln!(
+                "\nCommit blocked. Fix blockers above, or skip with: VERIPLAN_SKIP=1 git commit"
+            );
             flush_exit(1);
         } else {
             flush_exit(2);
         }
     } else if result.valid == Some(false) {
         if pre_commit {
-            eprintln!("\nCommit blocked. Fix violations above, or skip with: VERIPLAN_SKIP=1 git commit");
+            eprintln!(
+                "\nCommit blocked. Fix violations above, or skip with: VERIPLAN_SKIP=1 git commit"
+            );
         }
         flush_exit(1);
     } else if let Some(_reason) = &result.skip_reason {
         if pre_commit {
             // Missing SPIN in pre-commit mode: warn but don't block
-            eprintln!("⚠ SPIN not found — skipping model checking. Install SPIN for full verification.");
+            eprintln!(
+                "⚠ SPIN not found — skipping model checking. Install SPIN for full verification."
+            );
             flush_exit(0);
         } else {
             flush_exit(2);
