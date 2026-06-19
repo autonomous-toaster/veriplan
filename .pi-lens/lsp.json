@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "veriplan": {
+      "command": "veriplan",
+      "args": ["lsp", "--stdio"],
+      "extensions": ["tasks.md", "spec.md"],
+      "rootMarkers": ["openspec/config.yaml"]
+    }
+  }
+}

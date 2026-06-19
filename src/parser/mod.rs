@@ -18,13 +18,13 @@ use crate::ir::{
 };
 
 /// Information about a spec file's location.
-struct SpecFile {
+pub(crate) struct SpecFile {
     capability: String,
     path: std::path::PathBuf,
 }
 
 /// Locate all relevant files in an OpenSpec change directory.
-pub fn locate_change(change_dir: &Path) -> Result<(std::path::PathBuf, Vec<SpecFile>), String> {
+pub(crate) fn locate_change(change_dir: &Path) -> Result<(std::path::PathBuf, Vec<SpecFile>), String> {
     let tasks_path = change_dir.join("tasks.md");
     if !tasks_path.exists() {
         return Err(format!(

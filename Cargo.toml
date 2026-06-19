@@ -16,6 +16,11 @@ thiserror = "2"
 tree-sitter = "0.26"
 tree-sitter-language-pack = "1"
 
+# LSP
+lsp-server = "0.7"
+lsp-types = "0.95"
+crossbeam-channel = "0.5"
+
 # Model output
 tempfile = "3"
 log = "0.4"
