@@ -41,15 +41,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run convertibility + model checking on an OpenSpec change
+    /// Run convertibility + model checking on a plan
     Check {
-        /// Change name (e.g., "veriplan-plan-verifier"). Omit to auto-detect all active changes.
+        /// Change name, file path, or directory. Use '-' for stdin. Omit to auto-detect.
         #[arg(required = false)]
         change: Option<String>,
         /// Stop after convertibility check (Phase 1)
         #[arg(long)]
         phase: Option<String>,
-        /// Output format
+        /// Output format: human, json
         #[arg(long, default_value = "human")]
         format: Option<String>,
         /// Verbose output
@@ -58,6 +58,15 @@ enum Commands {
         /// Pre-commit mode: missing SPIN is non-blocking, blockers exit 1, warnings exit 0
         #[arg(long)]
         pre_commit: bool,
+        /// Read plan from stdin instead of a file
+        #[arg(long)]
+        stdin: bool,
+        /// Strict checking: ungrounded patterns are blockers (default)
+        #[arg(long)]
+        strict: bool,
+        /// Moderate checking: ungrounded patterns are warnings
+        #[arg(long, visible_alias = "moderate")]
+        lax: bool,
     },
     /// Init openspec/config.yaml with formal-verification-friendly rules
     Init {
@@ -95,12 +104,18 @@ fn main() -> anyhow::Result<()> {
             format,
             verbose: _verbose,
             pre_commit,
+            stdin,
+            strict,
+            lax,
         } => run_check(
             change,
             phase.as_deref(),
             format.as_deref(),
             _verbose,
             pre_commit,
+            stdin,
+            strict,
+            lax,
         ),
         Commands::Init { project_root } => run_init(project_root.as_deref()),
         Commands::Visualize {
@@ -132,9 +147,11 @@ fn run_check(
     format: Option<&str>,
     verbose: bool,
     pre_commit: bool,
+    stdin_flag: bool,
+    strict: bool,
+    lax: bool,
 ) -> anyhow::Result<()> {
     // Validate plan format if provided
-    // Use a unique variable name to avoid any shadowing issues
     let format_val = format.unwrap_or("human");
     if format_val != "openspec" && format_val != "human" && format_val != "json" {
         anyhow::bail!(
@@ -142,64 +159,53 @@ fn run_check(
             format_val
         );
     }
+
+    // Resolve strictness profile
+    let strictness = if lax {
+        veriplan::input::StrictnessProfile::Lax
+    } else if strict {
+        veriplan::input::StrictnessProfile::Strict
+    } else {
+        veriplan::input::StrictnessProfile::Strict // default
+    };
+
     let project_root = std::env::current_dir()?;
 
-    // Determine what changes to check
-    let change_names = if let Some(name) = &change_name {
-        vec![name.clone()]
-    } else {
-        // No-arg mode: auto-detect all active changes
-        let discovered = discover_changes(&project_root)?;
-        if discovered.is_empty() {
-            anyhow::bail!(
-                "No active changes found in {}",
-                project_root.join("openspec/changes").display()
-            );
-        }
-        discovered
-    };
+    // Resolve input source
+    let source = veriplan::input::resolve_input(change_name.as_deref(), &project_root, stdin_flag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let no_model = phase == Some("convertibility");
 
     // Detect PRE_COMMIT env var for auto-enabling pre-commit mode
     let pre_commit = pre_commit || std::env::var("PRE_COMMIT").as_deref() == Ok("1");
 
-    // Build plan list for verification
-    let mut plans: Vec<(String, PlanIR)> = Vec::new();
-    for name in &change_names {
-        let change_dir = find_change_dir(&project_root, name)?;
-        match parser::parse_plan(&change_dir) {
-            Ok(plan) => plans.push((name.clone(), plan)),
-            Err(e) => {
-                // Skip invalid changes when in multi-change mode
-                if change_names.len() == 1 {
-                    anyhow::bail!("Failed to parse '{}': {}", name, e);
-                }
-                eprintln!("Warning: skipping '{}': {}", name, e);
-            }
-        }
-    }
+    // Load plan from the resolved source
+    let plan = veriplan::input::load_plan(&source).map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    if plans.is_empty() {
-        anyhow::bail!("No valid changes to verify");
-    }
+    // Determine name for display
+    let label = source.label();
+    let is_openspec = source.is_openspec();
 
-    let combined_name = change_names.join(", ");
-    let result = if plans.len() == 1 {
-        checker::verify(&plans[0].1, &combined_name, no_model, pre_commit)
-    } else {
-        checker::verify_all(&plans, no_model, pre_commit)
-    };
-    let annotated = annotator::annotate(&result, &plans);
+    // Run checker with strictness profile
+    let result = checker::verify_with_strictness(
+        &plan,
+        &label,
+        no_model,
+        pre_commit,
+        strictness,
+        is_openspec,
+    );
+    let annotated = annotator::annotate(&result, &[(label.clone(), plan.clone())]);
 
     match format.unwrap_or("human") {
         "json" => println!(
             "{}",
-            annotator::format_json(&result, &annotated, &plans, verbose)
+            annotator::format_json(&result, &annotated, &[(label, plan)], verbose)
         ),
         _ => print!(
             "{}",
-            annotator::format_human(&result, &annotated, &plans, verbose)
+            annotator::format_human(&result, &annotated, &[(label, plan.clone())], verbose)
         ),
     }
 

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::checker;
+use crate::input::{load_plan, InputSource};
 use crate::ir::{ConvertibilityReport, PlanIR};
 use crate::parser;
 
@@ -20,6 +21,9 @@ pub struct ChangeStore {
     file_to_change: HashMap<PathBuf, String>,
     /// project root (directory containing openspec/)
     project_root: PathBuf,
+    /// Standalone files: file path → (PlanIR, ConvertibilityReport)
+    /// Used for files not in an OpenSpec change directory
+    standalone: HashMap<PathBuf, (PlanIR, ConvertibilityReport)>,
 }
 
 impl ChangeStore {
@@ -30,6 +34,7 @@ impl ChangeStore {
             reports: HashMap::new(),
             file_to_change: HashMap::new(),
             project_root: project_root.to_path_buf(),
+            standalone: HashMap::new(),
         };
         store.scan_changes();
         store
@@ -67,7 +72,7 @@ impl ChangeStore {
             Ok(p) => p,
             Err(_) => return,
         };
-        let report = checker::check_convertibility(&plan);
+        let report = checker::check_convertibility(&plan, true); // LSP always processes OpenSpec changes
 
         // Build file index: map every file under the change dir to this change name
         if let Ok(entries) = walk_files(path) {
@@ -122,7 +127,7 @@ impl ChangeStore {
             Ok(p) => p,
             Err(_) => return Vec::new(),
         };
-        let report = checker::check_convertibility(&plan);
+        let report = checker::check_convertibility(&plan, true); // LSP always processes OpenSpec changes
 
         // Update caches
         self.plans.insert(change.to_string(), plan);
@@ -160,6 +165,119 @@ impl ChangeStore {
     /// Check if a file path belongs to a known change.
     pub fn has_change(&self, path: &Path) -> bool {
         self.resolve_change(path).is_some()
+    }
+
+    /// Load a standalone file (not in an OpenSpec change) into the cache.
+    /// Returns true if successful.
+    pub fn load_standalone(&mut self, file_path: &Path) -> bool {
+        if !file_path.exists() {
+            eprintln!("[veriplan-lsp] File not found: {}", file_path.display());
+            return false;
+        }
+
+        // Use InputSource::SingleFile to load the plan
+        let source = InputSource::SingleFile {
+            path: file_path.to_path_buf(),
+        };
+
+        let plan = match load_plan(&source) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[veriplan-lsp] Failed to parse standalone file: {}", e);
+                return false;
+            }
+        };
+
+        let report = checker::check_convertibility(&plan, false); // Standalone files are not OpenSpec
+        self.standalone.insert(file_path.to_path_buf(), (plan, report));
+        true
+    }
+
+    /// Get diagnostics for a standalone file.
+    pub fn get_standalone_diagnostics(
+        &self,
+        file_path: &Path,
+    ) -> Option<Vec<lsp_types::Diagnostic>> {
+        let (_plan, report) = self.standalone.get(file_path)?;
+        Some(self.report_to_diagnostics_for_standalone(report, file_path))
+    }
+
+    /// Refresh a standalone file after edit.
+    pub fn refresh_standalone(
+        &mut self,
+        file_path: &Path,
+    ) -> Option<Vec<lsp_types::Diagnostic>> {
+        if !self.load_standalone(file_path) {
+            return None;
+        }
+        self.get_standalone_diagnostics(file_path)
+    }
+
+    /// Build diagnostics for a standalone file from its report.
+    fn report_to_diagnostics_for_standalone(
+        &self,
+        report: &ConvertibilityReport,
+        file_path: &Path,
+    ) -> Vec<lsp_types::Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        for item in &report.blockers {
+            diagnostics.push(self.check_item_to_diagnostic(item, lsp_types::DiagnosticSeverity::ERROR, file_path));
+        }
+        for item in &report.warnings {
+            diagnostics.push(self.check_item_to_diagnostic(item, lsp_types::DiagnosticSeverity::WARNING, file_path));
+        }
+        for item in &report.info {
+            diagnostics.push(self.check_item_to_diagnostic(item, lsp_types::DiagnosticSeverity::INFORMATION, file_path));
+        }
+
+        diagnostics
+    }
+
+    /// Convert a CheckItem to an LSP Diagnostic.
+    fn check_item_to_diagnostic(
+        &self,
+        item: &crate::ir::CheckItem,
+        severity: lsp_types::DiagnosticSeverity,
+        _file_path: &Path,
+    ) -> lsp_types::Diagnostic {
+        let (_file_path, line) = parse_location(&item.location);
+        let range = if line > 0 {
+            lsp_types::Range {
+                start: lsp_types::Position {
+                    line: (line - 1) as u32,
+                    character: 0,
+                },
+                end: lsp_types::Position {
+                    line: (line - 1) as u32,
+                    character: 999,
+                },
+            }
+        } else {
+            // Fallback: use the file path from the standalone cache
+            lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 999,
+                },
+            }
+        };
+
+        lsp_types::Diagnostic {
+            range,
+            severity: Some(severity),
+            code: Some(lsp_types::NumberOrString::String(item.check.clone())),
+            code_description: None,
+            source: Some("veriplan".to_string()),
+            message: item.detail.clone(),
+            related_information: None,
+            tags: None,
+            data: item.fix.as_ref().map(|f| serde_json::json!({ "fix": f })),
+        }
     }
 
     /// Get the project root.

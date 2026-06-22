@@ -19,8 +19,8 @@ use crate::ir::{
 
 /// Information about a spec file's location.
 pub(crate) struct SpecFile {
-    capability: String,
-    path: std::path::PathBuf,
+    pub(crate) capability: String,
+    pub(crate) path: std::path::PathBuf,
 }
 
 /// Locate all relevant files in an OpenSpec change directory.

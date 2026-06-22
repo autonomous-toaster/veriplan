@@ -63,7 +63,7 @@ pub struct VerificationResult {
 
 /// Run the full convertibility check (Phase 1).
 /// Returns a report with blockers, warnings, and info items.
-pub fn check_convertibility(plan: &PlanIR) -> ConvertibilityReport {
+pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> ConvertibilityReport {
     let mut blockers = Vec::new();
     let mut warnings = Vec::new();
     let mut info = Vec::new();
@@ -75,7 +75,7 @@ pub fn check_convertibility(plan: &PlanIR) -> ConvertibilityReport {
     info.extend(task_check.2);
 
     // Check 2: Requirements exist and have RFC 2119 keywords
-    let req_check = check_requirements(plan);
+    let req_check = check_requirements(plan, is_openspec);
     blockers.extend(req_check.0);
     warnings.extend(req_check.1);
     info.extend(req_check.2);
@@ -86,7 +86,7 @@ pub fn check_convertibility(plan: &PlanIR) -> ConvertibilityReport {
     warnings.extend(ref_check.1);
 
     // Check 4: Temporal classifiability
-    let class_check = check_classifiability(plan);
+    let class_check = check_classifiability(plan, is_openspec);
     blockers.extend(class_check.0);
     warnings.extend(class_check.1);
     info.extend(class_check.2);
@@ -100,7 +100,7 @@ pub fn check_convertibility(plan: &PlanIR) -> ConvertibilityReport {
     info.extend(check_diversity(plan));
 
     // Check 7: Task coverage — every task should be referenced by at least one SHALL
-    let cov_check = check_task_coverage(plan);
+    let cov_check = check_task_coverage(plan, is_openspec);
     warnings.extend(cov_check.0);
 
     // Build rephrase directives
@@ -198,13 +198,16 @@ fn check_tasks(plan: &PlanIR) -> (Option<CheckItem>, Vec<CheckItem>, Vec<CheckIt
     (None, warnings, info)
 }
 
-fn check_requirements(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<CheckItem>) {
+fn check_requirements(plan: &PlanIR, is_openspec: bool) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<CheckItem>) {
     let mut blockers = Vec::new();
     let mut warnings = Vec::new();
 
     if plan.requirements.is_empty() {
-        blockers.push(CheckItem {
-            severity: "blocker".into(),
+        // In single-file/stdin mode, no requirements is expected (INFO)
+        // In OpenSpec mode, it's a blocker/warning/info depending on strictness
+        let severity = if is_openspec { "blocker" } else { "info" };
+        let item = CheckItem {
+            severity: severity.into(),
             check: "no_requirements".into(),
             element: "Plan".into(),
             location: "specs/".into(),
@@ -212,7 +215,14 @@ fn check_requirements(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<Che
             fix: Some(
                 "Add ### Requirement: sections with SHALL/MUST paragraphs to spec files".into(),
             ),
-        });
+        };
+        if severity == "blocker" {
+            blockers.push(item);
+        } else {
+            // Will be handled by apply_strictness for OpenSpec mode
+            // For single-file mode, it's always info
+            return (blockers, warnings, vec![item]);
+        }
         return (blockers, warnings, Vec::new());
     }
 
@@ -280,20 +290,47 @@ fn check_task_references(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
     (blockers, warnings)
 }
 
-fn check_classifiability(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<CheckItem>) {
+fn check_classifiability(plan: &PlanIR, _is_openspec: bool) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<CheckItem>) {
     let mut blockers = Vec::new();
     let warnings = Vec::new();
     let mut info = Vec::new();
+
+    let task_ids: Vec<String> = plan.tasks.iter().map(|t| t.id.clone()).collect();
 
     let mut formalizable_count = 0;
     let mut non_formalizable_count = 0;
 
     for req in &plan.requirements {
-        // Skip informational (May) requirements — they're not verified
+        // MAY requirements are informational — emit as INFO, not blockers
         if req.strength == crate::ir::Rfc2119Strength::May {
+            info.push(CheckItem {
+                severity: "info".into(),
+                check: "may_requirement".into(),
+                element: format!("Requirement '{}'", req.id),
+                location: format!("{}:{}", req.source.file, req.source.start_line),
+                detail: format!(
+                    "MAY '{}' is informational — not verified by model checking",
+                    truncate(&req.statement, 80)
+                ),
+                fix: None,
+            });
             continue;
         }
         let cat = translator::classify(&req.statement);
+
+        // Detect PatternUngrounded: temporal pattern found but no task references
+        let cat = if cat != ConstraintCategory::NonFormalizable && cat != ConstraintCategory::PatternUngrounded {
+            let refs = translator::extract_task_refs_bare(&req.statement, &task_ids);
+            if refs.is_empty() {
+                // Has temporal pattern but no task references — pattern without grounding
+                ConstraintCategory::PatternUngrounded
+            } else {
+                cat
+            }
+        } else {
+            cat
+        };
+
         if cat == ConstraintCategory::NonFormalizable {
             non_formalizable_count += 1;
             blockers.push(CheckItem {
@@ -308,6 +345,24 @@ fn check_classifiability(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<
                 fix: Some(
                     "Rewrite as: sequential, exclusive, conditional, concurrent, or global constraint"
                         .into(),
+                ),
+            });
+        } else if cat == ConstraintCategory::PatternUngrounded {
+            // Temporal pattern detected but no task references to ground it
+            // Severity depends on strictness profile (applied later by apply_strictness)
+            // Always start as blocker, let apply_strictness adjust based on profile
+            formalizable_count += 1;
+            blockers.push(CheckItem {
+                severity: "blocker".into(),
+                check: "pattern_ungrounded".into(),
+                element: format!("Requirement '{}'", req.id),
+                location: format!("{}:{}", req.source.file, req.source.start_line),
+                detail: format!(
+                    "SHALL '{}' has a temporal pattern but no task references — add task IDs for model verification",
+                    truncate(&req.statement, 80)
+                ),
+                fix: Some(
+                    "Add task ID references (e.g., T1.2) to enable model verification".into(),
                 ),
             });
         } else {
@@ -422,6 +477,7 @@ fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
             ConstraintCategory::Exclusive => "exclusive",
             ConstraintCategory::Global => "global",
             ConstraintCategory::NonFormalizable => "non_formalizable",
+            ConstraintCategory::PatternUngrounded => "pattern_ungrounded",
         };
         *cat_counts.entry(label).or_insert(0) += 1;
     }
@@ -477,7 +533,9 @@ fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
 }
 
 /// Check that every task is referenced by at least one SHALL requirement.
-fn check_task_coverage(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
+/// In single-file/stdin mode (is_openspec=false), this check is downgraded to INFO
+/// since it's expected that standalone files may not have full coverage.
+fn check_task_coverage(plan: &PlanIR, is_openspec: bool) -> (Vec<CheckItem>, Vec<CheckItem>) {
     let mut warnings = Vec::new();
     let mut info = Vec::new();
 
@@ -496,8 +554,10 @@ fn check_task_coverage(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
     for task in &plan.tasks {
         if !referenced.contains(&task.id) {
             uncovered += 1;
-            warnings.push(CheckItem {
-                severity: "warning".into(),
+            // In single-file/stdin mode, downgrade to INFO
+            let severity = if is_openspec { "warning" } else { "info" };
+            let item = CheckItem {
+                severity: severity.into(),
                 check: "task_not_covered".into(),
                 element: format!("T{} ({})", task.id, task.description),
                 location: format!("{}:{}", task.source.file, task.source.start_line),
@@ -509,7 +569,12 @@ fn check_task_coverage(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
                     "Add a SHALL in specs/ that references T{} with a temporal keyword (BEFORE, CONCURRENTLY, etc.).",
                     task.id
                 )),
-            });
+            };
+            if severity == "warning" {
+                warnings.push(item);
+            } else {
+                info.push(item);
+            }
         }
     }
 
@@ -540,9 +605,9 @@ pub fn require_spin() -> Result<(), String> {
 }
 
 /// Run the full verification pipeline (Phase 1 + Phase 2).
-pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool) -> VerificationResult {
+pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool, is_openspec: bool) -> VerificationResult {
     // Phase 1: Convertibility check
-    let conv_report = check_convertibility(plan);
+    let conv_report = check_convertibility(plan, is_openspec);
 
     if conv_report.status == ConvertibilityStatus::Blocking {
         return VerificationResult {
@@ -586,17 +651,23 @@ pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool) 
     let formalizable: Vec<_> = constraints.iter().filter(|c| c.ltl.is_some()).collect();
 
     if formalizable.is_empty() {
+        // In single-file/stdin mode, having no formalizable constraints is OK (no requirements is expected)
+        // In OpenSpec mode, this would have been caught earlier as a blocker
         return VerificationResult {
             plan_name: plan_name.to_string(),
             phase: "model_check".into(),
             convertible: true,
             convertibility_report: Some(conv_report),
-            valid: None,
+            valid: Some(true), // No constraints to check = valid by default in single-file mode
             violations: vec![],
             total_constraints: 0,
             satisfied_constraints: 0,
             constraints_summary: vec![],
-            skip_reason: Some("No formalizable constraints to check".into()),
+            skip_reason: if is_openspec {
+                Some("No formalizable constraints to check".into())
+            } else {
+                None // Single-file mode: no requirements is expected
+            },
         };
     }
 
@@ -635,10 +706,10 @@ pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool) 
 }
 
 /// Verify multiple plans and merge the results into a single report.
-pub fn verify_all(plans: &[(String, PlanIR)], no_model: bool, pre_commit: bool) -> VerificationResult {
+pub fn verify_all(plans: &[(String, PlanIR)], no_model: bool, pre_commit: bool, is_openspec: bool) -> VerificationResult {
     let mut all_results: Vec<VerificationResult> = Vec::new();
     for (name, plan) in plans {
-        let result = verify(plan, name, no_model, pre_commit);
+        let result = verify(plan, name, no_model, pre_commit, is_openspec);
         all_results.push(result);
     }
     merge_results(&all_results)
@@ -1280,4 +1351,163 @@ fn simple_result(
         constraints_summary: vec![],
         skip_reason: Some("Model check error".into()),
     }
+}
+
+/// Verify a plan with a strictness profile.
+/// For now, this delegates to `verify()` with the existing behavior.
+/// Strictness-based severity mapping will be added in Phase 2.
+pub fn verify_with_strictness(
+    plan: &PlanIR,
+    plan_name: &str,
+    no_model: bool,
+    pre_commit: bool,
+    strictness: crate::input::StrictnessProfile,
+    is_openspec: bool,
+) -> VerificationResult {
+    let mut result = verify(plan, plan_name, no_model, pre_commit, is_openspec);
+
+    // Apply strictness-based severity mapping
+    result = apply_strictness(result, strictness, is_openspec);
+
+    result
+}
+
+/// Apply strictness profile to adjust severity of check items.
+/// Strict (default): PatternUngrounded = blocker, no_tasks/no_requirements = blocker
+/// Moderate: PatternUngrounded = warning, no_tasks/no_requirements = warning
+/// Lax: PatternUngrounded = info, no_tasks/no_requirements = info
+fn apply_strictness(
+    mut result: VerificationResult,
+    strictness: crate::input::StrictnessProfile,
+    is_openspec: bool,
+) -> VerificationResult {
+    
+
+    if let Some(ref mut report) = result.convertibility_report {
+        let (blockers, warnings, info) = apply_strictness_to_items(
+            report.blockers.clone(),
+            report.warnings.clone(),
+            report.info.clone(),
+            strictness,
+            is_openspec,
+        );
+        report.blockers = blockers;
+        report.warnings = warnings;
+        report.info = info;
+
+        // Re-evaluate convertibility status
+        report.status = if report.blockers.is_empty() {
+            if report.warnings.is_empty() {
+                ConvertibilityStatus::Convertible
+            } else {
+                ConvertibilityStatus::ConvertibleWithWarnings
+            }
+        } else {
+            ConvertibilityStatus::Blocking
+        };
+    }
+
+    // Update convertible flag based on re-evaluated status
+    if let Some(ref report) = result.convertibility_report {
+        result.convertible = report.status != ConvertibilityStatus::Blocking;
+    }
+
+    result
+}
+
+fn apply_strictness_to_items(
+    mut blockers: Vec<CheckItem>,
+    mut warnings: Vec<CheckItem>,
+    mut info: Vec<CheckItem>,
+    strictness: crate::input::StrictnessProfile,
+    is_openspec: bool,
+) -> (Vec<CheckItem>, Vec<CheckItem>, Vec<CheckItem>) {
+    use crate::input::StrictnessProfile;
+
+    let target_severity = |check: &str| -> Option<&'static str> {
+        // Items whose severity depends on strictness profile
+        match check {
+            "pattern_ungrounded" | "no_formalizable" => match strictness {
+                StrictnessProfile::Strict => Some("blocker"),
+                StrictnessProfile::Moderate => Some("warning"),
+                StrictnessProfile::Lax => Some("info"),
+            },
+            "no_tasks" | "no_requirements" => {
+                // Context-aware: in OpenSpec mode, these stay as-is per strictness
+                // In single-file/stdin mode, these are always info
+                if is_openspec {
+                    match strictness {
+                        StrictnessProfile::Strict => Some("blocker"),
+                        StrictnessProfile::Moderate => Some("warning"),
+                        StrictnessProfile::Lax => Some("info"),
+                    }
+                } else {
+                    // Single-file/stdin: no tasks is expected, not a blocker
+                    Some("info")
+                }
+            },
+            _ => None,
+        }
+    };
+
+    // Re-distribute items based on target severity
+    let mut new_blockers = Vec::new();
+    let mut new_warnings = Vec::new();
+    let mut new_info = Vec::new();
+
+    // Process blockers
+    for item in blockers.drain(..) {
+        match target_severity(&item.check) {
+            Some("blocker") => new_blockers.push(item),
+            Some("warning") => {
+                let mut item = item;
+                item.severity = "warning".into();
+                new_warnings.push(item);
+            }
+            Some("info") => {
+                let mut item = item;
+                item.severity = "info".into();
+                new_info.push(item);
+            }
+            _ => new_blockers.push(item), // unchanged
+        }
+    }
+
+    // Process warnings (may need upgrading in Strict mode — already correct)
+    for item in warnings.drain(..) {
+        match target_severity(&item.check) {
+            Some("blocker") => {
+                let mut item = item;
+                item.severity = "blocker".into();
+                new_blockers.push(item);
+            }
+            Some("warning") => new_warnings.push(item),
+            Some("info") => {
+                let mut item = item;
+                item.severity = "info".into();
+                new_info.push(item);
+            }
+            _ => new_warnings.push(item), // unchanged
+        }
+    }
+
+    // Process info (may need upgrading)
+    for item in info.drain(..) {
+        match target_severity(&item.check) {
+            Some("blocker") => {
+                let mut item = item;
+                item.severity = "blocker".into();
+                new_blockers.push(item);
+            }
+            Some("warning") => {
+                let mut item = item;
+                item.severity = "warning".into();
+                new_warnings.push(item);
+            }
+            Some("info") => new_info.push(item),
+            _ => new_info.push(item), // unchanged
+        }
+    }
+
+    (new_blockers, new_warnings, new_info)
 }

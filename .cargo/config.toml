@@ -1,0 +1,13 @@
+[env]
+RUST_BACKTRACE = "0"
+RUST_LOG = "error"
+
+[build]
+incremental = true
+
+[term]
+color = "never"
+hyperlinks = false
+unicode = false
+verbose = false
+

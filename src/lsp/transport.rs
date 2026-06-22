@@ -232,17 +232,39 @@ fn handle_notification(
                     }
                 }
             } else {
-                eprintln!("[veriplan-lsp] didOpen: file not in any change, publishing empty diagnostics");
-                // File not in any change — publish empty diagnostics to clear stale markers
-                if let Ok(uri) = lsp_types::Url::from_file_path(&file_path) {
-                    let params = PublishDiagnosticsParams {
-                        uri,
-                        diagnostics: Vec::new(),
-                        version: None,
-                    };
-                    let notif =
-                        Notification::new("textDocument/publishDiagnostics".to_string(), params);
-                    let _ = connection.sender.send(Message::Notification(notif));
+                eprintln!("[veriplan-lsp] didOpen: file not in any change, trying standalone mode");
+                // File not in any change — try loading as standalone
+                let mut write_store = store.write().unwrap();
+                if write_store.load_standalone(&file_path) {
+                    let diagnostics = write_store.get_standalone_diagnostics(&file_path)
+                        .unwrap_or_default();
+                    eprintln!(
+                        "[veriplan-lsp] didOpen: loaded as standalone, {} diagnostics",
+                        diagnostics.len()
+                    );
+                    if let Ok(uri) = lsp_types::Url::from_file_path(&file_path) {
+                        let params = PublishDiagnosticsParams {
+                            uri,
+                            diagnostics,
+                            version: None,
+                        };
+                        let notif =
+                            Notification::new("textDocument/publishDiagnostics".to_string(), params);
+                        let _ = connection.sender.send(Message::Notification(notif));
+                    }
+                } else {
+                    // Not a valid standalone file — publish empty diagnostics to clear stale markers
+                    eprintln!("[veriplan-lsp] didOpen: not a valid standalone file, publishing empty diagnostics");
+                    if let Ok(uri) = lsp_types::Url::from_file_path(&file_path) {
+                        let params = PublishDiagnosticsParams {
+                            uri,
+                            diagnostics: Vec::new(),
+                            version: None,
+                        };
+                        let notif =
+                            Notification::new("textDocument/publishDiagnostics".to_string(), params);
+                        let _ = connection.sender.send(Message::Notification(notif));
+                    }
                 }
             }
         }
@@ -272,8 +294,15 @@ fn handle_notification(
                 eprintln!("[veriplan-lsp] didChange: resolved change '{}', refreshing...", change);
                 store.write().unwrap().refresh(&change)
             } else {
-                eprintln!("[veriplan-lsp] didChange: file not in any change");
-                Vec::new()
+                eprintln!("[veriplan-lsp] didChange: file not in any change, trying standalone");
+                // Try standalone mode
+                let mut write_store = store.write().unwrap();
+                if write_store.refresh_standalone(&file_path).is_some() {
+                    // Return diagnostics for this single file
+                    vec![(file_path.clone(), write_store.get_standalone_diagnostics(&file_path).unwrap_or_default())]
+                } else {
+                    Vec::new()
+                }
             };
 
             for (path, diags) in &diagnostics_per_file {
@@ -346,8 +375,15 @@ fn handle_notification(
                 // Refresh and get diagnostics
                 store.write().unwrap().refresh(&change)
             } else {
-                eprintln!("[veriplan-lsp] didSave: file not in any change");
-                Vec::new()
+                eprintln!("[veriplan-lsp] didSave: file not in any change, trying standalone");
+                // Try standalone mode
+                let mut write_store = store.write().unwrap();
+                if write_store.refresh_standalone(&file_path).is_some() {
+                    // Return diagnostics for this single file
+                    vec![(file_path.clone(), write_store.get_standalone_diagnostics(&file_path).unwrap_or_default())]
+                } else {
+                    Vec::new()
+                }
             };
 
             // Publish diagnostics for all affected files

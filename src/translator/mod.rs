@@ -41,7 +41,7 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
             && tasks_in_same_concurrent_phase(plan, &extract_task_refs(&req.statement, plan))
         {
             Some("true".into()) // structurally guaranteed — no LTL
-        } else if category != NonFormalizable {
+        } else if category != NonFormalizable && category != PatternUngrounded {
             generate_ltl(&category, &req.statement, plan)
         } else {
             None
@@ -207,6 +207,7 @@ pub fn generate_ltl(
             Some("true".into())
         }
         NonFormalizable => None,
+        PatternUngrounded => None,
     }
 }
 

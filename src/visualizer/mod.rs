@@ -383,6 +383,7 @@ fn category_label(cat: &crate::ir::ConstraintCategory) -> &'static str {
         Global => "global",
         FixedTime => "fixed-time",
         NonFormalizable => "non-formalizable",
+        PatternUngrounded => "pattern-ungrounded",
     }
 }
 

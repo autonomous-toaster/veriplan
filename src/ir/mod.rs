@@ -57,6 +57,9 @@ pub enum ConstraintCategory {
     Global,
     /// SHALL statement that doesn't match any category
     NonFormalizable,
+    /// SHALL statement with a temporal pattern but no task references to ground it
+    /// (e.g., "X SHALL complete before Y" where X and Y are not task IDs)
+    PatternUngrounded,
 }
 
 /// A single task/action from tasks.md.
