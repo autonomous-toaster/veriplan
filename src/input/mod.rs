@@ -56,6 +56,11 @@ pub enum InputSource {
     SingleFile { path: PathBuf },
     /// Content read from stdin.
     Stdin { content: String, label: String },
+    /// Multiple OpenSpec changes detected — check all sequentially.
+    MultiOpenSpec {
+        changes: Vec<String>,
+        project_root: PathBuf,
+    },
 }
 
 impl InputSource {
@@ -71,6 +76,9 @@ impl InputSource {
             Self::Directory { path, .. } => path.display().to_string(),
             Self::SingleFile { path } => path.display().to_string(),
             Self::Stdin { label, .. } => label.clone(),
+            Self::MultiOpenSpec { changes, .. } => {
+                format!("{} changes", changes.len())
+            }
         }
     }
 }
@@ -227,10 +235,10 @@ fn resolve_auto(project_root: &Path) -> Result<InputSource, String> {
                 change_dir: changes_dir.join(&changes[0]),
                 change_name: changes[0].clone(),
             }),
-            _ => Err(format!(
-                "Multiple active changes found. Specify one: {:?}",
-                changes
-            )),
+            _ => Ok(InputSource::MultiOpenSpec {
+                changes,
+                project_root: project_root.to_path_buf(),
+            }), // NEW: multiple changes is valid, not an error
         }
     } else {
         // 7. CWD has tasks.md or specs/ → Directory mode
@@ -367,6 +375,9 @@ pub fn load_plan(source: &InputSource) -> Result<PlanIR, String> {
             parse_content(&content, &filename)
         }
         InputSource::Stdin { content, label } => parse_content(content, label),
+        InputSource::MultiOpenSpec { .. } => Err(
+            "Cannot load plan from multiple changes — use check_all_changes() instead".to_string(),
+        ),
     }
 }
 
