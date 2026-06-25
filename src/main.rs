@@ -5,10 +5,10 @@ use clap::{Parser, Subcommand};
 
 use veriplan::annotator;
 use veriplan::checker;
-use veriplan::ir::PlanIR;
-use veriplan::parser;
-use veriplan::translator;
-use veriplan::visualizer;
+use veriplan::input;
+
+mod cli;
+mod cmd_visualize;
 
 /// Supported plan formats.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -122,7 +122,7 @@ fn main() -> anyhow::Result<()> {
             change,
             format,
             output,
-        } => run_visualize(change, format.as_deref(), output.as_deref()),
+        } => cmd_visualize::run_visualize(change, format.as_deref(), output.as_deref()),
         Commands::Lsp { stdio: _stdio } => veriplan::lsp::run_lsp(),
     };
 
@@ -131,14 +131,6 @@ fn main() -> anyhow::Result<()> {
     let _ = std::io::stderr().flush();
 
     result
-}
-
-/// Flush stdio and exit with the given code.
-/// Always flushes stdout and stderr before calling process::exit.
-fn flush_exit(code: i32) -> ! {
-    let _ = std::io::stdout().flush();
-    let _ = std::io::stderr().flush();
-    std::process::exit(code);
 }
 
 fn run_check(
@@ -186,7 +178,7 @@ fn run_check(
         project_root,
     } = source
     {
-        check_all_changes(
+        cli::check_all_changes(
             &changes,
             &project_root,
             format.unwrap_or("human"),
@@ -194,6 +186,26 @@ fn run_check(
             pre_commit,
             strictness,
         )?;
+        return Ok(());
+    }
+
+    // Handle Empty case - graceful success with informational message
+    if let veriplan::input::InputSource::Empty { path, reason } = source {
+        let message = match reason {
+            veriplan::input::EmptyReason::NoContent => {
+                format!(
+                    "No verifiable content found in {} — skipping verification",
+                    path.display()
+                )
+            }
+            veriplan::input::EmptyReason::NoActiveChanges => {
+                format!(
+                    "No active changes found in {} — skipping verification",
+                    path.display()
+                )
+            }
+        };
+        println!("{}", message);
         return Ok(());
     }
 
@@ -239,9 +251,9 @@ fn run_check(
             eprintln!(
                 "\nCommit blocked. Fix blockers above, or skip with: VERIPLAN_SKIP=1 git commit"
             );
-            flush_exit(1);
+            cli::flush_exit(1);
         } else {
-            flush_exit(2);
+            cli::flush_exit(2);
         }
     } else if result.valid == Some(false) {
         if pre_commit {
@@ -249,16 +261,16 @@ fn run_check(
                 "\nCommit blocked. Fix violations above, or skip with: VERIPLAN_SKIP=1 git commit"
             );
         }
-        flush_exit(1);
+        cli::flush_exit(1);
     } else if let Some(_reason) = &result.skip_reason {
         if pre_commit {
             // Missing SPIN in pre-commit mode: warn but don't block
             eprintln!(
                 "⚠ SPIN not found — skipping model checking. Install SPIN for full verification."
             );
-            flush_exit(0);
+            cli::flush_exit(0);
         } else {
-            flush_exit(2);
+            cli::flush_exit(2);
         }
     } else if no_model
         && !result
@@ -266,249 +278,10 @@ fn run_check(
             .as_ref()
             .is_none_or(|r| r.warnings.is_empty())
     {
-        flush_exit(0);
+        cli::flush_exit(0);
     }
 
     Ok(())
-}
-
-fn run_visualize(
-    change_name: Option<String>,
-    format: Option<&str>,
-    output: Option<&str>,
-) -> anyhow::Result<()> {
-    let project_root = std::env::current_dir()?;
-
-    // Determine which change to visualize
-    let change_dir = if let Some(name) = &change_name {
-        find_change_dir(&project_root, name)?
-    } else {
-        // Auto-detect: if exactly one active change, use it
-        let changes = discover_changes(&project_root)?;
-        match changes.len() {
-            0 => anyhow::bail!("No active changes found — specify a change name"),
-            1 => project_root.join("openspec/changes").join(&changes[0]),
-            _ => anyhow::bail!("Multiple active changes found. Specify one: {:?}", changes),
-        }
-    };
-
-    // Parse plan
-    let plan: PlanIR = parser::parse_plan(&change_dir).map_err(|e| anyhow::anyhow!(e))?;
-
-    // Translate constraints
-    let constraints = translator::translate_all(&plan);
-
-    // Generate output
-    let format = format.unwrap_or("mermaid");
-    let diagram = match format {
-        "mermaid" => visualizer::format_mermaid(&plan, &constraints),
-        "dot" => visualizer::format_dot(&plan, &constraints),
-        "markdown" => visualizer::format_markdown(&plan, &constraints),
-        other => anyhow::bail!("Unknown format '{}'. Use: mermaid, dot, or markdown", other),
-    };
-
-    if let Some(path) = output {
-        std::fs::write(path, &diagram)?;
-        println!("✓ Visualization written to {}", path);
-    } else {
-        print!("{}", diagram);
-    }
-
-    Ok(())
-}
-
-fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std::path::PathBuf> {
-    // First: try as a change name in the current project
-    let change_path = project_root
-        .join("openspec")
-        .join("changes")
-        .join(change_name);
-
-    if change_path.join("tasks.md").exists() && change_path.join("specs").exists() {
-        return Ok(change_path);
-    }
-
-    // Check if the argument is a change name directly in CWD
-    let direct = Path::new(change_name);
-    if direct.join("tasks.md").exists() && direct.join("specs").exists() {
-        return Ok(direct.to_path_buf());
-    }
-
-    // Second: disambiguation — check if it looks like a path
-    // (contains separator or exists as a directory)
-    let looks_like_path =
-        change_name.contains('/') || change_name.contains('\\') || direct.exists();
-
-    if looks_like_path {
-        // Treat as a project directory path — scan for openspec inside it
-        let target_root = if direct.is_absolute() {
-            direct.to_path_buf()
-        } else {
-            project_root.join(change_name)
-        };
-
-        let target_changes = target_root.join("openspec").join("changes");
-        if target_changes.exists() && target_changes.is_dir() {
-            let changes = discover_changes(&target_root)?;
-            if let Some(first) = changes.first() {
-                return Ok(target_changes.join(first));
-            }
-            anyhow::bail!(
-                "Directory '{}' has openspec/changes/ but no active changes found",
-                target_root.display()
-            );
-        }
-    }
-
-    // Not found anywhere — show available changes
-    let changes_dir = project_root.join("openspec").join("changes");
-    if changes_dir.exists() {
-        let entries: Vec<_> = std::fs::read_dir(&changes_dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect();
-
-        if looks_like_path {
-            anyhow::bail!(
-                "No openspec change or project directory found for '{}'. Available changes: {:?}",
-                change_name,
-                entries
-            );
-        } else {
-            anyhow::bail!(
-                "Change '{}' not found. Available changes: {:?}",
-                change_name,
-                entries
-            );
-        }
-    }
-
-    anyhow::bail!("Change directory not found for '{}'", change_name);
-}
-
-/// Discover all active changes in a project's openspec directory.
-/// Excludes the `archive/` directory.
-fn discover_changes(project_root: &Path) -> anyhow::Result<Vec<String>> {
-    let changes_dir = project_root.join("openspec").join("changes");
-    if !changes_dir.exists() || !changes_dir.is_dir() {
-        anyhow::bail!(
-            "No openspec/changes/ directory found at {}",
-            changes_dir.display()
-        );
-    }
-
-    let mut changes = Vec::new();
-    for entry in std::fs::read_dir(&changes_dir)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        if entry.file_type()?.is_dir() && !is_archive_dir(&name) {
-            // Verify it's a valid change dir (has tasks.md or specs/)
-            let change_path = entry.path();
-            if change_path.join("tasks.md").exists() || change_path.join("specs").exists() {
-                changes.push(name);
-            }
-        }
-    }
-
-    changes.sort();
-    Ok(changes)
-}
-
-/// Check if a directory name is the archive directory.
-fn is_archive_dir(name: &str) -> bool {
-    name == "archive"
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Bootstrap command
-// ═══════════════════════════════════════════════════════════════
-
-/// Check all changes sequentially and print summary.
-fn check_all_changes(
-    changes: &[std::string::String],
-    project_root: &Path,
-    format: &str,
-    verbose: bool,
-    pre_commit: bool,
-    strictness: veriplan::input::StrictnessProfile,
-) -> anyhow::Result<()> {
-    let mut results = Vec::new();
-
-    for change in changes {
-        let source = veriplan::input::InputSource::OpenSpec {
-            change_dir: project_root.join("openspec/changes").join(change),
-            change_name: change.clone(),
-        };
-
-        let plan = veriplan::input::load_plan(&source).map_err(|e| anyhow::anyhow!("{}", e))?;
-        let result = checker::verify_with_strictness(
-            &plan, change, false, // no_model
-            pre_commit, strictness, true, // is_openspec
-        );
-        results.push((change.clone(), result));
-    }
-
-    match format {
-        "json" => print_multi_json(&results),
-        _ => print_multi_human(&results, verbose),
-    }
-
-    // Exit code based on results
-    if results.iter().all(|(_, r)| r.valid.unwrap_or(false)) {
-        Ok(())
-    } else {
-        flush_exit(1);
-    }
-}
-
-/// Print human-readable output for multiple changes.
-fn print_multi_human(results: &[(String, checker::VerificationResult)], _verbose: bool) {
-    let total = results.len();
-    let invalid: Vec<_> = results
-        .iter()
-        .filter(|(_, r)| !r.valid.unwrap_or(false))
-        .collect();
-
-    if invalid.is_empty() {
-        println!("✓ All {} changes valid", total);
-    } else {
-        eprintln!("✗ {}/{} changes invalid", invalid.len(), total);
-        for (name, _) in &invalid {
-            eprintln!("  - {}: INVALID", name);
-        }
-        eprintln!();
-        eprintln!("Run:");
-        for (name, _) in &invalid {
-            eprintln!("  veriplan check {}", name);
-        }
-    }
-}
-
-/// Print JSON output for multiple changes.
-fn print_multi_json(results: &[(String, checker::VerificationResult)]) {
-    let mut changes_json = Vec::new();
-    let mut invalid_changes = Vec::new();
-
-    for (name, result) in results {
-        changes_json.push(serde_json::json!({
-            "name": name,
-            "valid": result.valid,
-            "plan_name": result.plan_name,
-        }));
-
-        if !result.valid.unwrap_or(false) {
-            invalid_changes.push(name);
-        }
-    }
-
-    let output = serde_json::json!({
-        "changes": changes_json,
-        "all_valid": invalid_changes.is_empty(),
-        "invalid_changes": invalid_changes,
-    });
-
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
 }
 
 fn run_init(project_root: Option<&str>) -> anyhow::Result<()> {

@@ -4,7 +4,12 @@
 //! and stdin. The InputResolver determines the source type and loads content
 //! into a PlanIR for the checker.
 
-use std::io::{self, Read};
+mod loader;
+mod resolve;
+
+pub use loader::{load_directory, parse_content};
+pub use resolve::{find_change_dir, read_stdin, resolve_auto};
+
 use std::path::{Path, PathBuf};
 
 use crate::ir::PlanIR;
@@ -61,6 +66,17 @@ pub enum InputSource {
         changes: Vec<String>,
         project_root: PathBuf,
     },
+    /// No verifiable content found — graceful empty state.
+    Empty { path: PathBuf, reason: EmptyReason },
+}
+
+/// Reason why no verifiable content was found.
+#[derive(Debug, Clone)]
+pub enum EmptyReason {
+    /// No openspec/changes/, tasks.md, or specs/ found
+    NoContent,
+    /// openspec/changes/ exists but contains no active changes
+    NoActiveChanges,
 }
 
 impl InputSource {
@@ -79,6 +95,7 @@ impl InputSource {
             Self::MultiOpenSpec { changes, .. } => {
                 format!("{} changes", changes.len())
             }
+            Self::Empty { path, .. } => path.display().to_string(),
         }
     }
 }
@@ -220,106 +237,6 @@ pub fn resolve_input(
     Err(format!("Path does not exist: {}", arg))
 }
 
-/// Auto-detect input source from the current working directory.
-fn resolve_auto(project_root: &Path) -> Result<InputSource, String> {
-    // 6. CWD has openspec/changes/ → OpenSpec auto-detect
-    let changes_dir = project_root.join("openspec").join("changes");
-    if changes_dir.exists() && changes_dir.is_dir() {
-        let changes = discover_changes(project_root)?;
-        match changes.len() {
-            0 => Err(format!(
-                "No active changes found in {}",
-                changes_dir.display()
-            )),
-            1 => Ok(InputSource::OpenSpec {
-                change_dir: changes_dir.join(&changes[0]),
-                change_name: changes[0].clone(),
-            }),
-            _ => Ok(InputSource::MultiOpenSpec {
-                changes,
-                project_root: project_root.to_path_buf(),
-            }), // NEW: multiple changes is valid, not an error
-        }
-    } else {
-        // 7. CWD has tasks.md or specs/ → Directory mode
-        let has_tasks = project_root.join("tasks.md").exists();
-        let has_specs = project_root.join("specs").exists();
-
-        if has_tasks || has_specs {
-            Ok(InputSource::Directory {
-                path: project_root.to_path_buf(),
-                has_tasks,
-                has_specs,
-            })
-        } else {
-            Err(format!(
-                "No verifiable content found in {}. Pass a file, directory, or change name. \
-                 Or pipe content via --stdin.",
-                project_root.display()
-            ))
-        }
-    }
-}
-
-/// Find a change directory by name, trying multiple lookup strategies.
-fn find_change_dir(project_root: &Path, change_name: &str) -> Result<InputSource, String> {
-    // First: try as a change name in the current project
-    let change_path = project_root
-        .join("openspec")
-        .join("changes")
-        .join(change_name);
-
-    if change_path.join("tasks.md").exists() && change_path.join("specs").exists() {
-        return Ok(InputSource::OpenSpec {
-            change_dir: change_path,
-            change_name: change_name.to_string(),
-        });
-    }
-
-    // Check if the argument is a path to a directory
-    let direct = Path::new(change_name);
-    if direct.join("tasks.md").exists() && direct.join("specs").exists() {
-        return Ok(InputSource::OpenSpec {
-            change_dir: direct.to_path_buf(),
-            change_name: change_name.to_string(),
-        });
-    }
-
-    // Try as a project directory path
-    if direct.is_dir() {
-        let target_root = if direct.is_absolute() {
-            direct.to_path_buf()
-        } else {
-            project_root.join(change_name)
-        };
-
-        let target_changes = target_root.join("openspec").join("changes");
-        if target_changes.exists() && target_changes.is_dir() {
-            let changes = discover_changes(&target_root)?;
-            if let Some(name) = changes.first() {
-                return Ok(InputSource::OpenSpec {
-                    change_dir: target_changes.join(name),
-                    change_name: name.clone(),
-                });
-            }
-        }
-    }
-
-    Err(format!("Change '{}' not found", change_name))
-}
-
-/// Read all of stdin into a string.
-fn read_stdin() -> Result<String, String> {
-    let mut content = String::new();
-    io::stdin()
-        .read_to_string(&mut content)
-        .map_err(|e| format!("Failed to read stdin: {}", e))?;
-    if content.is_empty() {
-        return Err("Stdin is empty — no content to verify".to_string());
-    }
-    Ok(content)
-}
-
 /// Discover all active changes in a project's openspec directory.
 /// Excludes the `archive/` directory.
 pub fn discover_changes(project_root: &Path) -> Result<Vec<String>, String> {
@@ -378,156 +295,8 @@ pub fn load_plan(source: &InputSource) -> Result<PlanIR, String> {
         InputSource::MultiOpenSpec { .. } => Err(
             "Cannot load plan from multiple changes — use check_all_changes() instead".to_string(),
         ),
-    }
-}
-
-/// Load a directory that may have tasks.md and/or specs/ but not the full OpenSpec layout.
-fn load_directory(path: &Path, has_tasks: bool, has_specs: bool) -> Result<PlanIR, String> {
-    let mut plan = PlanIR {
-        tasks: Vec::new(),
-        requirements: Vec::new(),
-        scenarios: Vec::new(),
-        phases: Vec::new(),
-        source_map: crate::ir::SourceMap::default(),
-    };
-
-    let mut parser_instance = tree_sitter::Parser::new();
-    let lang = tree_sitter_language_pack::get_language("markdown")
-        .map_err(|e| format!("Grammar error: {}", e))?;
-    parser_instance
-        .set_language(&lang)
-        .map_err(|e| format!("Grammar error: {}", e))?;
-
-    if has_tasks {
-        let tasks_path = path.join("tasks.md");
-        let tasks_source = std::fs::read_to_string(&tasks_path)
-            .map_err(|e| format!("Cannot read {}: {}", tasks_path.display(), e))?;
-        let (tasks, phases) =
-            parser::parse_tasks(&mut parser_instance, &tasks_source, &tasks_path)?;
-        plan.tasks = tasks;
-        plan.phases = phases;
-    }
-
-    if has_specs {
-        let specs_dir = path.join("specs");
-        let mut spec_files = Vec::new();
-        collect_specs(&specs_dir, &mut spec_files)
-            .map_err(|e| format!("Error reading specs directory: {}", e))?;
-        spec_files.sort_by(|a, b| a.capability.cmp(&b.capability));
-
-        for spec_file in &spec_files {
-            let source = std::fs::read_to_string(&spec_file.path)
-                .map_err(|e| format!("Cannot read {}: {}", spec_file.path.display(), e))?;
-            let (reqs, standalone_scenarios) = parser::parse_spec(
-                &mut parser_instance,
-                &source,
-                &spec_file.path,
-                &spec_file.capability,
-            )?;
-            plan.requirements.extend(reqs);
-            plan.scenarios.extend(standalone_scenarios);
+        InputSource::Empty { .. } => {
+            Err("Cannot load plan from empty directory — no verifiable content found".to_string())
         }
     }
-
-    // Build source map
-    for task in &plan.tasks {
-        plan.source_map
-            .tasks
-            .insert(task.id.clone(), task.source.clone());
-    }
-    for req in &plan.requirements {
-        plan.source_map
-            .requirements
-            .insert(req.id.clone(), req.source.clone());
-    }
-
-    Ok(plan)
-}
-
-/// Collect spec files from a directory tree.
-fn collect_specs(dir: &Path, files: &mut Vec<parser::SpecFile>) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_specs(&path, files)?;
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md")
-            && path.file_stem().and_then(|s| s.to_str()) == Some("spec")
-        {
-            let capability = path
-                .parent()
-                .and_then(|p| p.file_name())
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-            files.push(parser::SpecFile { capability, path });
-        }
-    }
-    Ok(())
-}
-
-/// Parse arbitrary markdown content into a PlanIR.
-///
-/// Tries `parse_tasks()` and `parse_spec()` on the same content.
-/// Either, both, or neither may produce results. If neither produces
-/// anything, returns an error.
-pub fn parse_content(source: &str, filename: &str) -> Result<PlanIR, String> {
-    let mut parser_instance = tree_sitter::Parser::new();
-    let lang = tree_sitter_language_pack::get_language("markdown")
-        .map_err(|e| format!("Grammar error: {}", e))?;
-    parser_instance
-        .set_language(&lang)
-        .map_err(|e| format!("Grammar error: {}", e))?;
-
-    let file_path = Path::new(filename);
-
-    // Try parsing as tasks
-    let tasks_result = parser::parse_tasks(&mut parser_instance, source, file_path);
-    let (tasks, phases) = tasks_result.unwrap_or_default();
-
-    // Try parsing as spec (use filename as capability name for better IDs)
-    let capability = file_path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|s| s.to_str())
-        .unwrap_or("standalone");
-
-    let (requirements, standalone_scenarios) =
-        match parser::parse_spec(&mut parser_instance, source, file_path, capability) {
-            Ok((reqs, scenarios)) => (reqs, scenarios),
-            Err(_) => (Vec::new(), Vec::new()),
-        };
-
-    if tasks.is_empty() && requirements.is_empty() {
-        return Err(format!(
-            "No verifiable content found in {} — no tasks or requirements detected",
-            filename
-        ));
-    }
-
-    // It's OK to have only tasks or only requirements — the checker will
-    // handle the severity based on input mode and strictness.
-    // For example, a standalone spec.md has requirements but no tasks, and
-    // a standalone tasks.md has tasks but no requirements.
-
-    // Build source map
-    let mut source_map = crate::ir::SourceMap::default();
-    for task in &tasks {
-        source_map
-            .tasks
-            .insert(task.id.clone(), task.source.clone());
-    }
-    for req in &requirements {
-        source_map
-            .requirements
-            .insert(req.id.clone(), req.source.clone());
-    }
-
-    Ok(PlanIR {
-        tasks,
-        requirements,
-        scenarios: standalone_scenarios,
-        phases,
-        source_map,
-    })
 }

@@ -1,521 +1,278 @@
-//! Annotator: maps model checker results to human-readable + JSON output.
+//! Annotator — enrich violations with source locations, task context, and suggested fixes.
 
-use crate::checker::{ConstraintSummary, VerificationResult, Violation};
+mod helpers;
+
+use crate::checker::Violation;
 use crate::ir::PlanIR;
 
-/// Helper: extract task IDs like "4.2" from LTL formula (active_t4_2 → "4.2").
-fn task_ids_from_ltl(ltl: &str) -> Vec<String> {
-    let mut ids = Vec::new();
-    let bytes = ltl.as_bytes();
-    let n = bytes.len();
-    let mut i = 0;
-    while i < n {
-        if bytes[i] == b't' && i + 2 < n && bytes[i+1].is_ascii_digit() && bytes[i+2] == b'_' {
-            i += 1;
-            let start = i;
-            while i < n && (bytes[i].is_ascii_digit() || bytes[i] == b'_') {
-                i += 1;
-            }
-            if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(underscore) = s.find('_') {
-                    let major = &s[..underscore];
-                    let minor = &s[underscore+1..];
-                    ids.push(format!("{}.{}", major, minor));
-                }
-        } else {
-            i += 1;
-        }
-    }
-    ids.sort();
-    ids.dedup();
-    ids
-}
+pub use helpers::{build_phase_context, category_breakdown, parse_conditional_ltl, task_ids_from_ltl};
 
-/// Parse trigger and consequent from a Conditional LTL formula.
-/// Conditional LTL: `[] ( failed_t<X>_<Y> -> <> active_t<A>_<B> )`
-/// Returns (trigger_id, consequent_id) like ("1.4", "1.5").
-fn parse_conditional_ltl(ltl: &str) -> Option<(String, String)> {
-    let ltl_bytes = ltl.as_bytes();
-    let n = ltl_bytes.len();
-
-    // Find "failed_t" and extract trigger
-    let failed_idx = ltl.find("failed_t")?;
-    let mut i = failed_idx + 8; // skip "failed_t"
-    // read digits until '_'
-    let mut major = String::new();
-    let mut minor = String::new();
-    while i < n && ltl_bytes[i].is_ascii_digit() {
-        major.push(ltl_bytes[i] as char);
-        i += 1;
-    }
-    // skip '_'
-    if i < n && ltl_bytes[i] == b'_' { i += 1; }
-    while i < n && ltl_bytes[i].is_ascii_digit() {
-        minor.push(ltl_bytes[i] as char);
-        i += 1;
-    }
-    if major.is_empty() || minor.is_empty() { return None; }
-    let trigger = format!("{}.{}", major, minor);
-
-    // Find "active_t" and extract consequent
-    let active_idx = ltl.find("active_t")?;
-    let mut i = active_idx + 8; // skip "active_t"
-    let mut major = String::new();
-    let mut minor = String::new();
-    while i < n && ltl_bytes[i].is_ascii_digit() {
-        major.push(ltl_bytes[i] as char);
-        i += 1;
-    }
-    // skip '_'
-    if i < n && ltl_bytes[i] == b'_' { i += 1; }
-    while i < n && ltl_bytes[i].is_ascii_digit() {
-        minor.push(ltl_bytes[i] as char);
-        i += 1;
-    }
-    if major.is_empty() || minor.is_empty() { return None; }
-    let consequent = format!("{}.{}", major, minor);
-
-    Some((trigger, consequent))
-}
-
-/// Build phase context string like "T4.2 (Phase 4), T4.4 (Phase 4)".
-fn build_phase_context(ltl: &str, plan: &PlanIR) -> Option<String> {
-    let task_ids = task_ids_from_ltl(ltl);
-    if task_ids.is_empty() {
-        return None;
-    }
-    // Build a map: task_id → phase
-    let mut phases: std::collections::BTreeMap<String, &str> = std::collections::BTreeMap::new();
-    for t in &plan.tasks {
-        if task_ids.contains(&t.id) {
-            phases.insert(t.id.clone(), t.phase.as_str());
-        }
-    }
-    if phases.is_empty() {
-        return None;
-    }
-    let parts: Vec<String> = phases
-        .into_iter()
-        .map(|(id, phase)| format!("T{} ({})", id, phase))
-        .collect();
-    Some(parts.join(", "))
-}
-
-/// Build category breakdown string from violations.
-fn category_breakdown(violations: &[AnnotatedViolation]) -> String {
-    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for v in violations {
-        *counts.entry(v.category.clone()).or_default() += 1;
-    }
-    counts
-        .into_iter()
-        .map(|(cat, n)| format!("{}: {}", cat, n))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// An annotated violation with source locations resolved.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Annotated violation with additional context.
+#[derive(Debug, Clone)]
 pub struct AnnotatedViolation {
-    pub constraint_id: String,
-    pub requirement_statement: String,
-    pub ltl: String,
-    pub category: String,
-    pub state: String,
-    pub source_file: Option<String>,
-    pub source_line: Option<usize>,
-    pub suggested_fix: Option<String>,
-    /// Phase context extracted from plan (e.g., "T4.2 (Phase 4)")
+    pub violation: Violation,
+    pub task_source: Option<String>,
+    pub req_source: Option<String>,
     pub phase_context: Option<String>,
+    pub trigger_task: Option<String>,
+    pub consequent_task: Option<String>,
+    pub category: String,
 }
 
-/// Annotate a verification result with source locations from PlanIR.
-/// `plans` is a list of (plan_name, PlanIR) pairs for multi-change resolution.
+/// Annotate violations with source locations and context.
 pub fn annotate(
-    result: &VerificationResult,
+    result: &crate::checker::VerificationResult,
     plans: &[(String, PlanIR)],
 ) -> Vec<AnnotatedViolation> {
-    // Build a map: plan_name → &PlanIR for quick lookup
-    let plan_map: std::collections::HashMap<&str, &PlanIR> = plans
-        .iter()
-        .map(|(name, plan)| (name.as_str(), plan))
-        .collect();
+    let mut annotated = Vec::new();
 
-    result
-        .violations
-        .iter()
-        .map(|v| {
-            // Look up the correct plan for this violation
-            let v_plan = if v.plan.is_empty() {
-                plan_map
-                    .values()
-                    .next()
-                    .copied()
-                    .unwrap_or_else(|| &plans[0].1)
-            } else {
-                plan_map.get(v.plan.as_str()).copied().unwrap_or_else(|| {
-                    // Fallback: scan all plans for matching requirement
-                    plans
-                        .iter()
-                        .find_map(|(_, p)| {
-                            if p.requirements.iter().any(|r| r.id == v.constraint_id) {
-                                Some(p)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or_else(|| &plans[0].1)
-                })
-            };
+    for violation in &result.violations {
+        let plan = plans
+            .iter()
+            .find(|(name, _)| name == &violation.plan)
+            .map(|(_, p)| p)
+            .or_else(|| plans.first().map(|(_, p)| p))
+            .unwrap();
 
-            let (src_file, src_line) = resolve_source(v, v_plan);
-            let phase_ctx = build_phase_context(&v.ltl, v_plan);
-            AnnotatedViolation {
-                constraint_id: v.constraint_id.clone(),
-                requirement_statement: v.requirement_statement.clone(),
-                ltl: v.ltl.clone(),
-                category: v.category.clone(),
-                state: v.state.clone(),
-                source_file: src_file.or_else(|| v.task_source.clone()),
-                source_line: src_line,
-                suggested_fix: v.suggested_fix.clone(),
-                phase_context: phase_ctx,
-            }
-        })
-        .collect()
-}
+        let (task_source, req_source) = resolve_source(violation, plan);
 
-fn resolve_source(v: &Violation, plan: &PlanIR) -> (Option<String>, Option<usize>) {
-    // Try to find the requirement's source
-    for req in &plan.requirements {
-        if req.id == v.constraint_id {
-            return (Some(req.source.file.clone()), Some(req.source.start_line));
-        }
+        let phase_context = helpers::build_phase_context(&violation.ltl, plan);
+
+        let (trigger_task, consequent_task) = if violation.category.contains("Conditional") {
+            helpers::parse_conditional_ltl(&violation.ltl)
+                .map(|(t, c)| (Some(t), Some(c)))
+                .unwrap_or((None, None))
+        } else {
+            (None, None)
+        };
+
+        annotated.push(AnnotatedViolation {
+            violation: violation.clone(),
+            task_source,
+            req_source,
+            phase_context,
+            trigger_task,
+            consequent_task,
+            category: violation.category.clone(),
+        });
     }
-    (None, None)
+
+    annotated
 }
 
-/// Format a human-readable report string.
+/// Format verification result as human-readable text.
 pub fn format_human(
-    result: &VerificationResult,
+    result: &crate::checker::VerificationResult,
     annotated: &[AnnotatedViolation],
     plans: &[(String, PlanIR)],
     verbose: bool,
 ) -> String {
     let mut output = String::new();
-    let plan_name = &result.plan_name;
 
-    match result.phase.as_str() {
-        "convertibility" => {
-            if let Some(ref report) = result.convertibility_report {
+    let status = if result.convertible && result.valid == Some(true) {
+        "✓ VALID"
+    } else if !result.convertible {
+        "⚠ SKIPPED"
+    } else if result.valid == Some(false) {
+        "✗ INVALID"
+    } else {
+        "⚠ UNKNOWN"
+    };
+
+    output.push_str(&format!(
+        "Plan: {} — {}\n",
+        result.plan_name, status
+    ));
+
+    if let Some(reason) = &result.skip_reason {
+        output.push_str(&format!("\n  Model check skipped: {}\n", reason));
+    }
+
+    if let Some(report) = &result.convertibility_report {
+        if !report.blockers.is_empty() {
+            output.push_str(&format!(
+                "  {} blocker(s):\n",
+                report.blockers.len()
+            ));
+            for item in &report.blockers {
                 output.push_str(&format!(
-                    "📋 Plan: {} — Convertibility Check\n\n",
-                    plan_name
+                    "    [BLOCKER] {} at {}\n",
+                    item.element, item.location
                 ));
-
-                if !report.blockers.is_empty() {
-                    output.push_str(&format!("✗ {} blocker(s):\n", report.blockers.len()));
-                    for b in &report.blockers {
-                        output.push_str(&format!("  [BLOCKER] {} at {}\n", b.element, b.location));
-                        output.push_str(&format!("           {}\n", b.detail));
-                        if let Some(ref fix) = b.fix {
-                            output.push_str(&format!("           Fix: {}\n", fix));
-                        }
-                    }
-                    output.push_str(
-                        "\n  Rephrase the spec following the fix suggestions and re-run.\n",
-                    );
-                }
-
-                if !report.warnings.is_empty() {
-                    output.push_str(&format!("\n⚠ {} warning(s):\n", report.warnings.len()));
-                    for w in &report.warnings {
-                        output.push_str(&format!("  [WARNING] {} at {}\n", w.element, w.location));
-                        output.push_str(&format!("            {}\n", w.detail));
-                    }
-                }
-
-                if !report.info.is_empty() {
-                    output.push_str(&format!("\nℹ {} info(s):\n", report.info.len()));
-                    for i in &report.info {
-                        output.push_str(&format!("  [INFO] {} {}\n", i.element, i.detail));
-                    }
+                output.push_str(&format!("              {}\n", item.detail));
+                if let Some(fix) = &item.fix {
+                    output.push_str(&format!("              Fix: {}\n", fix));
                 }
             }
         }
-        "model_check" | "full" => {
-            let status = if result.valid == Some(true) {
-                "✓ VALID"
-            } else if result.skip_reason.is_some() {
-                "⚠ SKIPPED"
-            } else if plans.len() > 1 && result.valid.is_none() && !result.convertible {
-                // Mixed: some changes passed, some failed convertibility
-                "⚠ PARTIAL"
-            } else if result.valid.is_none() && !result.convertible {
-                "✗ BLOCKED"
-            } else {
-                "✗ INVALID"
-            };
 
-            output.push_str(&format!("Plan: {} — {}\n\n", plan_name, status));
-
-            // Per-change status breakdown (only for multi-change)
-            if plans.len() > 1 {
-                output.push_str(&format!("  Changes ({}/{}):\n", plans.len(), plans.len()));
-                for (name, plan) in plans {
-                    // Check if this change was skipped (has tasks but no constraints fulfilled)
-                    let has_requirements = !plan.requirements.is_empty();
-                    let matching_constraints = result
-                        .constraints_summary
-                        .iter()
-                        .any(|cs| plan.requirements.iter().any(|r| r.id == cs.requirement_id));
-                    let has_violations = annotated
-                        .iter()
-                        .any(|v| plan.requirements.iter().any(|r| r.id == v.constraint_id));
-
-                    let (chk, note) = if has_violations {
-                        ("✗", " (has violations)")
-                    } else if has_requirements && !matching_constraints {
-                        ("⚠", " (skipped — not convertible)")
-                    } else {
-                        ("✓", "")
-                    };
-                    output.push_str(&format!("    {} {}{}\n", chk, name, note));
-                }
-                output.push('\n');
-            }
-
-            // Model explanation header: only when there are violations to interpret
-            if !annotated.is_empty() {
-                output.push_str(
-                    "  Verification model: the plan's task-phase structure is modeled as a\n  state machine. Each spec constraint is checked as an LTL property\n  against this model. A violation means the spec demands behavior\n  that the plan structure cannot guarantee.\n\n",
-                );
-            }
-
-            if let Some(ref reason) = result.skip_reason {
-                output.push_str(&format!("  Model check skipped: {}\n", reason));
-                // Show convertibility report blockers/warnings so agent knows what to fix
-                if let Some(ref report) = result.convertibility_report {
-                    if !report.blockers.is_empty() {
-                        output.push_str(&format!(
-                            "  {} blocker(s):\n",
-                            report.blockers.len()
-                        ));
-                        for b in &report.blockers {
-                            output.push_str(&format!(
-                                "    [BLOCKER] {} at {}\n",
-                                b.element, b.location
-                            ));
-                            output.push_str(&format!("              {}\n", b.detail));
-                            if let Some(ref fix) = b.fix {
-                                output.push_str(&format!("              Fix: {}\n", fix));
-                            }
-                        }
-                    }
-                    if !report.warnings.is_empty() {
-                        output.push_str(&format!(
-                            "  {} warning(s).  Use --phase convertibility --verbose for details.\n",
-                            report.warnings.len()
-                        ));
-                    }
-                }
-            } else if annotated.is_empty() {
-                output.push_str("  All constraints satisfied.\n");
-            } else {
+        if !report.warnings.is_empty() && verbose {
+            output.push_str(&format!(
+                "  {} warning(s):\n",
+                report.warnings.len()
+            ));
+            for item in &report.warnings {
                 output.push_str(&format!(
-                    "  {} violation(s) out of {} constraints:\n\n",
-                    annotated.len(),
-                    result.total_constraints
+                    "    [WARNING] {} at {}\n",
+                    item.element, item.location
                 ));
-                for v in annotated {
-                    output.push_str(&format!(
-                        "  ⚠ {} (category: {})\n",
-                        v.constraint_id, v.category
-                    ));
-                    output.push_str(&format!("     Statement: {}\n", v.requirement_statement));
-                    output.push_str(&format!("     LTL: {}
-", v.ltl));
-                    // For Conditional violations, show trigger/consequent breakdown
-                    if v.category == "conditional"
-                        && let Some((trigger, consequent)) = parse_conditional_ltl(&v.ltl) {
-                            output.push_str(&format!(
-                                "     Trigger: T{} (when this task fails)\n     Consequent: T{} (this task should activate)\n",
-                                trigger, consequent
-                            ));
-                        }
-                    if let Some(ref ctx) = v.phase_context {
-                        output.push_str(&format!("     Tasks: {}\n", ctx));
-                    }
-                    if let Some(ref file) = v.source_file {
-                        let line = v.source_line.unwrap_or(0);
-                        output.push_str(&format!("     At: {}:{}\n", file, line));
-                    }
-                    output.push_str(&format!("     State: {}\n", v.state));
-                    if let Some(ref fix) = v.suggested_fix {
-                        output.push_str(&format!("     Fix: {}\n", fix));
-                    }
-                    output.push('\n');
-                }
-            }
-
-            if result.skip_reason.is_none() {
-                let unchecked_count = result
-                    .constraints_summary
-                    .iter()
-                    .filter(|cs| cs.unchecked)
-                    .count();
-                let violated_count =
-                    result.total_constraints - result.satisfied_constraints - unchecked_count;
-                output.push_str(&format!(
-                    "  Satisfied: {} | Violated: {} | Unchecked: {} | Total: {}\n",
-                    result.satisfied_constraints,
-                    violated_count,
-                    unchecked_count,
-                    result.total_constraints
-                ));
-
-                // Per-category breakdown — only when there are violations
-                let break_down = category_breakdown(annotated);
-                if !break_down.is_empty() {
-                    output.push_str(&format!("  Violations by category: {}\n", break_down));
-                }
-
-                // Per-constraint list: always show when invalid, only in verbose when valid
-                if !result.constraints_summary.is_empty() {
-                    let show_constraints = !annotated.is_empty() || verbose;
-                if show_constraints {
-                    output.push_str("\n  Constraints:\n");
-                        for cs in &result.constraints_summary {
-                            let mark = if cs.unchecked {
-                                "~"
-                            } else if cs.satisfied {
-                                "✓"
-                            } else {
-                                "✗"
-                            };
-                            output.push_str(&format!(
-                                "    {}  {}  {}\n",
-                                mark, cs.category, cs.requirement_id
-                            ));
-                        }
-                    }
-                }
-
-                if verbose
-                    && let Some(first_plan) = plans.first().map(|(_, p)| p) {
-                        verbose_section(&mut output, first_plan, result);
-                    }
+                output.push_str(&format!("              {}\n", item.detail));
             }
         }
-        _ => {
-            output.push_str(&format!("Plan: {} — status unknown\n", plan_name));
+    }
+
+    if !result.violations.is_empty() {
+        let satisfied = result.satisfied_constraints;
+        let violated = result.violations.len();
+        let total = result.total_constraints;
+
+        output.push_str(&format!(
+            "\n  Satisfied: {} | Violated: {} | Total: {}\n",
+            satisfied, violated, total
+        ));
+
+        if verbose {
+            output.push_str(&format!("\n{}\n", helpers::category_breakdown(annotated)));
         }
+
+        for (i, v) in annotated.iter().enumerate() {
+            output.push_str(&format!(
+                "\n  Violation {}:\n",
+                i + 1
+            ));
+            output.push_str(&format!(
+                "    Requirement: {}\n",
+                v.violation.constraint_id
+            ));
+            output.push_str(&format!(
+                "    Statement: {}\n",
+                v.violation.requirement_statement
+            ));
+            output.push_str(&format!("    Category: {}\n", v.category));
+
+            if let Some(phase) = &v.phase_context {
+                output.push_str(&format!("    Phase: {}\n", phase));
+            }
+
+            if v.category.contains("Conditional") {
+                if let Some(trigger) = &v.trigger_task {
+                    output.push_str(&format!("    Trigger: {}\n", trigger));
+                }
+                if let Some(consequent) = &v.consequent_task {
+                    output.push_str(&format!("    Consequent: {}\n", consequent));
+                }
+            }
+
+            if let Some(source) = &v.task_source {
+                output.push_str(&format!("    Task source: {}\n", source));
+            }
+            if let Some(source) = &v.req_source {
+                output.push_str(&format!("    Requirement source: {}\n", source));
+            }
+
+            if let Some(fix) = &v.violation.suggested_fix {
+                output.push_str(&format!("\n    Suggested fix:\n    {}\n", fix.replace('\n', "\n    ")));
+            }
+        }
+    } else if result.convertible && result.valid == Some(true) {
+        output.push_str("  All constraints satisfied.\n");
+        output.push_str(&format!(
+            "  Satisfied: {} | Violated: 0 | Total: {}\n",
+            result.satisfied_constraints, result.total_constraints
+        ));
+    }
+
+    if verbose {
+        verbose_section(&mut output, plans, result);
     }
 
     output
 }
 
-/// Append verbose debug information (tasks, requirements, constraints) to output.
-fn verbose_section(output: &mut String, plan: &PlanIR, _result: &VerificationResult) {
-    output.push('\n');
-    // Tasks grouped by phase
-    output.push_str("  ── Tasks ──\n");
-    if plan.phases.is_empty() {
-        for task in &plan.tasks {
-            let loc = &task.source;
-            output.push_str(&format!(
-                "    {}  {}  ({}:{})\n",
-                task.id, task.description, loc.file, loc.start_line
-            ));
-        }
-    } else {
-        for phase in &plan.phases {
-            let phase_tasks: Vec<_> = plan
-                .tasks
-                .iter()
-                .filter(|t| t.phase == phase.name)
-                .collect();
-            if !phase_tasks.is_empty() {
-                output.push_str(&format!("    {}:\n", phase.name));
-                for task in &phase_tasks {
-                    output.push_str(&format!(
-                        "      {}  {}\n",
-                        task.id, task.description
-                    ));
-                }
-            }
-        }
-    }
-
-    // Requirements with classification
-    output.push_str("\n  ── Requirements ──\n");
-    for req in &plan.requirements {
-        let strength_str = format!("{:?}", req.strength);
-        let cat_str = format!("{:?}", req.category);
-        let _loc = &req.source;
-        output.push_str(&format!(
-            "    {}  strength={}  category={}\n",
-            req.id, strength_str, cat_str
-        ));
-    }
-    output.push('\n');
-}
-
-/// Format a JSON report string.
+/// Format verification result as JSON.
 pub fn format_json(
-    result: &VerificationResult,
+    result: &crate::checker::VerificationResult,
     annotated: &[AnnotatedViolation],
-    plans: &[(String, PlanIR)],
-    _verbose: bool,
+    _plans: &[(String, PlanIR)],
+    verbose: bool,
 ) -> String {
-    // Build per-change data
-    let changes: Vec<serde_json::Value> = plans
-        .iter()
-        .map(|(name, plan)| {
-            let change_annotated: Vec<&AnnotatedViolation> = annotated
-                .iter()
-                .filter(|v| plan.requirements.iter().any(|r| r.id == v.constraint_id))
-                .collect();
-            let matching_constraints: Vec<&ConstraintSummary> = result
-                .constraints_summary
-                .iter()
-                .filter(|cs| plan.requirements.iter().any(|r| r.id == cs.requirement_id))
-                .collect();
-            serde_json::json!({
-                "name": name,
-                "constraints": matching_constraints.len(),
-                "violations": change_annotated.len(),
-            })
-        })
-        .collect();
+    let mut violations_json = Vec::new();
 
-    let json_output = serde_json::json!({
-        "plan": result.plan_name,
+    for v in annotated {
+        let mut obj = serde_json::json!({
+            "constraint_id": v.violation.constraint_id,
+            "requirement_statement": v.violation.requirement_statement,
+            "ltl": v.violation.ltl,
+            "category": v.category,
+            "state": v.violation.state,
+            "plan": v.violation.plan,
+        });
+
+        if let Some(source) = &v.task_source {
+            obj["task_source"] = serde_json::json!(source);
+        }
+        if let Some(source) = &v.req_source {
+            obj["req_source"] = serde_json::json!(source);
+        }
+        if let Some(phase) = &v.phase_context {
+            obj["phase_context"] = serde_json::json!(phase);
+        }
+        if let Some(fix) = &v.violation.suggested_fix {
+            obj["suggested_fix"] = serde_json::json!(fix);
+        }
+
+        violations_json.push(obj);
+    }
+
+    let mut output = serde_json::json!({
+        "plan_name": result.plan_name,
         "phase": result.phase,
         "convertible": result.convertible,
         "valid": result.valid,
+        "violations": violations_json,
         "total_constraints": result.total_constraints,
         "satisfied_constraints": result.satisfied_constraints,
-        "skip_reason": result.skip_reason,
-        "constraints_summary": result.constraints_summary,
-        "violations": annotated.iter().map(|v| {
-            serde_json::json!({
-                "constraint_id": v.constraint_id,
-                "statement": v.requirement_statement,
-                "ltl": v.ltl,
-                "category": v.category,
-                "state": v.state,
-                "source_file": v.source_file,
-                "source_line": v.source_line,
-                "suggested_fix": v.suggested_fix,
-            })
-        }).collect::<Vec<_>>(),
-        "convertibility_report": result.convertibility_report,
-        "changes": if changes.is_empty() || changes.len() == 1 {
-            serde_json::Value::Null
-        } else {
-            serde_json::Value::Array(changes)
-        },
     });
-    serde_json::to_string_pretty(&json_output).unwrap_or_default()
+
+    if let Some(reason) = &result.skip_reason {
+        output["skip_reason"] = serde_json::json!(reason);
+    }
+
+    if verbose
+        && let Some(report) = &result.convertibility_report {
+            output["convertibility_report"] = serde_json::json!(report);
+        }
+
+    serde_json::to_string_pretty(&output).unwrap_or_default()
+}
+
+fn resolve_source(v: &Violation, plan: &PlanIR) -> (Option<String>, Option<String>) {
+    let task_source = v.task_source.clone().or_else(|| {
+        helpers::task_ids_from_ltl(&v.ltl)
+            .first()
+            .and_then(|id| {
+                plan.tasks
+                    .iter()
+                    .find(|t| t.id == *id)
+                    .map(|t| format!("{}:{}", t.source.file, t.source.start_line))
+            })
+    });
+
+    let req_source = v.req_source.clone().or_else(|| {
+        plan.requirements
+            .iter()
+            .find(|r| r.id == v.constraint_id)
+            .map(|r| format!("{}:{}", r.source.file, r.source.start_line))
+    });
+
+    (task_source, req_source)
+}
+
+fn verbose_section(output: &mut String, plans: &[(String, PlanIR)], _result: &crate::checker::VerificationResult) {
+    for (name, plan) in plans {
+        output.push_str(&format!("\n=== Plan: {} ===\n", name));
+        output.push_str(&format!("Tasks: {}\n", plan.tasks.len()));
+        output.push_str(&format!("Requirements: {}\n", plan.requirements.len()));
+        output.push_str(&format!("Phases: {}\n", plan.phases.len()));
+    }
 }

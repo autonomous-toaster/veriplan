@@ -1,6 +1,7 @@
 set quiet
 
 # Run all checks (mirrors CI)
+[parallel]
 ci: veriplan check lint check-file-sizes machete crap test
 build: cargo-build
 
