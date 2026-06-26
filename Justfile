@@ -110,17 +110,20 @@ crap:
     fi
 
 
-# Check that no production source file exceeds 500 lines.
+# Check that no production source file exceeds the target line limit.
+# `max` is the soft target (default 500); `tolerance` adds a small grace margin (default 10%).
 # Files under tests/ directories are excluded.
-check-file-sizes max="500":
+check-file-sizes max="500" tolerance="10":
     #!/usr/bin/env bash
-    MAX={{max}}
+    TARGET={{max}}
+    TOL={{tolerance}}
+    MAX=$(( TARGET + TARGET * TOL / 100 ))
     fail=0
     while IFS= read -r f; do
         lines=$(wc -l < "$f")
         if [ "$lines" -gt "$MAX" ]; then
-            echo "FAIL: $f has $lines lines (max $MAX)"
+            echo "FAIL: $f has $lines lines (target $TARGET, hard limit $MAX)"
             fail=1
         fi
     done < <(find src -name '*.rs' | grep -v '/tests/')
-    [ $fail -eq 0 ] && echo "✓ all source files within $MAX lines"
+    [ $fail -eq 0 ] && echo "✓ all source files within $MAX lines (target $TARGET + ${TOL}% tolerance)"

@@ -7,9 +7,8 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
-use lsp_server::{Connection, Message, Notification, Request, Response, ErrorCode};
+use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
 use lsp_types::*;
-
 
 use super::code_actions;
 use super::completions;
@@ -39,13 +38,15 @@ pub fn run_lsp() -> Result<()> {
 
     // Server capabilities
     let capabilities = ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
                 open_close: Some(true),
                 change: Some(TextDocumentSyncKind::FULL),
                 will_save: None,
                 will_save_wait_until: None,
                 save: Some(TextDocumentSyncSaveOptions::Supported(true)),
-            })),
+            },
+        )),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec!["T".to_string(), "t".to_string()]),
             all_commit_characters: None,
@@ -89,10 +90,7 @@ fn main_loop(
     for msg in &connection.receiver {
         match msg {
             Message::Request(req) => {
-                if connection
-                    .handle_shutdown(&req)
-                    .unwrap_or(false)
-                {
+                if connection.handle_shutdown(&req).unwrap_or(false) {
                     eprintln!("[veriplan-lsp] Shutdown requested");
                     return Ok(());
                 }
@@ -124,45 +122,35 @@ fn handle_request(
                 serde_json::from_value(req.params).context("Bad completion params")?;
             let result = handle_completion(store, &params);
             let response = Response::new_ok(req.id, result);
-            connection
-                .sender
-                .send(Message::Response(response))?;
+            connection.sender.send(Message::Response(response))?;
         }
         "textDocument/definition" => {
             let params: GotoDefinitionParams =
                 serde_json::from_value(req.params).context("Bad goto-def params")?;
             let result = handle_goto_definition(store, &params);
             let response = Response::new_ok(req.id, result);
-            connection
-                .sender
-                .send(Message::Response(response))?;
+            connection.sender.send(Message::Response(response))?;
         }
         "textDocument/hover" => {
             let params: HoverParams =
                 serde_json::from_value(req.params).context("Bad hover params")?;
             let result = handle_hover(store, &params);
             let response = Response::new_ok(req.id, result);
-            connection
-                .sender
-                .send(Message::Response(response))?;
+            connection.sender.send(Message::Response(response))?;
         }
         "textDocument/documentSymbol" => {
             let params: DocumentSymbolParams =
                 serde_json::from_value(req.params).context("Bad symbol params")?;
             let result = handle_document_symbols(store, &params);
             let response = Response::new_ok(req.id, result);
-            connection
-                .sender
-                .send(Message::Response(response))?;
+            connection.sender.send(Message::Response(response))?;
         }
         "textDocument/codeAction" => {
             let params: CodeActionParams =
                 serde_json::from_value(req.params).context("Bad code action params")?;
             let result = handle_code_action(store, &params);
             let response = Response::new_ok(req.id, result);
-            connection
-                .sender
-                .send(Message::Response(response))?;
+            connection.sender.send(Message::Response(response))?;
         }
         _ => {
             // Unknown method — respond with MethodNotFound
@@ -171,9 +159,7 @@ fn handle_request(
                 ErrorCode::MethodNotFound as i32,
                 format!("Unknown method: {}", req.method),
             );
-            connection
-                .sender
-                .send(Message::Response(response))?;
+            connection.sender.send(Message::Response(response))?;
         }
     }
     Ok(())
@@ -226,8 +212,10 @@ fn handle_notification(
                             diagnostics: diags,
                             version: None,
                         };
-                        let notif =
-                            Notification::new("textDocument/publishDiagnostics".to_string(), params);
+                        let notif = Notification::new(
+                            "textDocument/publishDiagnostics".to_string(),
+                            params,
+                        );
                         let _ = connection.sender.send(Message::Notification(notif));
                     }
                 }
@@ -236,7 +224,8 @@ fn handle_notification(
                 // File not in any change — try loading as standalone
                 let mut write_store = store.write().unwrap();
                 if write_store.load_standalone(&file_path) {
-                    let diagnostics = write_store.get_standalone_diagnostics(&file_path)
+                    let diagnostics = write_store
+                        .get_standalone_diagnostics(&file_path)
                         .unwrap_or_default();
                     eprintln!(
                         "[veriplan-lsp] didOpen: loaded as standalone, {} diagnostics",
@@ -248,21 +237,27 @@ fn handle_notification(
                             diagnostics,
                             version: None,
                         };
-                        let notif =
-                            Notification::new("textDocument/publishDiagnostics".to_string(), params);
+                        let notif = Notification::new(
+                            "textDocument/publishDiagnostics".to_string(),
+                            params,
+                        );
                         let _ = connection.sender.send(Message::Notification(notif));
                     }
                 } else {
                     // Not a valid standalone file — publish empty diagnostics to clear stale markers
-                    eprintln!("[veriplan-lsp] didOpen: not a valid standalone file, publishing empty diagnostics");
+                    eprintln!(
+                        "[veriplan-lsp] didOpen: not a valid standalone file, publishing empty diagnostics"
+                    );
                     if let Ok(uri) = lsp_types::Url::from_file_path(&file_path) {
                         let params = PublishDiagnosticsParams {
                             uri,
                             diagnostics: Vec::new(),
                             version: None,
                         };
-                        let notif =
-                            Notification::new("textDocument/publishDiagnostics".to_string(), params);
+                        let notif = Notification::new(
+                            "textDocument/publishDiagnostics".to_string(),
+                            params,
+                        );
                         let _ = connection.sender.send(Message::Notification(notif));
                     }
                 }
@@ -291,7 +286,10 @@ fn handle_notification(
             };
 
             let diagnostics_per_file = if let Some(change) = change_name {
-                eprintln!("[veriplan-lsp] didChange: resolved change '{}', refreshing...", change);
+                eprintln!(
+                    "[veriplan-lsp] didChange: resolved change '{}', refreshing...",
+                    change
+                );
                 store.write().unwrap().refresh(&change)
             } else {
                 eprintln!("[veriplan-lsp] didChange: file not in any change, trying standalone");
@@ -299,7 +297,12 @@ fn handle_notification(
                 let mut write_store = store.write().unwrap();
                 if write_store.refresh_standalone(&file_path).is_some() {
                     // Return diagnostics for this single file
-                    vec![(file_path.clone(), write_store.get_standalone_diagnostics(&file_path).unwrap_or_default())]
+                    vec![(
+                        file_path.clone(),
+                        write_store
+                            .get_standalone_diagnostics(&file_path)
+                            .unwrap_or_default(),
+                    )]
                 } else {
                     Vec::new()
                 }
@@ -307,7 +310,11 @@ fn handle_notification(
 
             for (path, diags) in &diagnostics_per_file {
                 if let Ok(uri) = lsp_types::Url::from_file_path(path) {
-                    eprintln!("[veriplan-lsp] publishDiagnostics: {} ({} diagnostics)", uri, diags.len());
+                    eprintln!(
+                        "[veriplan-lsp] publishDiagnostics: {} ({} diagnostics)",
+                        uri,
+                        diags.len()
+                    );
                     let params = PublishDiagnosticsParams {
                         uri,
                         diagnostics: diags.clone(),
@@ -335,18 +342,19 @@ fn handle_notification(
                         .collect();
                     for path in entries {
                         if !published_uris.contains(&path)
-                            && let Ok(uri) = lsp_types::Url::from_file_path(&path) {
-                                let params = PublishDiagnosticsParams {
-                                    uri,
-                                    diagnostics: Vec::new(),
-                                    version: None,
-                                };
-                                let notif = Notification::new(
-                                    "textDocument/publishDiagnostics".to_string(),
-                                    params,
-                                );
-                                let _ = connection.sender.send(Message::Notification(notif));
-                            }
+                            && let Ok(uri) = lsp_types::Url::from_file_path(&path)
+                        {
+                            let params = PublishDiagnosticsParams {
+                                uri,
+                                diagnostics: Vec::new(),
+                                version: None,
+                            };
+                            let notif = Notification::new(
+                                "textDocument/publishDiagnostics".to_string(),
+                                params,
+                            );
+                            let _ = connection.sender.send(Message::Notification(notif));
+                        }
                     }
                 }
             }
@@ -371,7 +379,10 @@ fn handle_notification(
             };
 
             let diagnostics_per_file = if let Some(change) = change_name {
-                eprintln!("[veriplan-lsp] didSave: resolved change '{}', refreshing...", change);
+                eprintln!(
+                    "[veriplan-lsp] didSave: resolved change '{}', refreshing...",
+                    change
+                );
                 // Refresh and get diagnostics
                 store.write().unwrap().refresh(&change)
             } else {
@@ -380,7 +391,12 @@ fn handle_notification(
                 let mut write_store = store.write().unwrap();
                 if write_store.refresh_standalone(&file_path).is_some() {
                     // Return diagnostics for this single file
-                    vec![(file_path.clone(), write_store.get_standalone_diagnostics(&file_path).unwrap_or_default())]
+                    vec![(
+                        file_path.clone(),
+                        write_store
+                            .get_standalone_diagnostics(&file_path)
+                            .unwrap_or_default(),
+                    )]
                 } else {
                     Vec::new()
                 }
@@ -414,18 +430,19 @@ fn handle_notification(
                 if let Ok(entries) = walk_files_for_clear(&change_dir) {
                     for path in entries {
                         if !published_uris.contains(&path)
-                            && let Ok(uri) = lsp_types::Url::from_file_path(&path) {
-                                let params = PublishDiagnosticsParams {
-                                    uri,
-                                    diagnostics: Vec::new(),
-                                    version: None,
-                                };
-                                let notif = Notification::new(
-                                    "textDocument/publishDiagnostics".to_string(),
-                                    params,
-                                );
-                                let _ = connection.sender.send(Message::Notification(notif));
-                            }
+                            && let Ok(uri) = lsp_types::Url::from_file_path(&path)
+                        {
+                            let params = PublishDiagnosticsParams {
+                                uri,
+                                diagnostics: Vec::new(),
+                                version: None,
+                            };
+                            let notif = Notification::new(
+                                "textDocument/publishDiagnostics".to_string(),
+                                params,
+                            );
+                            let _ = connection.sender.send(Message::Notification(notif));
+                        }
                     }
                 }
             }
@@ -443,7 +460,12 @@ fn handle_completion(
     store: &Arc<RwLock<ChangeStore>>,
     params: &CompletionParams,
 ) -> Option<CompletionResponse> {
-    let file_path = params.text_document_position.text_document.uri.to_file_path().ok()?;
+    let file_path = params
+        .text_document_position
+        .text_document
+        .uri
+        .to_file_path()
+        .ok()?;
     let change_name = store.read().ok()?.resolve_change(&file_path)?;
     let plan = store.read().ok()?.get_plan(&change_name)?.clone();
 
@@ -453,7 +475,7 @@ fn handle_completion(
     // with just the plan context
     let completions = completions::get_completions(
         &plan,
-        "",   // line text (simplified)
+        "", // line text (simplified)
         pos.character as usize,
     )?;
 
@@ -476,10 +498,7 @@ fn handle_goto_definition(
     navigation::goto_definition(&plan, uri, &pos, &line_text)
 }
 
-fn handle_hover(
-    store: &Arc<RwLock<ChangeStore>>,
-    params: &HoverParams,
-) -> Option<Hover> {
+fn handle_hover(store: &Arc<RwLock<ChangeStore>>, params: &HoverParams) -> Option<Hover> {
     let uri = &params.text_document_position_params.text_document.uri;
     let file_path = uri.to_file_path().ok()?;
     let pos = params.text_document_position_params.position;

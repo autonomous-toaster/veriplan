@@ -48,7 +48,6 @@ pub fn code_actions_for_diagnostics(
             disabled: None,
             data: None,
             command: None,
-            ..Default::default()
         }));
     }
 

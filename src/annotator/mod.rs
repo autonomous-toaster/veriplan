@@ -5,7 +5,9 @@ mod helpers;
 use crate::checker::Violation;
 use crate::ir::PlanIR;
 
-pub use helpers::{build_phase_context, category_breakdown, parse_conditional_ltl, task_ids_from_ltl};
+pub use helpers::{
+    build_phase_context, category_breakdown, parse_conditional_ltl, task_ids_from_ltl,
+};
 
 /// Annotated violation with additional context.
 #[derive(Debug, Clone)]
@@ -79,10 +81,7 @@ pub fn format_human(
         "⚠ UNKNOWN"
     };
 
-    output.push_str(&format!(
-        "Plan: {} — {}\n",
-        result.plan_name, status
-    ));
+    output.push_str(&format!("Plan: {} — {}\n", result.plan_name, status));
 
     if let Some(reason) = &result.skip_reason {
         output.push_str(&format!("\n  Model check skipped: {}\n", reason));
@@ -90,10 +89,7 @@ pub fn format_human(
 
     if let Some(report) = &result.convertibility_report {
         if !report.blockers.is_empty() {
-            output.push_str(&format!(
-                "  {} blocker(s):\n",
-                report.blockers.len()
-            ));
+            output.push_str(&format!("  {} blocker(s):\n", report.blockers.len()));
             for item in &report.blockers {
                 output.push_str(&format!(
                     "    [BLOCKER] {} at {}\n",
@@ -107,13 +103,21 @@ pub fn format_human(
         }
 
         if !report.warnings.is_empty() && verbose {
-            output.push_str(&format!(
-                "  {} warning(s):\n",
-                report.warnings.len()
-            ));
+            output.push_str(&format!("  {} warning(s):\n", report.warnings.len()));
             for item in &report.warnings {
                 output.push_str(&format!(
                     "    [WARNING] {} at {}\n",
+                    item.element, item.location
+                ));
+                output.push_str(&format!("              {}\n", item.detail));
+            }
+        }
+
+        if !report.info.is_empty() && verbose {
+            output.push_str(&format!("  {} info(s):\n", report.info.len()));
+            for item in &report.info {
+                output.push_str(&format!(
+                    "    [INFO] {} at {}\n",
                     item.element, item.location
                 ));
                 output.push_str(&format!("              {}\n", item.detail));
@@ -136,14 +140,8 @@ pub fn format_human(
         }
 
         for (i, v) in annotated.iter().enumerate() {
-            output.push_str(&format!(
-                "\n  Violation {}:\n",
-                i + 1
-            ));
-            output.push_str(&format!(
-                "    Requirement: {}\n",
-                v.violation.constraint_id
-            ));
+            output.push_str(&format!("\n  Violation {}:\n", i + 1));
+            output.push_str(&format!("    Requirement: {}\n", v.violation.constraint_id));
             output.push_str(&format!(
                 "    Statement: {}\n",
                 v.violation.requirement_statement
@@ -171,7 +169,10 @@ pub fn format_human(
             }
 
             if let Some(fix) = &v.violation.suggested_fix {
-                output.push_str(&format!("\n    Suggested fix:\n    {}\n", fix.replace('\n', "\n    ")));
+                output.push_str(&format!(
+                    "\n    Suggested fix:\n    {}\n",
+                    fix.replace('\n', "\n    ")
+                ));
             }
         }
     } else if result.convertible && result.valid == Some(true) {
@@ -238,24 +239,21 @@ pub fn format_json(
         output["skip_reason"] = serde_json::json!(reason);
     }
 
-    if verbose
-        && let Some(report) = &result.convertibility_report {
-            output["convertibility_report"] = serde_json::json!(report);
-        }
+    if verbose && let Some(report) = &result.convertibility_report {
+        output["convertibility_report"] = serde_json::json!(report);
+    }
 
     serde_json::to_string_pretty(&output).unwrap_or_default()
 }
 
 fn resolve_source(v: &Violation, plan: &PlanIR) -> (Option<String>, Option<String>) {
     let task_source = v.task_source.clone().or_else(|| {
-        helpers::task_ids_from_ltl(&v.ltl)
-            .first()
-            .and_then(|id| {
-                plan.tasks
-                    .iter()
-                    .find(|t| t.id == *id)
-                    .map(|t| format!("{}:{}", t.source.file, t.source.start_line))
-            })
+        helpers::task_ids_from_ltl(&v.ltl).first().and_then(|id| {
+            plan.tasks
+                .iter()
+                .find(|t| t.id == *id)
+                .map(|t| format!("{}:{}", t.source.file, t.source.start_line))
+        })
     });
 
     let req_source = v.req_source.clone().or_else(|| {
@@ -268,7 +266,11 @@ fn resolve_source(v: &Violation, plan: &PlanIR) -> (Option<String>, Option<Strin
     (task_source, req_source)
 }
 
-fn verbose_section(output: &mut String, plans: &[(String, PlanIR)], _result: &crate::checker::VerificationResult) {
+fn verbose_section(
+    output: &mut String,
+    plans: &[(String, PlanIR)],
+    _result: &crate::checker::VerificationResult,
+) {
     for (name, plan) in plans {
         output.push_str(&format!("\n=== Plan: {} ===\n", name));
         output.push_str(&format!("Tasks: {}\n", plan.tasks.len()));

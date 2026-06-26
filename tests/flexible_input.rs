@@ -100,10 +100,16 @@ fn test_stdin_mode() {
     }
 
     let result = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stdout = String::from_utf8_lossy(&result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&result.stderr).to_string();
+    let status = result.status;
 
-    // Should handle stdin input gracefully
-    assert!(result.status.success() || stdout.to_lowercase().contains("info"));
+    assert!(
+        status.success() || stdout.to_lowercase().contains("info"),
+        "Expected success or info message, but got exit {} and stderr: {}",
+        status.code().unwrap_or(-1),
+        stderr
+    );
 }
 
 #[test]

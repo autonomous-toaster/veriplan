@@ -3,7 +3,7 @@
 use std::io::{self, Read};
 use std::path::Path;
 
-use super::{discover_changes, EmptyReason, InputSource};
+use super::{EmptyReason, InputSource, discover_changes};
 
 /// Auto-detect input source from the current working directory.
 pub fn resolve_auto(project_root: &Path) -> Result<InputSource, String> {

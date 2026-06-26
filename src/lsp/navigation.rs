@@ -46,11 +46,7 @@ pub fn goto_definition(
 }
 
 /// Build hover content for a task reference at cursor position.
-pub fn hover(
-    plan: &PlanIR,
-    pos: &Position,
-    line_text: &str,
-) -> Option<Hover> {
+pub fn hover(plan: &PlanIR, pos: &Position, line_text: &str) -> Option<Hover> {
     let task_id = find_task_ref_at_position(line_text, pos.character as usize)?;
     let task = plan.tasks.iter().find(|t| t.id == task_id)?;
 
@@ -92,7 +88,9 @@ fn find_task_ref_at_position(line: &str, col: usize) -> Option<String> {
 
     // Find the end of the token
     let mut end = start;
-    while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_' || chars[end] == '.') {
+    while end < chars.len()
+        && (chars[end].is_alphanumeric() || chars[end] == '_' || chars[end] == '.')
+    {
         end += 1;
     }
 
@@ -131,11 +129,12 @@ fn find_change_dir(file_path: &str) -> Option<std::path::PathBuf> {
         // Check: parent of current dir is "changes" and grandparent is "openspec"
         if let Some(parent) = path.parent()
             && parent.file_name()?.to_string_lossy() == "changes"
-                && let Some(grandparent) = parent.parent()
-                    && grandparent.file_name()?.to_string_lossy() == "openspec" {
-                        // path is the change directory
-                        return Some(path.to_path_buf());
-                    }
+            && let Some(grandparent) = parent.parent()
+            && grandparent.file_name()?.to_string_lossy() == "openspec"
+        {
+            // path is the change directory
+            return Some(path.to_path_buf());
+        }
         path = path.parent()?;
     }
 }

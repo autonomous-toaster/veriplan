@@ -9,18 +9,19 @@ pub fn task_ids_from_ltl(ltl: &str) -> Vec<String> {
     let n = bytes.len();
     let mut i = 0;
     while i < n {
-        if bytes[i] == b't' && i + 1 < n && bytes[i+1].is_ascii_digit() {
+        if bytes[i] == b't' && i + 1 < n && bytes[i + 1].is_ascii_digit() {
             i += 1;
             let start = i;
             while i < n && (bytes[i].is_ascii_digit() || bytes[i] == b'_') {
                 i += 1;
             }
             if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(underscore) = s.find('_') {
-                    let major = &s[..underscore];
-                    let minor = &s[underscore+1..];
-                    ids.push(format!("{}.{}", major, minor));
-                }
+                && let Some(underscore) = s.find('_')
+            {
+                let major = &s[..underscore];
+                let minor = &s[underscore + 1..];
+                ids.push(format!("{}.{}", major, minor));
+            }
         } else {
             i += 1;
         }
@@ -46,9 +47,10 @@ pub fn parse_conditional_ltl(ltl: &str) -> Option<(String, String)> {
                 i += 1;
             }
             if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(underscore) = s.find('_') {
-                    trigger = Some(format!("{}.{}", &s[..underscore], &s[underscore+1..]));
-                }
+                && let Some(underscore) = s.find('_')
+            {
+                trigger = Some(format!("{}.{}", &s[..underscore], &s[underscore + 1..]));
+            }
         } else if bytes[i..].starts_with(b"active_t") {
             i += 8;
             let start = i;
@@ -56,9 +58,10 @@ pub fn parse_conditional_ltl(ltl: &str) -> Option<(String, String)> {
                 i += 1;
             }
             if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(underscore) = s.find('_') {
-                    consequent = Some(format!("{}.{}", &s[..underscore], &s[underscore+1..]));
-                }
+                && let Some(underscore) = s.find('_')
+            {
+                consequent = Some(format!("{}.{}", &s[..underscore], &s[underscore + 1..]));
+            }
         } else {
             i += 1;
         }

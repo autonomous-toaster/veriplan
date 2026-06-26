@@ -6,6 +6,7 @@
 //!   3. BFS fallback (Phase 2b): built-in explorer when SPIN unavailable
 #![allow(dead_code)]
 
+mod checks;
 mod convertibility;
 
 pub use convertibility::check_convertibility;
@@ -66,12 +67,20 @@ pub struct VerificationResult {
 pub fn require_spin() -> Result<(), String> {
     match std::process::Command::new("spin").arg("--version").output() {
         Ok(_) => Ok(()),
-        Err(_) => Err("SPIN binary not found on PATH. Install spin (brew install spin) and try again.".into()),
+        Err(_) => Err(
+            "SPIN binary not found on PATH. Install spin (brew install spin) and try again.".into(),
+        ),
     }
 }
 
 /// Run the full verification pipeline (Phase 1 + Phase 2).
-pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool, is_openspec: bool) -> VerificationResult {
+pub fn verify(
+    plan: &PlanIR,
+    plan_name: &str,
+    no_model: bool,
+    _pre_commit: bool,
+    is_openspec: bool,
+) -> VerificationResult {
     // Phase 1: Convertibility check
     let conv_report = check_convertibility(plan, is_openspec);
 
@@ -138,28 +147,13 @@ pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool, 
     }
 
     if let Err(msg) = require_spin() {
-        // In pre-commit mode, missing SPIN is a warning, not a hard failure.
-        // The plan is still convertible — we just can't prove validity.
-        if pre_commit {
-            return VerificationResult {
-                plan_name: plan_name.to_string(),
-                phase: "model_check".into(),
-                convertible: true,
-                convertibility_report: Some(conv_report),
-                valid: None, // Unknown — can't prove without SPIN
-                violations: vec![],
-                total_constraints: formalizable.len(),
-                satisfied_constraints: 0,
-                constraints_summary: vec![],
-                skip_reason: Some(msg),
-            };
-        }
+        // SPIN not available: plan is still convertible, just can't model-check.
         return VerificationResult {
             plan_name: plan_name.to_string(),
             phase: "model_check".into(),
-            convertible: false,
+            convertible: true,
             convertibility_report: Some(conv_report),
-            valid: None,
+            valid: None, // Unknown — can't prove without SPIN
             violations: vec![],
             total_constraints: formalizable.len(),
             satisfied_constraints: 0,
@@ -172,7 +166,12 @@ pub fn verify(plan: &PlanIR, plan_name: &str, no_model: bool, pre_commit: bool, 
 }
 
 /// Verify multiple plans and merge the results into a single report.
-pub fn verify_all(plans: &[(String, PlanIR)], no_model: bool, pre_commit: bool, is_openspec: bool) -> VerificationResult {
+pub fn verify_all(
+    plans: &[(String, PlanIR)],
+    no_model: bool,
+    pre_commit: bool,
+    is_openspec: bool,
+) -> VerificationResult {
     let mut all_results: Vec<VerificationResult> = Vec::new();
     for (name, plan) in plans {
         let result = verify(plan, name, no_model, pre_commit, is_openspec);
@@ -228,7 +227,10 @@ pub fn merge_results(results: &[VerificationResult]) -> VerificationResult {
         violations: results.iter().flat_map(|r| r.violations.clone()).collect(),
         total_constraints: results.iter().map(|r| r.total_constraints).sum(),
         satisfied_constraints: results.iter().map(|r| r.satisfied_constraints).sum(),
-        constraints_summary: results.iter().flat_map(|r| r.constraints_summary.clone()).collect(),
+        constraints_summary: results
+            .iter()
+            .flat_map(|r| r.constraints_summary.clone())
+            .collect(),
         skip_reason: None,
     };
 
@@ -318,9 +320,7 @@ fn run_spin_check(
                     (true, false, false)
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                (false, false, true)
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => (false, false, true),
             Err(_) => (false, true, false),
         };
 
@@ -335,7 +335,11 @@ fn run_spin_check(
         if timed_out {
             _timed_out_count += 1;
         } else if violated {
-            let fix = suggest_fix(&c.category, c.ltl.as_deref().unwrap_or(""), &c.requirement_id);
+            let fix = suggest_fix(
+                &c.category,
+                c.ltl.as_deref().unwrap_or(""),
+                &c.requirement_id,
+            );
             violations.push(Violation {
                 constraint_id: c.requirement_id.clone(),
                 requirement_statement: c.statement.clone(),
@@ -377,19 +381,8 @@ fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedConstrai
     // ── Variable declarations ──
     for task in &plan.tasks {
         let desc = task.description.replace("/*", "/ *").replace("*/", "* /");
-        writeln!(
-            s,
-            "bit {} = 0;\t/* {} */",
-            active_var(&task.id),
-            desc
-        )
-        .ok();
-        writeln!(
-            s,
-            "bit {} = 0;",
-            done_var(&task.id)
-        )
-        .ok();
+        writeln!(s, "bit {} = 0;\t/* {} */", active_var(&task.id), desc).ok();
+        writeln!(s, "bit {} = 0;", done_var(&task.id)).ok();
     }
     writeln!(s).ok();
 
@@ -448,12 +441,7 @@ fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedConstrai
     let formalizable: Vec<_> = constraints.iter().filter(|c| c.ltl.is_some()).collect();
     for (i, c) in formalizable.iter().enumerate() {
         if let Some(ltl) = &c.ltl {
-            writeln!(
-                s,
-                "ltl p{} {{ {} }} /* {} */",
-                i, ltl, c.requirement_id
-            )
-            .ok();
+            writeln!(s, "ltl p{} {{ {} }} /* {} */", i, ltl, c.requirement_id).ok();
         }
     }
 
@@ -494,27 +482,27 @@ fn run_bfs_check(
         for c in &formalizable {
             if let Some(ltl) = &c.ltl
                 && !evaluate_ltl(ltl, &state, plan)
-                    && !violations
-                        .iter()
-                        .any(|v: &Violation| v.constraint_id == c.requirement_id)
-                    {
-                        let state_str: Vec<String> = state
-                            .iter()
-                            .filter(|(_, v)| **v == 1)
-                            .map(|(k, _)| k.clone())
-                            .collect();
-                        violations.push(Violation {
-                            constraint_id: c.requirement_id.clone(),
-                            requirement_statement: c.statement.clone(),
-                            ltl: ltl.clone(),
-                            category: format!("{:?}", c.category),
-                            state: state_str.join(", "),
-                            task_source: None,
-                            req_source: None,
-                            suggested_fix: None,
-                            plan: plan_name.to_string(),
-                        });
-                    }
+                && !violations
+                    .iter()
+                    .any(|v: &Violation| v.constraint_id == c.requirement_id)
+            {
+                let state_str: Vec<String> = state
+                    .iter()
+                    .filter(|(_, v)| **v == 1)
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                violations.push(Violation {
+                    constraint_id: c.requirement_id.clone(),
+                    requirement_statement: c.statement.clone(),
+                    ltl: ltl.clone(),
+                    category: format!("{:?}", c.category),
+                    state: state_str.join(", "),
+                    task_source: None,
+                    req_source: None,
+                    suggested_fix: None,
+                    plan: plan_name.to_string(),
+                });
+            }
         }
     }
 
@@ -675,18 +663,14 @@ fn timeout_command(
 
     match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
         Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("command timed out after {}s", timeout_secs),
-            ))
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "command thread disconnected",
-            ))
-        }
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("command timed out after {}s", timeout_secs),
+        )),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "command thread disconnected",
+        )),
     }
 }
 
@@ -698,16 +682,18 @@ fn extract_task_ids(text: &str) -> Vec<String> {
     // Match T4.2, T6.1, etc.
     let mut i = 0;
     while i < n {
-        if bytes[i] == b'T' && i + 1 < n && bytes[i+1].is_ascii_digit() {
+        if bytes[i] == b'T' && i + 1 < n && bytes[i + 1].is_ascii_digit() {
             i += 1;
             let start = i;
             while i < n && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
                 i += 1;
             }
             if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && s.contains('.') && s.chars().all(|c| c.is_ascii_digit() || c == '.') {
-                    ids.push(s.to_string());
-                }
+                && s.contains('.')
+                && s.chars().all(|c| c.is_ascii_digit() || c == '.')
+            {
+                ids.push(s.to_string());
+            }
         } else {
             i += 1;
         }
@@ -716,18 +702,19 @@ fn extract_task_ids(text: &str) -> Vec<String> {
     if ids.is_empty() {
         let mut i = 0;
         while i < n {
-            if bytes[i] == b't' && i + 1 < n && bytes[i+1].is_ascii_digit() {
+            if bytes[i] == b't' && i + 1 < n && bytes[i + 1].is_ascii_digit() {
                 i += 1;
                 let start = i;
                 while i < n && (bytes[i].is_ascii_digit() || bytes[i] == b'_') {
                     i += 1;
                 }
                 if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                    && let Some(underscore) = s.find('_') {
-                        let major = &s[..underscore];
-                        let minor = &s[underscore+1..];
-                        ids.push(format!("{}.{}", major, minor));
-                    }
+                    && let Some(underscore) = s.find('_')
+                {
+                    let major = &s[..underscore];
+                    let minor = &s[underscore + 1..];
+                    ids.push(format!("{}.{}", major, minor));
+                }
             } else {
                 i += 1;
             }
@@ -839,9 +826,6 @@ pub fn verify_with_strictness(
 }
 
 /// Apply strictness profile to adjust severity of check items.
-/// Strict (default): PatternUngrounded = blocker, no_tasks/no_requirements = blocker
-/// Moderate: PatternUngrounded = warning, no_tasks/no_requirements = warning
-/// Lax: PatternUngrounded = info, no_tasks/no_requirements = info
 fn apply_strictness(
     mut result: VerificationResult,
     strictness: crate::input::StrictnessProfile,
@@ -852,14 +836,20 @@ fn apply_strictness(
             let new_severity = match strictness {
                 crate::input::StrictnessProfile::Strict => "blocker",
                 crate::input::StrictnessProfile::Moderate => {
-                    if item.check == "pattern_ungrounded" || item.check == "no_requirements" || item.check == "no_tasks" {
+                    if item.check == "pattern_ungrounded"
+                        || item.check == "no_requirements"
+                        || item.check == "no_tasks"
+                    {
                         "warning"
                     } else {
                         "blocker"
                     }
                 }
                 crate::input::StrictnessProfile::Lax => {
-                    if item.check == "pattern_ungrounded" || item.check == "no_requirements" || item.check == "no_tasks" {
+                    if item.check == "pattern_ungrounded"
+                        || item.check == "no_requirements"
+                        || item.check == "no_tasks"
+                    {
                         "info"
                     } else {
                         "blocker"
@@ -870,17 +860,54 @@ fn apply_strictness(
         }
 
         // Recalculate status
-        let has_blockers = report.blockers.iter().any(|b| b.severity == "blocker");
-        let has_warnings = report.warnings.iter().any(|w| w.severity == "warning")
-            || report.blockers.iter().any(|b| b.severity == "warning");
+        let _has_blockers = report.blockers.iter().any(|b| b.severity == "blocker");
 
-        report.status = if has_blockers {
-            ConvertibilityStatus::Blocking
-        } else if has_warnings {
-            ConvertibilityStatus::ConvertibleWithWarnings
+        // Move items to their proper lists based on new severity
+        let mut new_blockers = Vec::new();
+        let mut new_warnings = Vec::new();
+        let mut new_info = Vec::new();
+
+        for item in report.blockers.drain(..) {
+            match item.severity.as_str() {
+                "blocker" => new_blockers.push(item),
+                "warning" => new_warnings.push(item),
+                _ => new_info.push(item),
+            }
+        }
+        for item in report.warnings.drain(..) {
+            match item.severity.as_str() {
+                "warning" => new_warnings.push(item),
+                _ => new_info.push(item),
+            }
+        }
+        for item in report.info.drain(..) {
+            new_info.push(item);
+        }
+
+        report.blockers = new_blockers;
+        report.warnings = new_warnings;
+        report.info = new_info;
+
+        report.status = if !report.blockers.is_empty() {
+            crate::ir::ConvertibilityStatus::Blocking
+        } else if !report.warnings.is_empty() {
+            crate::ir::ConvertibilityStatus::ConvertibleWithWarnings
         } else {
-            ConvertibilityStatus::Convertible
+            crate::ir::ConvertibilityStatus::Convertible
         };
+
+        // Update result-level flags to match the recalculated report
+        result.convertible = report.status != crate::ir::ConvertibilityStatus::Blocking;
+        if !result.convertible {
+            result.skip_reason = Some("Convertibility check failed".into());
+            result.valid = None;
+        } else if report.status == crate::ir::ConvertibilityStatus::ConvertibleWithWarnings {
+            result.skip_reason = Some("Convertibility check has warnings".into());
+            result.valid = Some(false);
+        } else {
+            result.skip_reason = None;
+            result.valid = None;
+        }
     }
 
     result

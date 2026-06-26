@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::checker;
-use crate::input::{load_plan, InputSource};
+use crate::input::{InputSource, load_plan};
 use crate::ir::{ConvertibilityReport, PlanIR};
 use crate::parser;
 
@@ -99,18 +99,21 @@ impl ChangeStore {
         let mut current = path.parent()?;
         loop {
             // Check if we're inside openspec/changes/<name>/
-            if current.ends_with("openspec/changes") || current.to_string_lossy().contains("openspec/changes/") {
+            if current.ends_with("openspec/changes")
+                || current.to_string_lossy().contains("openspec/changes/")
+            {
                 // The parent of <name>/ spec/tasks dirs
                 if let Some(parent) = current.parent()
                     && let Some(grandparent) = parent.parent()
-                        && (grandparent.ends_with("openspec/changes")
-                            || grandparent.to_string_lossy().contains("openspec/changes/"))
-                            && let Some(name) = parent.file_name() {
-                                let name = name.to_string_lossy().to_string();
-                                if name != "archive" {
-                                    return Some(name);
-                                }
-                            }
+                    && (grandparent.ends_with("openspec/changes")
+                        || grandparent.to_string_lossy().contains("openspec/changes/"))
+                    && let Some(name) = parent.file_name()
+                {
+                    let name = name.to_string_lossy().to_string();
+                    if name != "archive" {
+                        return Some(name);
+                    }
+                }
             }
             if current == self.project_root || !current.parent().is_none_or(|p| p.exists()) {
                 return None;
@@ -122,7 +125,11 @@ impl ChangeStore {
     /// Re-parse a change directory and re-run convertibility check.
     /// Returns a vec of all CheckItems converted to LSP diagnostics.
     pub fn refresh(&mut self, change: &str) -> Vec<(PathBuf, Vec<lsp_types::Diagnostic>)> {
-        let change_dir = self.project_root.join("openspec").join("changes").join(change);
+        let change_dir = self
+            .project_root
+            .join("openspec")
+            .join("changes")
+            .join(change);
         let plan = match parser::parse_plan(&change_dir) {
             Ok(p) => p,
             Err(_) => return Vec::new(),
@@ -189,7 +196,8 @@ impl ChangeStore {
         };
 
         let report = checker::check_convertibility(&plan, false); // Standalone files are not OpenSpec
-        self.standalone.insert(file_path.to_path_buf(), (plan, report));
+        self.standalone
+            .insert(file_path.to_path_buf(), (plan, report));
         true
     }
 
@@ -203,10 +211,7 @@ impl ChangeStore {
     }
 
     /// Refresh a standalone file after edit.
-    pub fn refresh_standalone(
-        &mut self,
-        file_path: &Path,
-    ) -> Option<Vec<lsp_types::Diagnostic>> {
+    pub fn refresh_standalone(&mut self, file_path: &Path) -> Option<Vec<lsp_types::Diagnostic>> {
         if !self.load_standalone(file_path) {
             return None;
         }
@@ -222,13 +227,25 @@ impl ChangeStore {
         let mut diagnostics = Vec::new();
 
         for item in &report.blockers {
-            diagnostics.push(self.check_item_to_diagnostic(item, lsp_types::DiagnosticSeverity::ERROR, file_path));
+            diagnostics.push(self.check_item_to_diagnostic(
+                item,
+                lsp_types::DiagnosticSeverity::ERROR,
+                file_path,
+            ));
         }
         for item in &report.warnings {
-            diagnostics.push(self.check_item_to_diagnostic(item, lsp_types::DiagnosticSeverity::WARNING, file_path));
+            diagnostics.push(self.check_item_to_diagnostic(
+                item,
+                lsp_types::DiagnosticSeverity::WARNING,
+                file_path,
+            ));
         }
         for item in &report.info {
-            diagnostics.push(self.check_item_to_diagnostic(item, lsp_types::DiagnosticSeverity::INFORMATION, file_path));
+            diagnostics.push(self.check_item_to_diagnostic(
+                item,
+                lsp_types::DiagnosticSeverity::INFORMATION,
+                file_path,
+            ));
         }
 
         diagnostics
@@ -350,10 +367,7 @@ impl ChangeStore {
                 tags: None,
                 data: item.fix.as_ref().map(|f| serde_json::json!({ "fix": f })),
             };
-            per_file
-                .entry(full_path)
-                .or_default()
-                .push(diagnostic);
+            per_file.entry(full_path).or_default().push(diagnostic);
         }
 
         per_file.into_iter().collect()
@@ -383,8 +397,9 @@ fn walk_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 /// Handles both relative paths and absolute paths.
 fn parse_location(location: &str) -> (PathBuf, usize) {
     if let Some((file_part, line_part)) = location.rsplit_once(':')
-        && let Ok(line) = line_part.parse::<usize>() {
-            return (PathBuf::from(file_part), line);
-        }
+        && let Ok(line) = line_part.parse::<usize>()
+    {
+        return (PathBuf::from(file_part), line);
+    }
     (PathBuf::from(location), 0)
 }

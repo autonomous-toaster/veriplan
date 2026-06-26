@@ -65,27 +65,23 @@ fn push_diagnostic(
         message: item.detail.clone(),
         related_information: None,
         tags: None,
-        data: item.fix.as_ref().map(|f| {
-            serde_json::json!({ "fix": f })
-        }),
+        data: item.fix.as_ref().map(|f| serde_json::json!({ "fix": f })),
     };
 
-    per_file
-        .entry(file_path)
-        .or_default()
-        .push(diagnostic);
+    per_file.entry(file_path).or_default().push(diagnostic);
 }
 
 /// Parse a "file:line" location string into (absolute_path, line_number).
 pub fn parse_location(location: &str, project_root: &Path) -> (std::path::PathBuf, usize) {
     if let Some((file_part, line_part)) = location.rsplit_once(':')
-        && let Ok(line) = line_part.parse::<usize>() {
-            let path = std::path::PathBuf::from(file_part);
-            if path.is_absolute() {
-                return (path, line);
-            }
-            return (project_root.join(file_part), line);
+        && let Ok(line) = line_part.parse::<usize>()
+    {
+        let path = std::path::PathBuf::from(file_part);
+        if path.is_absolute() {
+            return (path, line);
         }
+        return (project_root.join(file_part), line);
+    }
     (project_root.join(location), 0)
 }
 

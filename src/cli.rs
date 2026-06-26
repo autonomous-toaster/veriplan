@@ -36,10 +36,14 @@ pub fn check_all_changes(
     }
 
     // Exit code based on results
-    if results.iter().all(|(_, r)| r.valid.unwrap_or(false)) {
-        Ok(())
-    } else {
+    // Only exit 1 if there are actual violations (valid==Some(false)) or blockers (not convertible)
+    let has_issues = results
+        .iter()
+        .any(|(_, r)| r.valid == Some(false) || !r.convertible);
+    if has_issues {
         flush_exit(1);
+    } else {
+        Ok(())
     }
 }
 
@@ -48,7 +52,7 @@ pub fn print_multi_human(results: &[(String, checker::VerificationResult)], _ver
     let total = results.len();
     let invalid: Vec<_> = results
         .iter()
-        .filter(|(_, r)| !r.valid.unwrap_or(false))
+        .filter(|(_, r)| r.valid == Some(false) || !r.convertible)
         .collect();
 
     if invalid.is_empty() {
@@ -78,7 +82,7 @@ pub fn print_multi_json(results: &[(String, checker::VerificationResult)]) {
             "plan_name": result.plan_name,
         }));
 
-        if !result.valid.unwrap_or(false) {
+        if result.valid == Some(false) || !result.convertible {
             invalid_changes.push(name);
         }
     }

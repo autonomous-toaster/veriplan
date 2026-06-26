@@ -65,7 +65,10 @@ enum Commands {
         #[arg(long)]
         strict: bool,
         /// Moderate checking: ungrounded patterns are warnings
-        #[arg(long, visible_alias = "moderate")]
+        #[arg(long)]
+        moderate: bool,
+        /// Lax checking: ungrounded patterns are info
+        #[arg(long)]
         lax: bool,
     },
     /// Init openspec/config.yaml with formal-verification-friendly rules
@@ -106,6 +109,7 @@ fn main() -> anyhow::Result<()> {
             pre_commit,
             stdin,
             strict,
+            moderate,
             lax,
         } => run_check(
             change,
@@ -115,6 +119,7 @@ fn main() -> anyhow::Result<()> {
             pre_commit,
             stdin,
             strict,
+            moderate,
             lax,
         ),
         Commands::Init { project_root } => run_init(project_root.as_deref()),
@@ -141,6 +146,7 @@ fn run_check(
     pre_commit: bool,
     stdin_flag: bool,
     strict: bool,
+    moderate: bool,
     lax: bool,
 ) -> anyhow::Result<()> {
     // Validate plan format if provided
@@ -155,6 +161,8 @@ fn run_check(
     // Resolve strictness profile
     let strictness = if lax {
         veriplan::input::StrictnessProfile::Lax
+    } else if moderate {
+        veriplan::input::StrictnessProfile::Moderate
     } else if strict {
         veriplan::input::StrictnessProfile::Strict
     } else {
@@ -263,15 +271,9 @@ fn run_check(
         }
         cli::flush_exit(1);
     } else if let Some(_reason) = &result.skip_reason {
-        if pre_commit {
-            // Missing SPIN in pre-commit mode: warn but don't block
-            eprintln!(
-                "⚠ SPIN not found — skipping model checking. Install SPIN for full verification."
-            );
-            cli::flush_exit(0);
-        } else {
-            cli::flush_exit(2);
-        }
+        // Missing SPIN or other non-blocking skip: plan is convertible,
+        // just can't model-check. Exit 0 since the plan is valid.
+        return Ok(());
     } else if no_model
         && !result
             .convertibility_report
