@@ -78,7 +78,7 @@ pub fn verify(
     plan: &PlanIR,
     plan_name: &str,
     no_model: bool,
-    _pre_commit: bool,
+    pre_commit: bool,
     is_openspec: bool,
 ) -> VerificationResult {
     // Phase 1: Convertibility check
@@ -147,11 +147,14 @@ pub fn verify(
     }
 
     if let Err(msg) = require_spin() {
-        // SPIN not available: plan is still convertible, just can't model-check.
+        // Missing SPIN: plan is convertible, but we can't model-check.
+        // In pre-commit mode, this is non-blocking (exit 0 with a warning).
+        // In normal mode, this is a hard failure (exit 2) because verification
+        // is incomplete.
         return VerificationResult {
             plan_name: plan_name.to_string(),
             phase: "model_check".into(),
-            convertible: true,
+            convertible: pre_commit, // true in pre-commit, false in normal mode
             convertibility_report: Some(conv_report),
             valid: None, // Unknown — can't prove without SPIN
             violations: vec![],
@@ -896,18 +899,24 @@ fn apply_strictness(
             crate::ir::ConvertibilityStatus::Convertible
         };
 
-        // Update result-level flags to match the recalculated report
-        result.convertible = report.status != crate::ir::ConvertibilityStatus::Blocking;
-        if !result.convertible {
+        // Update result-level flags to match the recalculated report.
+        // Only overwrite skip_reason/valid when strictness actually changed
+        // the convertibility status. Don't erase model-check results.
+        let was_blocking = !result.convertible;
+        let now_blocking = report.status == crate::ir::ConvertibilityStatus::Blocking;
+
+        result.convertible = !now_blocking;
+
+        if now_blocking && !was_blocking {
+            // Strictness upgraded items to blocker — model check can't proceed
             result.skip_reason = Some("Convertibility check failed".into());
             result.valid = None;
-        } else if report.status == crate::ir::ConvertibilityStatus::ConvertibleWithWarnings {
-            result.skip_reason = Some("Convertibility check has warnings".into());
-            result.valid = Some(false);
-        } else {
+        } else if !now_blocking && was_blocking {
+            // Strictness downgraded blockers — model check can proceed
             result.skip_reason = None;
             result.valid = None;
         }
+        // Otherwise leave skip_reason/valid as set by verify()
     }
 
     result

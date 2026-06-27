@@ -152,10 +152,30 @@ pub fn detect_rfc2119(statement: &str) -> crate::ir::Rfc2119Strength {
 }
 
 /// Extract task ID from text.
+/// Handles bare N.M from checklist items: "1.3 Add deps" → ("1.3", "1.3 Add deps")
+/// Handles T-prefixed from SHALL statements: "T1.3 SHALL..." → ("1.3", "1.3")
 pub fn extract_task_id(text: &str) -> (String, String) {
     let bytes = text.as_bytes();
-    let mut i = 0;
 
+    // Try N.M pattern first (bare, no T prefix — checklist items)
+    // e.g. "1.3 Add dependencies" → id="1.3"
+    if let Some(space_pos) = text.find(' ') {
+        let candidate = &text[..space_pos];
+        if let Some(dot_pos) = candidate.find('.') {
+            let left = &candidate[..dot_pos];
+            let right = &candidate[dot_pos + 1..];
+            if !left.is_empty()
+                && !right.is_empty()
+                && left.chars().all(|c| c.is_ascii_digit())
+                && right.chars().all(|c| c.is_ascii_digit())
+            {
+                return (candidate.to_string(), text.to_string());
+            }
+        }
+    }
+
+    // Try T-prefixed next: e.g. "T1.3" → id="1.3" (from SHALL refs)
+    let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'T' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
             i += 1;
