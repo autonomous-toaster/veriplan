@@ -416,7 +416,8 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
         "design".to_string(),
         vec![
             "Each task maps to a single state variable".to_string(),
-            "For every requirement, note its temporal category and the task IDs involved".to_string(),
+            "For every requirement, note its temporal category and the task IDs involved"
+                .to_string(),
             "If a constraint cannot be formalised, mark it 'human review only'".to_string(),
         ],
     );
@@ -575,10 +576,8 @@ mod tests {
 
     #[test]
     fn test_yaml_merge_context_appends() {
-        let existing: serde_yaml::Value = serde_yaml::from_str(
-            "context: |-\n  Original context\n",
-        )
-        .unwrap();
+        let existing: serde_yaml::Value =
+            serde_yaml::from_str("context: |-\n  Original context\n").unwrap();
         let mut rules = BTreeMap::new();
         rules.insert("specs".to_string(), vec![]);
         let merged = yaml_merge(&existing, "New context", &rules);
@@ -589,17 +588,12 @@ mod tests {
 
     #[test]
     fn test_yaml_merge_rules_dedup() {
-        let existing: serde_yaml::Value = serde_yaml::from_str(
-            "rules:\n  specs:\n    - \"Existing rule\"\n",
-        )
-        .unwrap();
+        let existing: serde_yaml::Value =
+            serde_yaml::from_str("rules:\n  specs:\n    - \"Existing rule\"\n").unwrap();
         let mut rules = BTreeMap::new();
         rules.insert(
             "specs".to_string(),
-            vec![
-                "Existing rule".to_string(),
-                "New rule".to_string(),
-            ],
+            vec!["Existing rule".to_string(), "New rule".to_string()],
         );
         let merged = yaml_merge(&existing, "", &rules);
         let specs = merged["rules"]["specs"].as_sequence().unwrap();
