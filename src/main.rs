@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
@@ -292,22 +293,9 @@ fn run_init(project_root: Option<&str>) -> anyhow::Result<()> {
         .unwrap_or_else(|| std::env::current_dir().unwrap());
 
     let config_path = root.join("openspec").join("config.yaml");
-
-    // Read existing config if any
-    let mut existing_content = String::new();
-    if config_path.exists() {
-        existing_content = std::fs::read_to_string(&config_path)?;
-    }
-
-    let merged = merge_config(&existing_content);
-    std::fs::write(&config_path, &merged)?;
+    merge_config(&config_path)?;
 
     println!("✓ Init complete: {}", config_path.display());
-    if existing_content.is_empty() {
-        println!("  Created new config.yaml with formal-verification rules");
-    } else {
-        println!("  Merged rules into existing config.yaml (no duplicates)");
-    }
 
     // Update .gitignore with SPIN trail files
     update_gitignore(&root)?;
@@ -354,125 +342,158 @@ fn update_gitignore(root: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Merge formal-verification rules into existing config content.
-/// Preserves existing context and rules, only adds missing pieces.
-fn merge_config(existing: &str) -> String {
-    let existing = existing.trim();
-
-    // Empty → full config
-    if existing.is_empty() {
-        return BOOTSTRAP_CONFIG.to_string();
+/// Merge veriplan's context and rules into openspec/config.yaml using YAML-aware merge.
+fn merge_config(path: &std::path::Path) -> anyhow::Result<()> {
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let config = create_fresh_config();
+        std::fs::write(path, config)?;
+        return Ok(());
     }
 
-    // If our marker exists, replace everything from it onward (reentrant)
-    // Try full old marker first, then new marker (substring-safe)
-    let marker_pos = existing
-        .find("# Added by veriplan init")
-        .or_else(|| existing.find(VERIPLAN_MARKER));
+    let content = std::fs::read_to_string(path)?;
+    let existing: serde_yaml::Value = serde_yaml::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", path.display(), e))?;
 
-    if let Some(pos) = marker_pos {
-        let before = existing[..pos].trim_end();
-        return format!("{}\n\n{}", before, BOOTSTRAP_SUFFIX.trim());
-    }
+    let merged = yaml_merge(&existing, VERIPLAN_CONTEXT, &veriplan_rules());
+    let output = serde_yaml::to_string(&merged)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))?;
 
-    // No marker yet — append the suffix at end
-    format!("{}\n\n{}", existing.trim_end(), BOOTSTRAP_SUFFIX.trim())
+    let output = format!("# veriplan init\n{}", output);
+    std::fs::write(path, output)?;
+    Ok(())
 }
 
-const VERIPLAN_MARKER: &str = "# veriplan init";
+const VERIPLAN_CONTEXT: &str = "\
+Every OpenSpec artifact must be machine-parseable into a formal\n\
+state machine model AND clearly readable by a human reviewer.\n\
+Write tasks, requirements, and constraints\n\
+so they translate directly to states, transitions, and invariants.\n\
+\n\
+Structural rules:\n\
+- Every task MUST have a unique N.M ID and belong to a named phase.\n\
+- Phases execute in order. Tasks within a phase execute one at a time.\n\
+  Mark a phase heading with [concurrent] if tasks are meant to run simultaneously.\n\
+- Every requirement MUST use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY/MUST NOT).\n\
+- Every SHALL MUST reference at least one task by N.M ID (e.g. 'T3.2 SHALL complete before T3.9').\n\
+- Every SHALL MUST use ONE temporal keyword: BEFORE (sequential),\n\
+  AT MOST ONE (exclusive), IF...THEN (conditional), CONCURRENTLY (concurrent),\n\
+  or ALWAYS (global invariant).\n\
+- Put the SHALL sentence in a body paragraph — the heading alone is not parsed.\n\
+- Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs').\n\
+- Every scenario MUST have WHEN + THEN with an RFC 2119 keyword.\n\
+- No vague verbs (\"be robust\", \"be user-friendly\").";
 
-const BOOTSTRAP_SUFFIX: &str = r#"# veriplan init
-context: |-
-  Every OpenSpec artifact must be machine-parseable into a formal
-  state machine model AND clearly readable by a human reviewer.
-  Write tasks, requirements, and constraints
-  so they translate directly to states, transitions, and invariants.
+fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
+    let mut rules = BTreeMap::new();
+    rules.insert(
+        "proposal".to_string(),
+        vec![
+            "State the problem as a gap a state machine model can detect".to_string(),
+            "List non-goals to bound the formal model".to_string(),
+        ],
+    );
+    rules.insert(
+        "specs".to_string(),
+        vec![
+            "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)".to_string(),
+            "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')".to_string(),
+            "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE".to_string(),
+            "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed".to_string(),
+            "Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance.".to_string(),
+            "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')".to_string(),
+            "Avoid vague SHALLs ('be robust', 'be user-friendly')".to_string(),
+            "GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)".to_string(),
+            "BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)".to_string(),
+            "IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run".to_string(),
+            "For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4".to_string(),
+            "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional".to_string(),
+        ],
+    );
+    rules.insert(
+        "design".to_string(),
+        vec![
+            "Each task maps to a single state variable".to_string(),
+            "For every requirement, note its temporal category and the task IDs involved".to_string(),
+            "If a constraint cannot be formalised, mark it 'human review only'".to_string(),
+        ],
+    );
+    rules.insert(
+        "tasks".to_string(),
+        vec![
+            "Every task MUST have an N.M identifier (e.g. '1.3')".to_string(),
+            "Group tasks under ## Phase headings".to_string(),
+        ],
+    );
+    rules
+}
 
-  Structural rules:
-  - Every task MUST have a unique N.M ID and belong to a named phase.
-  - Phases execute in order. Tasks within a phase execute one at a time.
-    Mark a phase heading with [concurrent] if tasks are meant to run simultaneously.
-  - Every requirement MUST use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY/MUST NOT).
-  - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T3.2 SHALL complete before T3.9').
-  - Every SHALL MUST use ONE temporal keyword: BEFORE (sequential),
-    AT MOST ONE (exclusive), IF...THEN (conditional), CONCURRENTLY (concurrent),
-    or ALWAYS (global invariant).
-  - Put the SHALL sentence in a body paragraph — the heading alone is not parsed.
-  - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs').
-  - Every scenario MUST have WHEN + THEN with an RFC 2119 keyword.
-  - No vague verbs ("be robust", "be user-friendly").
+/// Create a fresh config with schema + veriplan context and rules.
+fn create_fresh_config() -> String {
+    let mut config = serde_yaml::Mapping::new();
+    config.insert(
+        serde_yaml::Value::String("schema".to_string()),
+        serde_yaml::Value::String("spec-driven".to_string()),
+    );
+    let merged = yaml_merge(
+        &serde_yaml::Value::Mapping(config),
+        VERIPLAN_CONTEXT,
+        &veriplan_rules(),
+    );
+    let output = serde_yaml::to_string(&merged).unwrap();
+    format!("# veriplan init\n{}", output)
+}
 
-rules:
-  proposal:
-    - State the problem as a gap a state machine model can detect
-    - List non-goals to bound the formal model
-  specs:
-    - "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)"
-    - "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')"
-    - "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE"
-    - "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed"
-    - "Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance."
-    - "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')"
-    - "Avoid vague SHALLs ('be robust', 'be user-friendly')"
-    - "GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)"
-    - "BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)"
-    - "IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run"
-    - "For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4"
-    - "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional"
-  design:
-    - Each task maps to a single state variable
-    - "For every requirement, note its temporal category and the task IDs involved"
-    - "If a constraint cannot be formalised, mark it 'human review only'"
-  tasks:
-    - "Every task MUST have an N.M identifier (e.g. '1.3')"
-    - "Group tasks under ## Phase headings"
-"#;
+/// Merge new context and rules into an existing YAML value.
+/// Context is appended with a blank line separator, skip if already present.
+/// Rules are merged per artifact type, deduplicating by exact string match.
+fn yaml_merge(
+    existing: &serde_yaml::Value,
+    new_context: &str,
+    new_rules: &BTreeMap<String, Vec<String>>,
+) -> serde_yaml::Value {
+    let mut merged = existing.clone();
 
-const BOOTSTRAP_CONFIG: &str = r#"schema: spec-driven
+    // Merge context: append with blank line separator, skip if already present
+    match merged.get_mut("context") {
+        Some(serde_yaml::Value::String(ctx)) => {
+            let trimmed_new = new_context.trim();
+            if !ctx.contains(trimmed_new) {
+                let combined = format!("{}\n\n{}", ctx.trim(), trimmed_new);
+                *ctx = combined;
+            }
+        }
+        _ => {
+            merged["context"] = serde_yaml::Value::String(new_context.to_string());
+        }
+    }
 
-# veriplan init
-context: |-
-  Every OpenSpec artifact must be machine-parseable into a formal
-  state machine model AND clearly readable by a human reviewer.
-  Write tasks, requirements, and constraints
-  so they translate directly to states, transitions, and invariants.
+    // Merge rules: add new items per artifact type, deduplicating
+    let mut rules = match merged.get("rules") {
+        Some(serde_yaml::Value::Mapping(m)) => m.clone(),
+        _ => serde_yaml::Mapping::new(),
+    };
 
-  Structural rules:
-  - Every task MUST have a unique N.M ID and belong to a named phase.
-  - Phases execute in order. Tasks within a phase execute one at a time.
-    Mark a phase heading with [concurrent] if tasks are meant to run simultaneously.
-  - Every requirement MUST use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY/MUST NOT).
-  - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T3.2 SHALL complete before T3.9').
-  - Every SHALL MUST use ONE temporal keyword: BEFORE (sequential),
-    AT MOST ONE (exclusive), IF...THEN (conditional), CONCURRENTLY (concurrent),
-    or ALWAYS (global invariant).
-  - Put the SHALL sentence in a body paragraph — the heading alone is not parsed.
-  - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs').
-  - Every scenario MUST have WHEN + THEN with an RFC 2119 keyword.
-  - No vague verbs ("be robust", "be user-friendly").
+    for (artifact_type, new_items) in new_rules {
+        let key = serde_yaml::Value::String(artifact_type.clone());
+        let existing_items = match rules.get(&key) {
+            Some(serde_yaml::Value::Sequence(s)) => s.clone(),
+            _ => serde_yaml::Sequence::new(),
+        };
 
-rules:
-  proposal:
-    - State the problem as a gap a state machine model can detect
-    - List non-goals to bound the formal model
-  specs:
-    - "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)"
-    - "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')"
-    - "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE"
-    - "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed"
-    - "Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance."
-    - "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')"
-    - "Avoid vague SHALLs ('be robust', 'be user-friendly')"
-    - "GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)"
-    - "BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)"
-    - "IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run"
-    - "For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4"
-    - "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional"
-  design:
-    - Each task maps to a single state variable
-    - "For every requirement, note its temporal category and the task IDs involved"
-    - "If a constraint cannot be formalised, mark it 'human review only'"
-  tasks:
-    - "Every task MUST have an N.M identifier (e.g. '1.3')"
-    - "Group tasks under ## Phase headings"
-"#;
+        let mut merged_items = existing_items.clone();
+        for item in new_items {
+            let item_val = serde_yaml::Value::String(item.clone());
+            if !merged_items.contains(&item_val) {
+                merged_items.push(item_val);
+            }
+        }
+
+        rules.insert(key, serde_yaml::Value::Sequence(merged_items));
+    }
+
+    merged["rules"] = serde_yaml::Value::Mapping(rules);
+    merged
+}
