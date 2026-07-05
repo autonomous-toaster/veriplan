@@ -33,44 +33,34 @@ pub fn task_ids_from_ltl(ltl: &str) -> Vec<String> {
 
 /// Parse conditional LTL to extract trigger and consequent task IDs.
 pub fn parse_conditional_ltl(ltl: &str) -> Option<(String, String)> {
-    // Look for patterns like: [](failed_t1_1 -> <>active_t2_1)
-    let bytes = ltl.as_bytes();
-    let mut trigger = None;
-    let mut consequent = None;
-
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i..].starts_with(b"failed_t") {
-            i += 8;
-            let start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'_') {
-                i += 1;
-            }
-            if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(underscore) = s.find('_')
-            {
-                trigger = Some(format!("{}.{}", &s[..underscore], &s[underscore + 1..]));
-            }
-        } else if bytes[i..].starts_with(b"active_t") {
-            i += 8;
-            let start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'_') {
-                i += 1;
-            }
-            if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(underscore) = s.find('_')
-            {
-                consequent = Some(format!("{}.{}", &s[..underscore], &s[underscore + 1..]));
-            }
-        } else {
-            i += 1;
-        }
-    }
-
+    let trigger = extract_ltl_var(ltl, b"failed_t");
+    let consequent = extract_ltl_var(ltl, b"active_t");
     match (trigger, consequent) {
         (Some(t), Some(c)) => Some((t, c)),
         _ => None,
     }
+}
+
+/// Extract a task ID from an LTL variable like `failed_t1_1` or `active_t2_1`.
+fn extract_ltl_var(ltl: &str, prefix: &[u8]) -> Option<String> {
+    let bytes = ltl.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i..].starts_with(prefix) {
+            i += prefix.len();
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'_') {
+                i += 1;
+            }
+            if let Ok(s) = std::str::from_utf8(&bytes[start..i])
+                && let Some(underscore) = s.find('_') {
+                    return Some(format!("{}.{}", &s[..underscore], &s[underscore + 1..]));
+                }
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 /// Build phase context string from LTL.
@@ -114,3 +104,92 @@ pub fn category_breakdown(violations: &[super::AnnotatedViolation]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::annotator::AnnotatedViolation;
+    use crate::checker::Violation;
+    use crate::ir::*;
+
+    #[test]
+    fn test_task_ids_from_ltl() {
+        let ids = task_ids_from_ltl("[] ( active_t1_1 -> done_t1_2 )");
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&"1.1".to_string()));
+        assert!(ids.contains(&"1.2".to_string()));
+    }
+
+    #[test]
+    fn test_task_ids_from_ltl_empty() {
+        let ids = task_ids_from_ltl("true");
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn test_build_phase_context() {
+        let plan = PlanIR {
+            tasks: vec![
+                Task { id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: String::new(), start_byte: 0, end_byte: 0, start_line: 0, end_line: 0 } },
+                Task { id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: String::new(), start_byte: 0, end_byte: 0, start_line: 0, end_line: 0 } },
+            ],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![
+                Phase { name: "Phase 1".into(), task_ids: vec!["1.1".into(), "1.2".into()], mode: PhaseMode::Sequential },
+            ],
+            source_map: SourceMap::default(),
+        };
+        let ctx = build_phase_context("[] ( active_t1_1 -> done_t1_2 )", &plan);
+        assert!(ctx.is_some());
+        assert!(ctx.unwrap().contains("Phase 1"));
+    }
+
+    #[test]
+    fn test_build_phase_context_no_match() {
+        let plan = PlanIR {
+            tasks: vec![],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: SourceMap::default(),
+        };
+        let ctx = build_phase_context("true", &plan);
+        assert!(ctx.is_none());
+    }
+
+    #[test]
+    fn test_category_breakdown() {
+        let violations = vec![
+            AnnotatedViolation {
+                violation: Violation { constraint_id: "R1".into(), requirement_statement: "test".into(), ltl: "".into(), category: "SequentialOrder".into(), state: "".into(), task_source: None, req_source: None, suggested_fix: None, plan: "test".into() },
+                category: "SequentialOrder".into(),
+                phase_context: None,
+                trigger_task: None,
+                consequent_task: None,
+                task_source: None,
+                req_source: None,
+            },
+        ];
+        let breakdown = category_breakdown(&violations);
+        assert!(breakdown.contains("SequentialOrder"));
+    }
+}
+
+    #[test]
+    fn test_extract_ltl_var_failed() {
+        let result = extract_ltl_var("[] ( failed_t1_1 -> <> active_t2_1 )", b"failed_t");
+        assert_eq!(result, Some("1.1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ltl_var_active() {
+        let result = extract_ltl_var("[] ( failed_t1_1 -> <> active_t2_1 )", b"active_t");
+        assert_eq!(result, Some("2.1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ltl_var_no_match() {
+        let result = extract_ltl_var("true", b"failed_t");
+        assert_eq!(result, None);
+    }

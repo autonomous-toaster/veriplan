@@ -64,65 +64,70 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
 pub fn classify(statement: &str) -> ConstraintCategory {
     let lower = statement.to_lowercase();
 
-    // Exclusive: "at most one", "not ... concurrently", "mutually exclusive", "not together"
-    if lower.contains("at most one")
+    if is_exclusive(&lower) {
+        return Exclusive;
+    }
+    if is_conditional(&lower) {
+        return Conditional;
+    }
+    if is_concurrent(&lower) {
+        return ConcurrentEvents;
+    }
+    if is_fixed_time(&lower) {
+        return FixedTime;
+    }
+    if is_global(&lower) {
+        return Global;
+    }
+    if is_sequential(&lower) {
+        return SequentialOrder;
+    }
+    NonFormalizable
+}
+
+fn is_exclusive(lower: &str) -> bool {
+    lower.contains("at most one")
         || lower.contains("mutually exclusive")
         || (lower.contains("not") && lower.contains("concurrently"))
         || lower.contains("not together")
         || lower.contains("only one")
-    {
-        return Exclusive;
-    }
+}
 
-    // Conditional: "if", "unless", "when ... then", "in case of"
+fn is_conditional(lower: &str) -> bool {
     let has_if = lower.starts_with("if ") || lower.contains(" if ");
     let has_when_then = lower.contains("when") && lower.contains("then");
     let has_unless = lower.contains("unless");
     let has_fail_then = lower.contains("fail") && lower.contains("then");
-    if has_if || has_when_then || has_unless || has_fail_then {
-        return Conditional;
-    }
+    has_if || has_when_then || has_unless || has_fail_then
+}
 
-    // Concurrent: "concurrently", "in parallel", "at the same time", "simultaneously"
-    if lower.contains("concurrently")
+fn is_concurrent(lower: &str) -> bool {
+    lower.contains("concurrently")
         || lower.contains("in parallel")
         || lower.contains("simultaneously")
         || lower.contains("at the same time")
-    {
-        return ConcurrentEvents;
-    }
+}
 
-    // Fixed time: "within", "between ... and", "before 0", "after 0", "window"
-    if lower.contains("within")
+fn is_fixed_time(lower: &str) -> bool {
+    lower.contains("within")
         || lower.contains("between") && lower.contains("and")
-        || (lower.contains("before") && is_time_ref(&lower))
-        || (lower.contains("after") && is_time_ref(&lower))
+        || (lower.contains("before") && is_time_ref(lower))
+        || (lower.contains("after") && is_time_ref(lower))
         || lower.contains("window")
-    {
-        return FixedTime;
-    }
+}
 
-    // Global: "always", "throughout", "throughout", "at all times", "available"
-    if lower.contains("always")
+fn is_global(lower: &str) -> bool {
+    lower.contains("always")
         || lower.contains("throughout")
         || lower.contains("at all times")
-        || lower.contains("throughout")
-    {
-        return Global;
-    }
+}
 
-    // Sequential: "before", "after", "must complete", "must finish", "only after"
-    if lower.contains(" before ")
+fn is_sequential(lower: &str) -> bool {
+    lower.contains(" before ")
         || lower.contains(" after ")
         || lower.contains("complete before")
         || lower.contains("only after")
         || lower.contains("must finish")
-    {
-        return SequentialOrder;
-    }
-
-    // Default: can't classify
-    NonFormalizable
 }
 
 /// Check if the text references actual clock/calendar time (not task IDs).
@@ -250,24 +255,25 @@ pub fn find_sequential_pair(statement: &str, task_ids: &[String]) -> Option<(Str
         let after_pattern = format!("after {}", id);
         let complete_before = format!("{} complete", id);
 
-        if lower.contains(&before_pattern) || lower.contains(&complete_before) {
-            // This task is before some other task
-            for other in task_ids {
-                if other != id
-                    && (lower.contains(other) || statement.contains(&format!("T{}", other)))
-                {
-                    return Some((id.clone(), other.clone()));
-                }
+        if (lower.contains(&before_pattern) || lower.contains(&complete_before))
+            && let Some(other) = find_matching_task(id, task_ids, &lower, statement) {
+                return Some((id.clone(), other));
             }
-        }
-        if lower.contains(&after_pattern) {
-            for other in task_ids {
-                if other != id
-                    && (lower.contains(other) || statement.contains(&format!("T{}", other)))
-                {
-                    return Some((other.clone(), id.clone()));
-                }
+        if lower.contains(&after_pattern)
+            && let Some(other) = find_matching_task(id, task_ids, &lower, statement) {
+                return Some((other, id.clone()));
             }
+    }
+    None
+}
+
+/// Find a task ID that appears in the statement, different from the given ID.
+fn find_matching_task(id: &str, task_ids: &[String], lower: &str, statement: &str) -> Option<String> {
+    for other in task_ids {
+        if other != id
+            && (lower.contains(other) || statement.contains(&format!("T{}", other)))
+        {
+            return Some(other.clone());
         }
     }
     None
@@ -277,3 +283,117 @@ pub fn find_sequential_pair(statement: &str, task_ids: &[String]) -> Option<(Str
 fn normalize_id(id: &str) -> String {
     format!("t{}", id.replace('.', "_"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_sequential_pair_before() {
+        let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
+        // The function looks for "1.1 before" as a contiguous substring
+        let result = find_sequential_pair("1.1 before 1.2", &task_ids);
+        assert_eq!(result, Some(("1.1".to_string(), "1.2".to_string())));
+    }
+
+    #[test]
+    fn test_find_sequential_pair_after() {
+        let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
+        // AFTER returns (other, id) — the thing after "after" is the earlier task
+        let result = find_sequential_pair("1.2 after 1.1", &task_ids);
+        assert_eq!(result, Some(("1.2".to_string(), "1.1".to_string())));
+    }
+
+    #[test]
+    fn test_find_sequential_pair_no_match() {
+        let task_ids = vec!["1.1".to_string()];
+        let result = find_sequential_pair("The system SHALL be robust", &task_ids);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_normalize_id() {
+        assert_eq!(normalize_id("1.3"), "t1_3");
+        assert_eq!(normalize_id("10.7"), "t10_7");
+    }
+}
+
+    #[test]
+    fn test_generate_ltl_sequential() {
+        let plan = make_test_plan();
+        let ltl = generate_ltl(&ConstraintCategory::SequentialOrder, "T1.1 SHALL complete BEFORE T1.2", &plan);
+        assert!(ltl.is_some());
+        let ltl = ltl.unwrap();
+        assert!(ltl.contains("active_t1_2"));
+        assert!(ltl.contains("done_t1_1"));
+    }
+
+    #[test]
+    fn test_generate_ltl_exclusive() {
+        let plan = make_test_plan();
+        let ltl = generate_ltl(&ConstraintCategory::Exclusive, "At most one of T1.1, T1.2 SHALL be active", &plan);
+        assert!(ltl.is_some());
+        let ltl = ltl.unwrap();
+        assert!(ltl.contains("active_t1_1"));
+        assert!(ltl.contains("active_t1_2"));
+    }
+
+    #[test]
+    fn test_generate_ltl_conditional() {
+        let plan = make_test_plan();
+        let ltl = generate_ltl(&ConstraintCategory::Conditional, "IF T1.1 fails THEN T2.1 SHALL run", &plan);
+        assert!(ltl.is_some());
+        let ltl = ltl.unwrap();
+        assert!(ltl.contains("failed_t1_1"));
+        assert!(ltl.contains("active_t2_1"));
+    }
+
+    #[test]
+    fn test_generate_ltl_concurrent() {
+        let plan = make_test_plan();
+        let ltl = generate_ltl(&ConstraintCategory::ConcurrentEvents, "T3.1 and T3.2 SHALL run concurrently", &plan);
+        assert!(ltl.is_some());
+        let ltl = ltl.unwrap();
+        assert!(ltl.contains("<->"));
+    }
+
+    #[test]
+    fn test_generate_ltl_non_formalizable() {
+        let plan = make_test_plan();
+        let ltl = generate_ltl(&ConstraintCategory::NonFormalizable, "The system SHALL be robust", &plan);
+        assert!(ltl.is_none());
+    }
+
+    #[test]
+    fn test_extract_task_refs() {
+        let plan = make_test_plan();
+        let refs = extract_task_refs("T1.1 SHALL complete BEFORE T1.2", &plan);
+        assert_eq!(refs.len(), 2);
+        assert!(refs.contains(&"1.1".to_string()));
+        assert!(refs.contains(&"1.2".to_string()));
+    }
+
+    #[test]
+    fn test_extract_task_refs_bare() {
+        let task_ids = vec!["1.1".to_string(), "1.2".to_string(), "2.1".to_string()];
+        let refs = extract_task_refs_bare("T1.1 SHALL complete BEFORE T1.2", &task_ids);
+        assert_eq!(refs.len(), 2);
+    }
+
+    #[allow(dead_code)]
+    fn make_test_plan() -> crate::ir::PlanIR {
+        use crate::ir::*;
+        PlanIR {
+            tasks: vec![
+                Task { id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 } },
+                Task { id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 } },
+                Task { id: "2.1".into(), description: "Deploy".into(), phase: "Phase 2".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 3, end_line: 3 } },
+                Task { id: "3.1".into(), description: "Monitor".into(), phase: "Phase 3".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 4, end_line: 4 } },
+                Task { id: "3.2".into(), description: "Alert".into(), phase: "Phase 3".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 5, end_line: 5 } },
+            ],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: SourceMap::default(),
+        }
+    }

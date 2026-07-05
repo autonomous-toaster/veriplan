@@ -116,125 +116,116 @@ pub fn resolve_input(
     project_root: &Path,
     stdin_flag: bool,
 ) -> Result<InputSource, String> {
-    // Handle --stdin / - flag
     if stdin_flag {
-        let content = read_stdin()?;
-        return Ok(InputSource::Stdin {
-            content,
-            label: "<stdin>".to_string(),
-        });
+        return stdin_source();
     }
 
     let arg = match arg {
         Some(a) => a,
-        None => {
-            // No argument: try auto-detect from CWD
-            return resolve_auto(project_root);
-        }
+        None => return resolve_auto(project_root),
     };
 
-    // Check for "-" as stdin
     if arg == "-" {
-        let content = read_stdin()?;
-        return Ok(InputSource::Stdin {
-            content,
-            label: "<stdin>".to_string(),
-        });
+        return stdin_source();
     }
 
     let path = Path::new(arg);
 
-    // 1. Is it a directory with openspec/changes/?
     if path.is_dir() {
-        let changes_dir = path.join("openspec").join("changes");
-        if changes_dir.exists() && changes_dir.is_dir() {
-            // It has openspec/changes/ — treat as project root, auto-detect
-            let changes = discover_changes(path)?;
-            if let Some(name) = changes.first() {
-                return Ok(InputSource::OpenSpec {
-                    change_dir: changes_dir.join(name),
-                    change_name: name.clone(),
-                });
-            }
-            return Err(format!(
-                "No active changes found in {}",
-                changes_dir.display()
-            ));
-        }
-
-        // 2. Is it a directory with tasks.md or specs/?
-        let has_tasks = path.join("tasks.md").exists();
-        let has_specs = path.join("specs").exists();
-
-        if has_tasks || has_specs {
-            return Ok(InputSource::Directory {
-                path: path.to_path_buf(),
-                has_tasks,
-                has_specs,
-            });
-        }
-
-        // Directory exists but has no verifiable content
-        return Err(format!(
-            "No verifiable content found in {} (no tasks.md or specs/ directory)",
-            path.display()
-        ));
+        return resolve_directory(path);
     }
 
-    // 3. Is it a file?
     if path.is_file() {
-        // Accept any .md file, or any file for that matter (parser will detect content)
         return Ok(InputSource::SingleFile {
             path: path.to_path_buf(),
         });
     }
 
-    // 4. Does the file not exist but might be a change name?
-    // Check if it looks like a change name (no path separators)
-    if !arg.contains('/') && !arg.contains('\\') {
-        // Try as a change name in the project root
-        let change_dir = project_root.join("openspec").join("changes").join(arg);
-        if change_dir.join("tasks.md").exists() || change_dir.join("specs").exists() {
+    resolve_change_name(arg, project_root)
+}
+
+fn stdin_source() -> Result<InputSource, String> {
+    let content = read_stdin()?;
+    Ok(InputSource::Stdin {
+        content,
+        label: "<stdin>".to_string(),
+    })
+}
+
+fn resolve_directory(path: &Path) -> Result<InputSource, String> {
+    let changes_dir = path.join("openspec").join("changes");
+    if changes_dir.exists() && changes_dir.is_dir() {
+        let changes = discover_changes(path)?;
+        if let Some(name) = changes.first() {
             return Ok(InputSource::OpenSpec {
-                change_dir,
-                change_name: arg.to_string(),
+                change_dir: changes_dir.join(name),
+                change_name: name.clone(),
             });
         }
-
-        // Try find_change_dir logic
-        if let Ok(source) = find_change_dir(project_root, arg) {
-            return Ok(source);
-        }
-
-        // List available changes
-        let changes_dir = project_root.join("openspec").join("changes");
-        if changes_dir.exists() {
-            let entries: Vec<String> = std::fs::read_dir(&changes_dir)
-                .map_err(|e| format!("Cannot read changes directory: {}", e))?
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                .filter(|e| {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    name != "archive"
-                        && (e.path().join("tasks.md").exists() || e.path().join("specs").exists())
-                })
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .collect();
-
-            return Err(format!(
-                "Change '{}' not found. Available changes: {:?}",
-                arg, entries
-            ));
-        }
-
         return Err(format!(
-            "No openspec/changes/ directory found at {}",
-            project_root.display()
+            "No active changes found in {}",
+            changes_dir.display()
         ));
     }
 
-    // File doesn't exist and doesn't look like a change name
-    Err(format!("Path does not exist: {}", arg))
+    let has_tasks = path.join("tasks.md").exists();
+    let has_specs = path.join("specs").exists();
+
+    if has_tasks || has_specs {
+        return Ok(InputSource::Directory {
+            path: path.to_path_buf(),
+            has_tasks,
+            has_specs,
+        });
+    }
+
+    Err(format!(
+        "No verifiable content found in {} (no tasks.md or specs/ directory)",
+        path.display()
+    ))
+}
+
+fn resolve_change_name(arg: &str, project_root: &Path) -> Result<InputSource, String> {
+    if arg.contains('/') || arg.contains('\\') {
+        return Err(format!("Path does not exist: {}", arg));
+    }
+
+    let change_dir = project_root.join("openspec").join("changes").join(arg);
+    if change_dir.join("tasks.md").exists() || change_dir.join("specs").exists() {
+        return Ok(InputSource::OpenSpec {
+            change_dir,
+            change_name: arg.to_string(),
+        });
+    }
+
+    if let Ok(source) = find_change_dir(project_root, arg) {
+        return Ok(source);
+    }
+
+    let changes_dir = project_root.join("openspec").join("changes");
+    if changes_dir.exists() {
+        let entries: Vec<String> = std::fs::read_dir(&changes_dir)
+            .map_err(|e| format!("Cannot read changes directory: {}", e))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name != "archive"
+                    && (e.path().join("tasks.md").exists() || e.path().join("specs").exists())
+            })
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+
+        return Err(format!(
+            "Change '{}' not found. Available changes: {:?}",
+            arg, entries
+        ));
+    }
+
+    Err(format!(
+        "No openspec/changes/ directory found at {}",
+        project_root.display()
+    ))
 }
 
 /// Discover all active changes in a project's openspec directory.
@@ -298,5 +289,70 @@ pub fn load_plan(source: &InputSource) -> Result<PlanIR, String> {
         InputSource::Empty { .. } => {
             Err("Cannot load plan from empty directory — no verifiable content found".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_stdin_source() {
+        // Can't easily test stdin, just verify the function exists
+        let _ = stdin_source;
+    }
+
+    #[test]
+    fn test_resolve_directory_no_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = resolve_directory(dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_change_name_no_changes_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = resolve_change_name("test-change", dir.path());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No openspec/changes/"));
+    }
+
+    #[test]
+    fn test_strictness_from_str() {
+        assert_eq!(
+            "strict".parse::<StrictnessProfile>().unwrap(),
+            StrictnessProfile::Strict
+        );
+        assert_eq!(
+            "moderate".parse::<StrictnessProfile>().unwrap(),
+            StrictnessProfile::Moderate
+        );
+        assert_eq!(
+            "lax".parse::<StrictnessProfile>().unwrap(),
+            StrictnessProfile::Lax
+        );
+        assert!("unknown".parse::<StrictnessProfile>().is_err());
+    }
+
+    #[test]
+    fn test_input_source_is_openspec() {
+        let source = InputSource::OpenSpec {
+            change_dir: Path::new("/tmp").to_path_buf(),
+            change_name: "test".into(),
+        };
+        assert!(source.is_openspec());
+        assert_eq!(source.label(), "test");
+    }
+
+    #[test]
+    fn test_input_source_label() {
+        let source = InputSource::Directory {
+            path: Path::new("/tmp").to_path_buf(),
+            has_tasks: true,
+            has_specs: false,
+        };
+        assert!(!source.is_openspec());
+        assert_eq!(source.label(), "/tmp");
     }
 }

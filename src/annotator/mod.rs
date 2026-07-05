@@ -71,16 +71,7 @@ pub fn format_human(
 ) -> String {
     let mut output = String::new();
 
-    let status = if result.convertible && result.valid == Some(true) {
-        "✓ VALID"
-    } else if !result.convertible {
-        "⚠ SKIPPED"
-    } else if result.valid == Some(false) {
-        "✗ INVALID"
-    } else {
-        "⚠ UNKNOWN"
-    };
-
+    let status = status_label(result);
     output.push_str(&format!("Plan: {} — {}\n", result.plan_name, status));
 
     if let Some(reason) = &result.skip_reason {
@@ -88,93 +79,11 @@ pub fn format_human(
     }
 
     if let Some(report) = &result.convertibility_report {
-        if !report.blockers.is_empty() {
-            output.push_str(&format!("  {} blocker(s):\n", report.blockers.len()));
-            for item in &report.blockers {
-                output.push_str(&format!(
-                    "    [BLOCKER] {} at {}\n",
-                    item.element, item.location
-                ));
-                output.push_str(&format!("              {}\n", item.detail));
-                if let Some(fix) = &item.fix {
-                    output.push_str(&format!("              Fix: {}\n", fix));
-                }
-            }
-        }
-
-        if !report.warnings.is_empty() && verbose {
-            output.push_str(&format!("  {} warning(s):\n", report.warnings.len()));
-            for item in &report.warnings {
-                output.push_str(&format!(
-                    "    [WARNING] {} at {}\n",
-                    item.element, item.location
-                ));
-                output.push_str(&format!("              {}\n", item.detail));
-            }
-        }
-
-        if !report.info.is_empty() && verbose {
-            output.push_str(&format!("  {} info(s):\n", report.info.len()));
-            for item in &report.info {
-                output.push_str(&format!(
-                    "    [INFO] {} at {}\n",
-                    item.element, item.location
-                ));
-                output.push_str(&format!("              {}\n", item.detail));
-            }
-        }
+        format_report_items(&mut output, report, verbose);
     }
 
     if !result.violations.is_empty() {
-        let satisfied = result.satisfied_constraints;
-        let violated = result.violations.len();
-        let total = result.total_constraints;
-
-        output.push_str(&format!(
-            "\n  Satisfied: {} | Violated: {} | Total: {}\n",
-            satisfied, violated, total
-        ));
-
-        if verbose {
-            output.push_str(&format!("\n{}\n", helpers::category_breakdown(annotated)));
-        }
-
-        for (i, v) in annotated.iter().enumerate() {
-            output.push_str(&format!("\n  Violation {}:\n", i + 1));
-            output.push_str(&format!("    Requirement: {}\n", v.violation.constraint_id));
-            output.push_str(&format!(
-                "    Statement: {}\n",
-                v.violation.requirement_statement
-            ));
-            output.push_str(&format!("    Category: {}\n", v.category));
-
-            if let Some(phase) = &v.phase_context {
-                output.push_str(&format!("    Phase: {}\n", phase));
-            }
-
-            if v.category.contains("Conditional") {
-                if let Some(trigger) = &v.trigger_task {
-                    output.push_str(&format!("    Trigger: {}\n", trigger));
-                }
-                if let Some(consequent) = &v.consequent_task {
-                    output.push_str(&format!("    Consequent: {}\n", consequent));
-                }
-            }
-
-            if let Some(source) = &v.task_source {
-                output.push_str(&format!("    Task source: {}\n", source));
-            }
-            if let Some(source) = &v.req_source {
-                output.push_str(&format!("    Requirement source: {}\n", source));
-            }
-
-            if let Some(fix) = &v.violation.suggested_fix {
-                output.push_str(&format!(
-                    "\n    Suggested fix:\n    {}\n",
-                    fix.replace('\n', "\n    ")
-                ));
-            }
-        }
+        format_violations(&mut output, result, annotated, verbose);
     } else if result.convertible && result.valid == Some(true) {
         output.push_str("  All constraints satisfied.\n");
         output.push_str(&format!(
@@ -188,6 +97,107 @@ pub fn format_human(
     }
 
     output
+}
+
+fn status_label(result: &crate::checker::VerificationResult) -> &'static str {
+    if result.convertible && result.valid == Some(true) {
+        "✓ VALID"
+    } else if !result.convertible {
+        "⚠ SKIPPED"
+    } else if result.valid == Some(false) {
+        "✗ INVALID"
+    } else {
+        "⚠ UNKNOWN"
+    }
+}
+
+fn format_report_items(output: &mut String, report: &crate::ir::ConvertibilityReport, verbose: bool) {
+    if !report.blockers.is_empty() {
+        output.push_str(&format!("  {} blocker(s):\n", report.blockers.len()));
+        for item in &report.blockers {
+            output.push_str(&format!(
+                "    [BLOCKER] {} at {}\n              {}\n",
+                item.element, item.location, item.detail
+            ));
+            if let Some(fix) = &item.fix {
+                output.push_str(&format!("              Fix: {}\n", fix));
+            }
+        }
+    }
+
+    if !report.warnings.is_empty() && verbose {
+        output.push_str(&format!("  {} warning(s):\n", report.warnings.len()));
+        for item in &report.warnings {
+            output.push_str(&format!(
+                "    [WARNING] {} at {}\n              {}\n",
+                item.element, item.location, item.detail
+            ));
+        }
+    }
+
+    if !report.info.is_empty() && verbose {
+        output.push_str(&format!("  {} info(s):\n", report.info.len()));
+        for item in &report.info {
+            output.push_str(&format!(
+                "    [INFO] {} at {}\n              {}\n",
+                item.element, item.location, item.detail
+            ));
+        }
+    }
+}
+
+fn format_violations(
+    output: &mut String,
+    result: &crate::checker::VerificationResult,
+    annotated: &[AnnotatedViolation],
+    verbose: bool,
+) {
+    let satisfied = result.satisfied_constraints;
+    let violated = result.violations.len();
+    let total = result.total_constraints;
+
+    output.push_str(&format!(
+        "\n  Satisfied: {} | Violated: {} | Total: {}\n",
+        satisfied, violated, total
+    ));
+
+    if verbose {
+        output.push_str(&format!("\n{}\n", helpers::category_breakdown(annotated)));
+    }
+
+    for (i, v) in annotated.iter().enumerate() {
+        output.push_str(&format!("\n  Violation {}:\n", i + 1));
+        output.push_str(&format!("    Requirement: {}\n", v.violation.constraint_id));
+        output.push_str(&format!("    Statement: {}\n", v.violation.requirement_statement));
+        output.push_str(&format!("    Category: {}\n", v.category));
+
+        if let Some(phase) = &v.phase_context {
+            output.push_str(&format!("    Phase: {}\n", phase));
+        }
+
+        if v.category.contains("Conditional") {
+            if let Some(trigger) = &v.trigger_task {
+                output.push_str(&format!("    Trigger: {}\n", trigger));
+            }
+            if let Some(consequent) = &v.consequent_task {
+                output.push_str(&format!("    Consequent: {}\n", consequent));
+            }
+        }
+
+        if let Some(source) = &v.task_source {
+            output.push_str(&format!("    Task source: {}\n", source));
+        }
+        if let Some(source) = &v.req_source {
+            output.push_str(&format!("    Requirement source: {}\n", source));
+        }
+
+        if let Some(fix) = &v.violation.suggested_fix {
+            output.push_str(&format!(
+                "\n    Suggested fix:\n    {}\n",
+                fix.replace('\n', "\n    ")
+            ));
+        }
+    }
 }
 
 /// Format verification result as JSON.

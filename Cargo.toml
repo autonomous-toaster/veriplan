@@ -21,6 +21,9 @@ lsp-server = "0.7"
 lsp-types = "0.95"
 crossbeam-channel = "0.5"
 
+# Grounding
+groundcontrol = { path = "../groundcontrol" }
+
 # Model output
 tempfile = "3"
 log = "0.4"
@@ -33,3 +36,13 @@ z3 = { version = "0.14", optional = true }
 [features]
 default = []
 z3 = ["dep:z3"]
+
+[package.metadata.cargo-machete]
+ignored = [
+  "crossbeam-channel",
+  "env_logger",
+  "log",
+  "streaming-iterator",
+  "thiserror",
+  "z3",
+]

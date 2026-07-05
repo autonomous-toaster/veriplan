@@ -5,6 +5,17 @@ use std::path::Path;
 use crate::ir::PlanIR;
 use crate::parser;
 
+/// Create a tree-sitter markdown parser.
+fn make_markdown_parser() -> Result<tree_sitter::Parser, String> {
+    let mut parser_instance = tree_sitter::Parser::new();
+    let lang = tree_sitter_language_pack::get_language("markdown")
+        .map_err(|e| format!("Grammar error: {}", e))?;
+    parser_instance
+        .set_language(&lang)
+        .map_err(|e| format!("Grammar error: {}", e))?;
+    Ok(parser_instance)
+}
+
 /// Load a directory that may have tasks.md and/or specs/ but not the full OpenSpec layout.
 pub fn load_directory(path: &Path, has_tasks: bool, has_specs: bool) -> Result<PlanIR, String> {
     let mut plan = PlanIR {
@@ -15,12 +26,7 @@ pub fn load_directory(path: &Path, has_tasks: bool, has_specs: bool) -> Result<P
         source_map: crate::ir::SourceMap::default(),
     };
 
-    let mut parser_instance = tree_sitter::Parser::new();
-    let lang = tree_sitter_language_pack::get_language("markdown")
-        .map_err(|e| format!("Grammar error: {}", e))?;
-    parser_instance
-        .set_language(&lang)
-        .map_err(|e| format!("Grammar error: {}", e))?;
+    let mut parser_instance = make_markdown_parser()?;
 
     if has_tasks {
         let tasks_path = path.join("tasks.md");
@@ -96,12 +102,7 @@ fn collect_specs(dir: &Path, files: &mut Vec<parser::SpecFile>) -> Result<(), st
 /// Either, both, or neither may produce results. If neither produces
 /// anything, returns an error.
 pub fn parse_content(source: &str, filename: &str) -> Result<PlanIR, String> {
-    let mut parser_instance = tree_sitter::Parser::new();
-    let lang = tree_sitter_language_pack::get_language("markdown")
-        .map_err(|e| format!("Grammar error: {}", e))?;
-    parser_instance
-        .set_language(&lang)
-        .map_err(|e| format!("Grammar error: {}", e))?;
+    let mut parser_instance = make_markdown_parser()?;
 
     let file_path = Path::new(filename);
 
@@ -154,4 +155,36 @@ pub fn parse_content(source: &str, filename: &str) -> Result<PlanIR, String> {
         phases,
         source_map,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_make_markdown_parser() {
+        let parser = make_markdown_parser();
+        assert!(parser.is_ok());
+    }
+
+    #[test]
+    fn test_collect_specs_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut files = Vec::new();
+        let result = collect_specs(dir.path(), &mut files);
+        assert!(result.is_ok());
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_collect_specs_with_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec_dir = dir.path().join("test-capability");
+        std::fs::create_dir_all(&spec_dir).unwrap();
+        std::fs::write(spec_dir.join("spec.md"), "# Test").unwrap();
+        let mut files = Vec::new();
+        collect_specs(dir.path(), &mut files).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].capability, "test-capability");
+    }
 }

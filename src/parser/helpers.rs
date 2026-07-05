@@ -33,48 +33,61 @@ pub fn extract_scenarios(
 
     while i < lines.len() {
         let line = lines[i].trim();
-        if line.starts_with("#### Scenario:") || line.starts_with("#### scenario:") {
-            let name = line
-                .strip_prefix("#### Scenario:")
-                .or_else(|| line.strip_prefix("#### scenario:"))
-                .unwrap_or("")
-                .trim();
-
-            let mut steps = Vec::new();
-            i += 1;
-
-            while i < lines.len() {
-                let step_line = lines[i].trim();
-                if step_line.starts_with('#') || step_line.is_empty() {
-                    break;
-                }
-
-                if let Some(step) = parse_step(step_line, file, i + 1) {
-                    steps.push(step);
-                }
-                i += 1;
+        if (line.starts_with("#### Scenario:") || line.starts_with("#### scenario:"))
+            && let Some((scenario, consumed)) = parse_one_scenario(&lines, i, file) {
+                scenarios.push(scenario);
+                i += consumed;
+                continue;
             }
-
-            if !steps.is_empty() {
-                let steps_len = steps.len();
-                scenarios.push(crate::ir::Scenario {
-                    name: name.to_string(),
-                    steps,
-                    source: crate::ir::SourceLocation {
-                        file: file.to_string(),
-                        start_byte: 0,
-                        end_byte: 0,
-                        start_line: i - steps_len,
-                        end_line: i,
-                    },
-                });
-            }
-        } else {
-            i += 1;
-        }
+        i += 1;
     }
 
     (scenarios, standalone_scenarios)
+}
+
+/// Parse a single scenario starting at the given line index.
+fn parse_one_scenario(lines: &[&str], start: usize, file: &str) -> Option<(crate::ir::Scenario, usize)> {
+    let line = lines[start].trim();
+    let name = line
+        .strip_prefix("#### Scenario:")
+        .or_else(|| line.strip_prefix("#### scenario:"))
+        .unwrap_or("")
+        .trim();
+
+    let mut steps = Vec::new();
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let step_line = lines[i].trim();
+        if step_line.starts_with('#') || step_line.is_empty() {
+            break;
+        }
+
+        if let Some(step) = parse_step(step_line, file, i + 1) {
+            steps.push(step);
+        }
+        i += 1;
+    }
+
+    if steps.is_empty() {
+        return None;
+    }
+
+    let steps_len = steps.len();
+    Some((
+        crate::ir::Scenario {
+            name: name.to_string(),
+            steps,
+            source: crate::ir::SourceLocation {
+                file: file.to_string(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: i - steps_len,
+                end_line: i,
+            },
+        },
+        i - start,
+    ))
 }
 
 /// Parse a single scenario step.
@@ -228,5 +241,87 @@ pub fn explore_node<'a>(node: &tree_sitter::Node<'a>, source: &'a [u8], indent: 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         explore_node(&child, source, indent + 1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::StepKind;
+
+    #[test]
+    fn test_parse_step_when() {
+        let step = parse_step("- **WHEN** T3.2 runs", "spec.md", 10);
+        assert!(step.is_some());
+        let step = step.unwrap();
+        assert_eq!(step.kind, StepKind::When);
+        assert!(step.text.contains("T3.2 runs"));
+    }
+
+    #[test]
+    fn test_parse_step_then() {
+        let step = parse_step("- **THEN** T3.2 SHALL complete", "spec.md", 11);
+        assert!(step.is_some());
+        let step = step.unwrap();
+        assert_eq!(step.kind, StepKind::Then);
+    }
+
+    #[test]
+    fn test_parse_step_given() {
+        let step = parse_step("- **GIVEN** a PlanIR with tasks", "spec.md", 9);
+        assert!(step.is_some());
+        let step = step.unwrap();
+        assert_eq!(step.kind, StepKind::Given);
+    }
+
+    #[test]
+    fn test_parse_step_and() {
+        let step = parse_step("- **AND** T3.2 SHALL also run", "spec.md", 12);
+        assert!(step.is_some());
+        let step = step.unwrap();
+        assert_eq!(step.kind, StepKind::And);
+    }
+
+    #[test]
+    fn test_parse_step_invalid() {
+        let step = parse_step("not a step", "spec.md", 13);
+        assert!(step.is_none());
+    }
+
+    #[test]
+    fn test_extract_shall_statement() {
+        let result = extract_shall_statement("T1.1 SHALL complete BEFORE T1.2 SHALL run.", "spec.md");
+        assert!(result.contains("SHALL"));
+        assert!(result.contains("BEFORE"));
+    }
+
+    #[test]
+    fn test_extract_shall_statement_no_shall() {
+        let result = extract_shall_statement("Just some text without keywords.", "spec.md");
+        assert_eq!(result, "Just some text without keywords.");
+    }
+
+    #[test]
+    fn test_detect_rfc2119_must() {
+        let strength = detect_rfc2119("The system MUST handle errors");
+        assert_eq!(strength, crate::ir::Rfc2119Strength::Must);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_should() {
+        let strength = detect_rfc2119("The system SHOULD retry");
+        assert_eq!(strength, crate::ir::Rfc2119Strength::Should);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_may() {
+        let strength = detect_rfc2119("The system MAY cache results");
+        assert_eq!(strength, crate::ir::Rfc2119Strength::May);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_none() {
+        let strength = detect_rfc2119("The system does something");
+        assert_eq!(strength, crate::ir::Rfc2119Strength::None);
     }
 }

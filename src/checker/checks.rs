@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use crate::ir::{CheckItem, ConstraintCategory, PlanIR, Rfc2119Strength, StepKind, Task};
 use crate::translator;
 
+#[cfg(test)]
+mod checks_tests;
+
 /// Check 1: Tasks exist and have unique IDs.
 pub fn check_tasks(
     plan: &PlanIR,
@@ -287,42 +290,26 @@ pub fn check_scenarios(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
         let has_then = sc.steps.iter().any(|s| s.kind == StepKind::Then);
 
         if !has_when {
-            warnings.push(CheckItem {
-                severity: "warning".into(),
-                check: "scenario_no_when".into(),
-                element: format!("Scenario '{}'", sc.name),
-                location: format!("{}:{}", sc.source.file, sc.source.start_line),
-                detail: "Scenario missing WHEN step".into(),
-                fix: Some("Add '- **WHEN** ...' to the scenario".into()),
-            });
+            warnings.push(make_scenario_warning(
+                &sc.name,
+                &sc.source,
+                "scenario_no_when",
+                "Scenario missing WHEN step",
+                "Add '- **WHEN** ...' to the scenario",
+            ));
         }
         if !has_then {
-            warnings.push(CheckItem {
-                severity: "warning".into(),
-                check: "scenario_no_then".into(),
-                element: format!("Scenario '{}'", sc.name),
-                location: format!("{}:{}", sc.source.file, sc.source.start_line),
-                detail: "Scenario missing THEN step".into(),
-                fix: Some("Add '- **THEN** ... SHALL ...' to the scenario".into()),
-            });
+            warnings.push(make_scenario_warning(
+                &sc.name,
+                &sc.source,
+                "scenario_no_then",
+                "Scenario missing THEN step",
+                "Add '- **THEN** ... SHALL ...' to the scenario",
+            ));
         }
 
         if has_then {
-            for step in &sc.steps {
-                if step.kind == StepKind::Then || step.kind == StepKind::And {
-                    let strength = crate::parser::detect_rfc2119(&step.text);
-                    if strength == Rfc2119Strength::None {
-                        warnings.push(CheckItem {
-                            severity: "warning".into(),
-                            check: "then_no_shall".into(),
-                            element: format!("Scenario '{}'", sc.name),
-                            location: format!("{}:{}", sc.source.file, step.source.start_line),
-                            detail: format!("{:?} step has no RFC 2119 keyword", step.kind),
-                            fix: Some("Add SHALL/MUST/SHOULD to the step".into()),
-                        });
-                    }
-                }
-            }
+            warnings.extend(check_then_steps_rfc2119(sc));
         }
     }
 
@@ -339,6 +326,45 @@ pub fn check_scenarios(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
     });
 
     (warnings, info)
+}
+
+/// Create a warning CheckItem for a scenario issue.
+fn make_scenario_warning(
+    name: &str,
+    source: &crate::ir::SourceLocation,
+    check: &str,
+    detail: &str,
+    fix: &str,
+) -> CheckItem {
+    CheckItem {
+        severity: "warning".into(),
+        check: check.into(),
+        element: format!("Scenario '{}'", name),
+        location: format!("{}:{}", source.file, source.start_line),
+        detail: detail.into(),
+        fix: Some(fix.into()),
+    }
+}
+
+/// Check THEN/AND steps for RFC 2119 keywords.
+fn check_then_steps_rfc2119(sc: &crate::ir::Scenario) -> Vec<CheckItem> {
+    let mut warnings = Vec::new();
+    for step in &sc.steps {
+        if step.kind == StepKind::Then || step.kind == StepKind::And {
+            let strength = crate::parser::detect_rfc2119(&step.text);
+            if strength == Rfc2119Strength::None {
+                warnings.push(CheckItem {
+                    severity: "warning".into(),
+                    check: "then_no_shall".into(),
+                    element: format!("Scenario '{}'", sc.name),
+                    location: format!("{}:{}", sc.source.file, step.source.start_line),
+                    detail: format!("{:?} step has no RFC 2119 keyword", step.kind),
+                    fix: Some("Add SHALL/MUST/SHOULD to the step".into()),
+                });
+            }
+        }
+    }
+    warnings
 }
 
 /// Check 6: Constraint diversity.

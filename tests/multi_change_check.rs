@@ -29,7 +29,7 @@ fn setup_test_project(changes: &[&str]) -> TempDir {
         // Create tasks.md
         fs::write(
             change_dir.join("tasks.md"),
-            "# Tasks\n\n## Phase 1: Setup\n\n- [x] T1.1 Task\n",
+            "# Tasks\n\n## Phase 1: Setup\n\n- [x] 1.1 First task\n- [ ] 1.2 Second task\n",
         )
         .expect("Failed to write tasks.md");
 
@@ -38,7 +38,7 @@ fn setup_test_project(changes: &[&str]) -> TempDir {
         fs::create_dir_all(&specs_dir).expect("Failed to create specs dir");
         fs::write(
             specs_dir.join("spec.md"),
-            "# Specification\n\n## Task Reference\n\n| Task ID | Description |\n|---------|-------------|\n| T1.1 | Setup task |\n\n### Requirement: Basic\n\nT1.1 SHALL complete BEFORE any other task runs.\n"
+            "# Specification\n\n## Task Reference\n\n| Task ID | Description |\n|---------|-------------|\n| T1.1 | First task |\n| T1.2 | Second task |\n\n### Requirement: Basic\n\nT1.1 SHALL complete BEFORE T1.2 SHALL run.\n"
         ).expect("Failed to write spec.md");
     }
 

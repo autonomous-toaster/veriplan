@@ -89,7 +89,7 @@
 - [x] 9.1 Run `veriplan check veriplan-plan-verifier --phase convertibility` → PASSES (finds 8 formalizable / 15 non-formalizable)
 - [x] 9.2 Run `veriplan check veriplan-plan-verifier` → full pipeline runs end-to-end
 - [x] 9.3 `veriplan bootstrap` auto-configures config.yaml with rules + context
-- [ ] 9.4 Create a deliberately inconsistent spec and verify it's flagged as invalid
+- [x] 9.4 Create a deliberately inconsistent spec and verify it's flagged as invalid
 - [x] 9.5 Verify JSON output is parseable for both valid and invalid cases
 
 ## 10. Visualize: state-machine diagram of plan

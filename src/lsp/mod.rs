@@ -6,6 +6,7 @@
 pub mod code_actions;
 pub mod completions;
 pub mod diagnostics;
+pub mod handlers;
 pub mod navigation;
 pub mod state;
 pub mod symbols;

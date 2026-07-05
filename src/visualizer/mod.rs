@@ -391,3 +391,75 @@ fn category_label(cat: &crate::ir::ConstraintCategory) -> &'static str {
 fn clean_label(s: &str) -> String {
     s.replace(['`', '"'], "'")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::*;
+
+    #[test]
+    fn test_clean_label() {
+        assert_eq!(clean_label("hello"), "hello");
+        assert_eq!(clean_label("`code`"), "'code'");
+        assert_eq!(clean_label("a \"quote\""), "a 'quote'");
+    }
+
+    #[test]
+    fn test_node_id() {
+        let id = node_id("1.1");
+        assert_eq!(id, "T1_1");
+    }
+
+    #[test]
+    fn test_node_id_dot() {
+        let id = node_id_dot("1.1");
+        assert_eq!(id, "t_1_1");
+    }
+
+    #[test]
+    fn test_escape_dot() {
+        // escape_dot replaces quotes and newlines, not dots
+        assert_eq!(escape_dot("1.1"), "1.1");
+        assert_eq!(escape_dot("hello"), "hello");
+        assert_eq!(escape_dot("a\"b"), "a\\\"b");
+    }
+
+    #[test]
+    fn test_source_markdown_link() {
+        let task = Task {
+            id: "1.1".into(),
+            description: "test".into(),
+            phase: "Phase 1".into(),
+            checked: false,
+            source: SourceLocation {
+                file: "spec.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 5,
+                end_line: 5,
+            },
+        };
+        let link = source_markdown_link(&task);
+        assert_eq!(link, "spec.md#L5");
+    }
+
+    #[test]
+    fn test_category_label() {
+        assert_eq!(
+            category_label(&ConstraintCategory::SequentialOrder),
+            "sequential"
+        );
+        assert_eq!(
+            category_label(&ConstraintCategory::NonFormalizable),
+            "non-formalizable"
+        );
+        assert_eq!(category_label(&ConstraintCategory::Exclusive), "exclusive");
+    }
+
+    #[test]
+    fn test_truncate() {
+        assert_eq!(truncate("short", 10), "short");
+        let t = truncate("a very long string that should be truncated", 20);
+        assert!(t.len() <= 23, "truncated string too long: {}", t);
+    }
+}

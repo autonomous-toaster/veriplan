@@ -480,6 +480,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "groundcontrol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-language-pack",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1456,6 +1470,7 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "env_logger",
+ "groundcontrol",
  "log",
  "lsp-server",
  "lsp-types",
