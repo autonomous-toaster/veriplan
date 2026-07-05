@@ -348,3 +348,114 @@ fn drain_by_severity(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::CheckItem;
+
+    fn make_result(plan_name: &str, convertible: bool, valid: Option<bool>, violations: usize) -> VerificationResult {
+        VerificationResult {
+            plan_name: plan_name.into(),
+            phase: "full".into(),
+            convertible,
+            convertibility_report: None,
+            valid,
+            violations: (0..violations).map(|i| Violation {
+                constraint_id: format!("R{}", i),
+                requirement_statement: "test".into(),
+                ltl: String::new(),
+                category: String::new(),
+                state: String::new(),
+                task_source: None,
+                req_source: None,
+                suggested_fix: None,
+                plan: plan_name.into(),
+            }).collect(),
+            total_constraints: 10,
+            satisfied_constraints: 5,
+            constraints_summary: vec![],
+            skip_reason: None,
+        }
+    }
+
+    #[test]
+    fn test_merge_results_empty() {
+        let result = merge_results(&[]);
+        assert_eq!(result.total_constraints, 0);
+        assert_eq!(result.valid, Some(true));
+    }
+
+    #[test]
+    fn test_merge_results_single() {
+        let r = make_result("change1", true, Some(true), 0);
+        let result = merge_results(&[r]);
+        assert_eq!(result.plan_name, "change1");
+        assert_eq!(result.valid, Some(true));
+    }
+
+    #[test]
+    fn test_merge_results_all_valid() {
+        let r1 = make_result("a", true, Some(true), 0);
+        let r2 = make_result("b", true, Some(true), 0);
+        let result = merge_results(&[r1, r2]);
+        assert_eq!(result.valid, Some(true));
+        assert_eq!(result.total_constraints, 20);
+    }
+
+    #[test]
+    fn test_merge_results_any_invalid() {
+        let r1 = make_result("a", true, Some(true), 0);
+        let r2 = make_result("b", true, Some(false), 2);
+        let result = merge_results(&[r1, r2]);
+        assert_eq!(result.valid, Some(false));
+        assert_eq!(result.violations.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_results_not_convertible() {
+        let r1 = make_result("a", false, None, 0);
+        let r2 = make_result("b", true, Some(true), 0);
+        let result = merge_results(&[r1, r2]);
+        assert_eq!(result.convertible, false);
+        assert_eq!(result.valid, None);
+    }
+
+    #[test]
+    fn test_drain_by_severity() {
+        let mut items = vec![
+            CheckItem {
+                check: "test".into(),
+                element: "e1".into(),
+                location: "l1".into(),
+                detail: "d1".into(),
+                severity: "blocker".into(),
+                fix: None,
+            },
+            CheckItem {
+                check: "test".into(),
+                element: "e2".into(),
+                location: "l2".into(),
+                detail: "d2".into(),
+                severity: "warning".into(),
+                fix: None,
+            },
+            CheckItem {
+                check: "test".into(),
+                element: "e3".into(),
+                location: "l3".into(),
+                detail: "d3".into(),
+                severity: "info".into(),
+                fix: None,
+            },
+        ];
+        let mut blockers = Vec::new();
+        let mut warnings = Vec::new();
+        let mut info = Vec::new();
+        drain_by_severity(&mut items, &mut blockers, &mut warnings, &mut info);
+        assert_eq!(blockers.len(), 1);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(info.len(), 1);
+        assert!(items.is_empty());
+    }
+}

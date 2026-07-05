@@ -288,3 +288,135 @@ fn verbose_section(
         output.push_str(&format!("Phases: {}\n", plan.phases.len()));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::checker::{VerificationResult, Violation};
+    use crate::ir::{ConvertibilityReport, PlanIR, Task, SourceLocation};
+
+    fn make_plan() -> PlanIR {
+        PlanIR {
+            tasks: vec![Task {
+                id: "1.1".into(),
+                description: "Setup".into(),
+                phase: "Phase 1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 1,
+                    end_line: 1,
+                },
+            }],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: crate::ir::SourceMap::default(),
+        }
+    }
+
+    fn make_result() -> VerificationResult {
+        VerificationResult {
+            plan_name: "test".into(),
+            phase: "full".into(),
+            convertible: true,
+            convertibility_report: None,
+            valid: Some(false),
+            violations: vec![Violation {
+                constraint_id: "R1".into(),
+                requirement_statement: "T1.1 SHALL complete".into(),
+                ltl: "[] ( active_t1_1 -> done_t1_1 )".into(),
+                category: "SequentialOrder".into(),
+                state: "".into(),
+                task_source: None,
+                req_source: None,
+                suggested_fix: Some("Add before-task".into()),
+                plan: "test".into(),
+            }],
+            total_constraints: 5,
+            satisfied_constraints: 4,
+            constraints_summary: vec![],
+            skip_reason: None,
+        }
+    }
+
+    fn make_plans() -> Vec<(String, PlanIR)> {
+        vec![("test".into(), make_plan())]
+    }
+
+    #[test]
+    fn test_format_violations_contains_requirement() {
+        let result = make_result();
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let mut output = String::new();
+        format_violations(&mut output, &result, &annotated, false);
+        assert!(output.contains("R1"));
+        assert!(output.contains("SequentialOrder"));
+    }
+
+    #[test]
+    fn test_format_violations_satisfied_count() {
+        let result = make_result();
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let mut output = String::new();
+        format_violations(&mut output, &result, &annotated, false);
+        assert!(output.contains("Satisfied: 4"));
+        assert!(output.contains("Violated: 1"));
+    }
+
+    #[test]
+    fn test_format_json_contains_fields() {
+        let result = make_result();
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let json = format_json(&result, &annotated, &plans, false);
+        assert!(json.contains("\"constraint_id\""));
+        assert!(json.contains("\"R1\""));
+        assert!(json.contains("\"suggested_fix\""));
+    }
+
+    #[test]
+    fn test_format_json_convertible() {
+        let result = make_result();
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let json = format_json(&result, &annotated, &plans, false);
+        assert!(json.contains("\"convertible\": true"));
+    }
+
+    #[test]
+    fn test_format_json_verbose_includes_report() {
+        let mut result = make_result();
+        result.convertibility_report = Some(ConvertibilityReport {
+            status: crate::ir::ConvertibilityStatus::Convertible,
+            blockers: vec![],
+            warnings: vec![],
+            info: vec![],
+            rephrase_directives: vec![],
+        });
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let json = format_json(&result, &annotated, &plans, true);
+        assert!(json.contains("convertibility_report"));
+    }
+
+    #[test]
+    fn test_format_json_not_verbose_excludes_report() {
+        let mut result = make_result();
+        result.convertibility_report = Some(ConvertibilityReport {
+            status: crate::ir::ConvertibilityStatus::Convertible,
+            blockers: vec![],
+            warnings: vec![],
+            info: vec![],
+            rephrase_directives: vec![],
+        });
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let json = format_json(&result, &annotated, &plans, false);
+        assert!(!json.contains("convertibility_report"));
+    }
+}

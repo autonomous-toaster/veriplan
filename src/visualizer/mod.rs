@@ -47,15 +47,19 @@ fn write_phase_subgraphs_mermaid(s: &mut String, plan: &PlanIR) {
         writeln!(s, "    subgraph {}[\"{}\"]", sub_id, label).ok();
 
         for task in &tasks_in_phase {
-            let nid = node_id(&task.id);
-            let desc = clean_label(&truncate(&task.description, 40));
-            if task.checked {
-                writeln!(s, "        {}[\"✅ T{}: {}\"]", nid, task.id, desc).ok();
-            } else {
-                writeln!(s, "        {}[\"T{}: {}\"]", nid, task.id, desc).ok();
-            }
+            write_mermaid_task_node(s, task);
         }
         writeln!(s, "    end").ok();
+    }
+}
+
+fn write_mermaid_task_node(s: &mut String, task: &crate::ir::Task) {
+    let nid = node_id(&task.id);
+    let desc = clean_label(&truncate(&task.description, 40));
+    if task.checked {
+        writeln!(s, "        {}[\"✅ T{}: {}\"]", nid, task.id, desc).ok();
+    } else {
+        writeln!(s, "        {}[\"T{}: {}\"]", nid, task.id, desc).ok();
     }
 }
 
@@ -136,24 +140,28 @@ fn write_phase_clusters_dot(s: &mut String, plan: &PlanIR) {
             .collect();
 
         for task in &tasks_in_phase {
-            let nid = node_id_dot(&task.id);
-            let desc = escape_dot(&clean_label(&truncate(&task.description, 50)));
-            if task.checked {
-                writeln!(
-                    s,
-                    "    {} [label=\"T{}: {}\", style=filled, fillcolor=\"#e1f5e1\"];",
-                    nid, task.id, desc
-                )
-                .ok();
-            } else {
-                writeln!(
-                    s,
-                    "    {} [label=\"T{}: {}\", fillcolor=white];",
-                    nid, task.id, desc
-                )
-                .ok();
-            }
+            write_dot_task_node(s, task);
         }
+    }
+}
+
+fn write_dot_task_node(s: &mut String, task: &crate::ir::Task) {
+    let nid = node_id_dot(&task.id);
+    let desc = escape_dot(&clean_label(&truncate(&task.description, 50)));
+    if task.checked {
+        writeln!(
+            s,
+            "    {} [label=\"T{}: {}\", style=filled, fillcolor=\"#e1f5e1\"];",
+            nid, task.id, desc
+        )
+        .ok();
+    } else {
+        writeln!(
+            s,
+            "    {} [label=\"T{}: {}\", fillcolor=white];",
+            nid, task.id, desc
+        )
+        .ok();
     }
 }
 
@@ -458,5 +466,199 @@ mod tests {
         assert_eq!(truncate("short", 10), "short");
         let t = truncate("a very long string that should be truncated", 20);
         assert!(t.len() <= 23, "truncated string too long: {}", t);
+    }
+
+    #[test]
+    fn test_write_mermaid_task_node_checked() {
+        let mut s = String::new();
+        let task = Task {
+            id: "1.1".into(),
+            description: "Setup".into(),
+            phase: "Phase 1".into(),
+            checked: true,
+            source: SourceLocation {
+                file: "tasks.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 1,
+                end_line: 1,
+            },
+        };
+        write_mermaid_task_node(&mut s, &task);
+        assert!(s.contains("T1_1"));
+        assert!(s.contains("\u{2705}"));
+    }
+
+    #[test]
+    fn test_write_mermaid_task_node_unchecked() {
+        let mut s = String::new();
+        let task = Task {
+            id: "1.2".into(),
+            description: "Build".into(),
+            phase: "Phase 1".into(),
+            checked: false,
+            source: SourceLocation {
+                file: "tasks.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 2,
+                end_line: 2,
+            },
+        };
+        write_mermaid_task_node(&mut s, &task);
+        assert!(s.contains("T1_2"));
+        assert!(!s.contains("\u{2705}"));
+    }
+
+    #[test]
+    fn test_write_dot_task_node_checked() {
+        let mut s = String::new();
+        let task = Task {
+            id: "1.1".into(),
+            description: "Setup".into(),
+            phase: "Phase 1".into(),
+            checked: true,
+            source: SourceLocation {
+                file: "tasks.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 1,
+                end_line: 1,
+            },
+        };
+        write_dot_task_node(&mut s, &task);
+        assert!(s.contains("t_1_1"));
+        assert!(s.contains("#e1f5e1"));
+    }
+
+    #[test]
+    fn test_write_dot_task_node_unchecked() {
+        let mut s = String::new();
+        let task = Task {
+            id: "1.2".into(),
+            description: "Build".into(),
+            phase: "Phase 1".into(),
+            checked: false,
+            source: SourceLocation {
+                file: "tasks.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 2,
+                end_line: 2,
+            },
+        };
+        write_dot_task_node(&mut s, &task);
+        assert!(s.contains("t_1_2"));
+        assert!(!s.contains("#e1f5e1"));
+    }
+
+    #[test]
+    fn test_display_label_sequential() {
+        let c = TranslatedConstraint {
+            requirement_id: "R1".into(),
+            category: ConstraintCategory::SequentialOrder,
+            statement: "T1.1 SHALL complete BEFORE T1.2".into(),
+            ltl: Some("[] ( active_t1_2 -> done_t1_1 )".into()),
+            strength: Rfc2119Strength::Must,
+            is_hard: true,
+        };
+        assert_eq!(display_label(&c), "sequential");
+    }
+
+    #[test]
+    fn test_display_label_fixed_time_with_ordering() {
+        let c = TranslatedConstraint {
+            requirement_id: "R1".into(),
+            category: ConstraintCategory::FixedTime,
+            statement: "T1.1 SHALL complete BEFORE T1.2".into(),
+            ltl: Some("[] ( active_t1_2 -> done_t1_1 )".into()),
+            strength: Rfc2119Strength::Must,
+            is_hard: true,
+        };
+        assert_eq!(display_label(&c), "sequential");
+    }
+
+    #[test]
+    fn test_display_label_fixed_time_no_ordering() {
+        let c = TranslatedConstraint {
+            requirement_id: "R1".into(),
+            category: ConstraintCategory::FixedTime,
+            statement: "The system SHALL respond within 5s".into(),
+            ltl: Some("[] ( active_t1_1 -> <> done_t1_1 )".into()),
+            strength: Rfc2119Strength::Must,
+            is_hard: true,
+        };
+        assert_eq!(display_label(&c), "fixed-time");
+    }
+
+    fn make_simple_plan() -> PlanIR {
+        PlanIR {
+            tasks: vec![
+                Task {
+                    id: "1.1".into(),
+                    description: "Setup".into(),
+                    phase: "Phase 1".into(),
+                    checked: false,
+                    source: SourceLocation {
+                        file: "tasks.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                },
+                Task {
+                    id: "1.2".into(),
+                    description: "Build".into(),
+                    phase: "Phase 1".into(),
+                    checked: true,
+                    source: SourceLocation {
+                        file: "tasks.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 2,
+                        end_line: 2,
+                    },
+                },
+            ],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![Phase {
+                name: "Phase 1".into(),
+                task_ids: vec!["1.1".into(), "1.2".into()],
+                mode: PhaseMode::Sequential,
+            }],
+            source_map: SourceMap::default(),
+        }
+    }
+
+    #[test]
+    fn test_format_mermaid_contains_phase() {
+        let plan = make_simple_plan();
+        let constraints = vec![];
+        let result = format_mermaid(&plan, &constraints);
+        assert!(result.contains("Phase 1"));
+        assert!(result.contains("T1_1"));
+        assert!(result.contains("T1_2"));
+    }
+
+    #[test]
+    fn test_format_dot_contains_phase() {
+        let plan = make_simple_plan();
+        let constraints = vec![];
+        let result = format_dot(&plan, &constraints);
+        assert!(result.contains("Phase 1"));
+        assert!(result.contains("t_1_1"));
+        assert!(result.contains("t_1_2"));
+    }
+
+    #[test]
+    fn test_format_markdown_contains_phase() {
+        let plan = make_simple_plan();
+        let constraints = vec![];
+        let result = format_markdown(&plan, &constraints);
+        assert!(result.contains("Phase 1"));
+        assert!(result.contains("T1.1"));
+        assert!(result.contains("T1.2"));
     }
 }

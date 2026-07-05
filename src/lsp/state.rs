@@ -103,24 +103,26 @@ impl ChangeStore {
 
 /// Given a path, check if it's inside an `openspec/changes/<name>/` directory
 /// and return the change name if so.
+fn is_inside_changes_dir(path: &Path) -> bool {
+    path.ends_with("openspec/changes") || path.to_string_lossy().contains("openspec/changes/")
+}
+
+fn get_parent_and_grandparent(path: &Path) -> Option<(&Path, &Path)> {
+    let parent = path.parent()?;
+    let grandparent = parent.parent()?;
+    Some((parent, grandparent))
+}
+
 fn extract_change_name_from_path(current: &Path) -> Option<String> {
-    if !current.ends_with("openspec/changes")
-        && !current.to_string_lossy().contains("openspec/changes/")
-    {
+    if !is_inside_changes_dir(current) {
         return None;
     }
-    let parent = current.parent()?;
-    let grandparent = parent.parent()?;
-    if !grandparent.ends_with("openspec/changes")
-        && !grandparent.to_string_lossy().contains("openspec/changes/")
-    {
+    let (parent, grandparent) = get_parent_and_grandparent(current)?;
+    if !is_inside_changes_dir(grandparent) {
         return None;
     }
     let name = parent.file_name()?.to_string_lossy().to_string();
-    if name == "archive" {
-        return None;
-    }
-    Some(name)
+    if name == "archive" { None } else { Some(name) }
 }
 
 impl ChangeStore {
@@ -399,8 +401,9 @@ fn walk_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 
 fn collect_dir_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
+    let entries = std::fs::read_dir(dir)?;
+    for entry in entries.flatten() {
+        let path = entry.path();
         if path.is_dir() {
             files.extend(walk_files(&path)?);
         } else {
@@ -419,4 +422,57 @@ fn parse_location(location: &str) -> (PathBuf, usize) {
         return (PathBuf::from(file_part), line);
     }
     (PathBuf::from(location), 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_inside_changes_dir_ends_with() {
+        let p = Path::new("/project/openspec/changes");
+        assert!(is_inside_changes_dir(p));
+    }
+
+    #[test]
+    fn test_is_inside_changes_dir_contains() {
+        let p = Path::new("/project/openspec/changes/my-change/tasks.md");
+        assert!(is_inside_changes_dir(p));
+    }
+
+    #[test]
+    fn test_is_inside_changes_dir_not() {
+        let p = Path::new("/project/src/main.rs");
+        assert!(!is_inside_changes_dir(p));
+    }
+
+    #[test]
+    fn test_collect_dir_files_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = collect_dir_files(dir.path()).unwrap();
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_collect_dir_files_with_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.md"), "").unwrap();
+        std::fs::write(dir.path().join("b.md"), "").unwrap();
+        let files = collect_dir_files(dir.path()).unwrap();
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_location_with_line() {
+        let (path, line) = parse_location("file.md:42");
+        assert_eq!(path, PathBuf::from("file.md"));
+        assert_eq!(line, 42);
+    }
+
+    #[test]
+    fn test_parse_location_without_line() {
+        let (path, line) = parse_location("file.md");
+        assert_eq!(path, PathBuf::from("file.md"));
+        assert_eq!(line, 0);
+    }
 }
