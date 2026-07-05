@@ -12,71 +12,119 @@ use super::diagnostics as diag;
 use super::navigation;
 use super::state::ChangeStore;
 use super::symbols;
+use crate::ir::{ConvertibilityReport, PlanIR};
+
+type RequestHandler = fn(&Connection, &Arc<RwLock<ChangeStore>>, Request) -> Result<()>;
+
+const REQUEST_HANDLERS: &[(&str, RequestHandler)] = &[
+    ("textDocument/completion", handle_completion_req),
+    ("textDocument/definition", handle_definition_req),
+    ("textDocument/hover", handle_hover_req),
+    ("textDocument/documentSymbol", handle_symbol_req),
+    ("textDocument/codeAction", handle_code_action_req),
+];
 
 pub(crate) fn handle_request(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
     req: Request,
 ) -> Result<()> {
-    match req.method.as_str() {
-        "textDocument/completion" => {
-            let params: CompletionParams =
-                serde_json::from_value(req.params).context("Bad completion params")?;
-            let result = handle_completion(store, &params);
-            let response = Response::new_ok(req.id, result);
-            connection.sender.send(Message::Response(response))?;
-        }
-        "textDocument/definition" => {
-            let params: GotoDefinitionParams =
-                serde_json::from_value(req.params).context("Bad goto-def params")?;
-            let result = handle_goto_definition(store, &params);
-            let response = Response::new_ok(req.id, result);
-            connection.sender.send(Message::Response(response))?;
-        }
-        "textDocument/hover" => {
-            let params: HoverParams =
-                serde_json::from_value(req.params).context("Bad hover params")?;
-            let result = handle_hover(store, &params);
-            let response = Response::new_ok(req.id, result);
-            connection.sender.send(Message::Response(response))?;
-        }
-        "textDocument/documentSymbol" => {
-            let params: DocumentSymbolParams =
-                serde_json::from_value(req.params).context("Bad symbol params")?;
-            let result = handle_document_symbols(store, &params);
-            let response = Response::new_ok(req.id, result);
-            connection.sender.send(Message::Response(response))?;
-        }
-        "textDocument/codeAction" => {
-            let params: CodeActionParams =
-                serde_json::from_value(req.params).context("Bad code action params")?;
-            let result = handle_code_action(store, &params);
-            let response = Response::new_ok(req.id, result);
-            connection.sender.send(Message::Response(response))?;
-        }
-        _ => {
-            // Unknown method — respond with MethodNotFound
-            let response = Response::new_err(
-                req.id,
-                ErrorCode::MethodNotFound as i32,
-                format!("Unknown method: {}", req.method),
-            );
-            connection.sender.send(Message::Response(response))?;
+    for (method, handler) in REQUEST_HANDLERS {
+        if req.method.as_str() == *method {
+            return handler(connection, store, req);
         }
     }
+    let response = Response::new_err(
+        req.id,
+        ErrorCode::MethodNotFound as i32,
+        format!("Unknown method: {}", req.method),
+    );
+    connection.sender.send(Message::Response(response))?;
     Ok(())
 }
+
+fn handle_completion_req(
+    connection: &Connection,
+    store: &Arc<RwLock<ChangeStore>>,
+    req: Request,
+) -> Result<()> {
+    let params: CompletionParams =
+        serde_json::from_value(req.params).context("Bad completion params")?;
+    let result = handle_completion(store, &params);
+    let response = Response::new_ok(req.id, result);
+    connection.sender.send(Message::Response(response))?;
+    Ok(())
+}
+
+fn handle_definition_req(
+    connection: &Connection,
+    store: &Arc<RwLock<ChangeStore>>,
+    req: Request,
+) -> Result<()> {
+    let params: GotoDefinitionParams =
+        serde_json::from_value(req.params).context("Bad goto-def params")?;
+    let result = handle_goto_definition(store, &params);
+    let response = Response::new_ok(req.id, result);
+    connection.sender.send(Message::Response(response))?;
+    Ok(())
+}
+
+fn handle_hover_req(
+    connection: &Connection,
+    store: &Arc<RwLock<ChangeStore>>,
+    req: Request,
+) -> Result<()> {
+    let params: HoverParams =
+        serde_json::from_value(req.params).context("Bad hover params")?;
+    let result = handle_hover(store, &params);
+    let response = Response::new_ok(req.id, result);
+    connection.sender.send(Message::Response(response))?;
+    Ok(())
+}
+
+fn handle_symbol_req(
+    connection: &Connection,
+    store: &Arc<RwLock<ChangeStore>>,
+    req: Request,
+) -> Result<()> {
+    let params: DocumentSymbolParams =
+        serde_json::from_value(req.params).context("Bad symbol params")?;
+    let result = handle_document_symbols(store, &params);
+    let response = Response::new_ok(req.id, result);
+    connection.sender.send(Message::Response(response))?;
+    Ok(())
+}
+
+fn handle_code_action_req(
+    connection: &Connection,
+    store: &Arc<RwLock<ChangeStore>>,
+    req: Request,
+) -> Result<()> {
+    let params: CodeActionParams =
+        serde_json::from_value(req.params).context("Bad code action params")?;
+    let result = handle_code_action(store, &params);
+    let response = Response::new_ok(req.id, result);
+    connection.sender.send(Message::Response(response))?;
+    Ok(())
+}
+
+type NotificationHandler = fn(&Connection, &Arc<RwLock<ChangeStore>>, Notification) -> Result<()>;
+
+const NOTIFICATION_HANDLERS: &[(&str, NotificationHandler)] = &[
+    ("textDocument/didOpen", handle_did_open),
+    ("textDocument/didChange", handle_did_change),
+    ("textDocument/didSave", handle_did_save),
+];
 
 pub(crate) fn handle_notification(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
     not: Notification,
 ) -> Result<()> {
-    match not.method.as_str() {
-        "textDocument/didOpen" => handle_did_open(connection, store, not)?,
-        "textDocument/didChange" => handle_did_change(connection, store, not)?,
-        "textDocument/didSave" => handle_did_save(connection, store, not)?,
-        _ => {}
+    for (method, handler) in NOTIFICATION_HANDLERS {
+        if not.method.as_str() == *method {
+            return handler(connection, store, not);
+        }
     }
     Ok(())
 }
@@ -225,38 +273,22 @@ fn clear_stale_diagnostics(
     file_path: &std::path::Path,
     published: &[(std::path::PathBuf, Vec<lsp_types::Diagnostic>)],
 ) {
-    if let Some(change) = store.read().unwrap().resolve_change(file_path) {
-        let change_dir = store
-            .read()
-            .unwrap()
-            .project_root()
-            .join("openspec")
-            .join("changes")
-            .join(&change);
-        if let Ok(entries) = walk_files_for_clear(&change_dir) {
-            let published_uris: Vec<_> = published.iter().map(|(p, _)| p.clone()).collect();
-            for path in entries {
-                if !published_uris.contains(&path)
-                    && let Ok(uri) = lsp_types::Url::from_file_path(&path)
-                {
-                    let params = PublishDiagnosticsParams {
-                        uri,
-                        diagnostics: Vec::new(),
-                        version: None,
-                    };
-                    let notif = Notification::new(
-                        "textDocument/publishDiagnostics".to_string(),
-                        params,
-                    );
-                    let _ = connection.sender.send(Message::Notification(notif));
-                }
-            }
-        }
-    }
+    let published_uris: Vec<_> = published.iter().map(|(p, _)| p.clone()).collect();
+    clear_unpublished_diagnostics(connection, store, file_path, &published_uris);
 }
 
 /// Clear stale diagnostics using a pre-collected list of published URIs.
 fn clear_stale_diagnostics_filtered(
+    connection: &Connection,
+    store: &Arc<RwLock<ChangeStore>>,
+    file_path: &std::path::Path,
+    published_uris: &[std::path::PathBuf],
+) {
+    clear_unpublished_diagnostics(connection, store, file_path, published_uris);
+}
+
+/// Clear diagnostics for files in the change that weren't in the published set.
+fn clear_unpublished_diagnostics(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
     file_path: &std::path::Path,
@@ -413,36 +445,42 @@ pub(crate) fn handle_document_symbols(
     params: &DocumentSymbolParams,
 ) -> Option<DocumentSymbolResponse> {
     let file_path = params.text_document.uri.to_file_path().ok()?;
-    let change_name = store.read().ok()?.resolve_change(&file_path)?;
-    let plan = store.read().ok()?.get_plan(&change_name)?.clone();
-
+    let (_, plan) = resolve_plan(store, &file_path)?;
     let file_name = file_path.file_name()?.to_string_lossy().to_string();
-
     match file_name.as_str() {
         "tasks.md" => symbols::tasks_document_symbols(&plan),
-        _ => {
-            // spec file — gather requirements for this specific file
-            let file_str = file_path.to_string_lossy().to_string();
-            let requirements: Vec<_> = plan
-                .requirements
-                .iter()
-                .filter(|r| r.source.file == file_str || file_str.contains(&r.source.file))
-                .cloned()
-                .collect();
-
-            if requirements.is_empty() {
-                return None;
-            }
-
-            // Get category labels for each requirement
-            let categories: Vec<String> = requirements
-                .iter()
-                .map(|r| format!("{:?}", r.category))
-                .collect();
-
-            symbols::spec_document_symbols_with_labels(&requirements, &categories)
-        }
+        _ => handle_spec_symbols(&plan, &file_path),
     }
+}
+
+fn handle_spec_symbols(
+    plan: &PlanIR,
+    file_path: &std::path::Path,
+) -> Option<DocumentSymbolResponse> {
+    let file_str = file_path.to_string_lossy().to_string();
+    let requirements: Vec<_> = plan
+        .requirements
+        .iter()
+        .filter(|r| r.source.file == file_str || file_str.contains(&r.source.file))
+        .cloned()
+        .collect();
+    if requirements.is_empty() {
+        return None;
+    }
+    let categories: Vec<String> = requirements
+        .iter()
+        .map(|r| format!("{:?}", r.category))
+        .collect();
+    symbols::spec_document_symbols_with_labels(&requirements, &categories)
+}
+
+fn resolve_plan(
+    store: &Arc<RwLock<ChangeStore>>,
+    file_path: &std::path::Path,
+) -> Option<(String, PlanIR)> {
+    let change_name = store.read().ok()?.resolve_change(file_path)?;
+    let plan = store.read().ok()?.get_plan(&change_name)?.clone();
+    Some((change_name, plan))
 }
 
 pub(crate) fn handle_code_action(
@@ -451,24 +489,33 @@ pub(crate) fn handle_code_action(
 ) -> Option<Vec<CodeActionOrCommand>> {
     let uri = &params.text_document.uri;
     let file_path = uri.to_file_path().ok()?;
-    let change_name = store.read().ok()?.resolve_change(&file_path)?;
+    let (report, project_root) = resolve_report(store, &file_path)?;
+    let file_diags = get_file_diagnostics(&report, &project_root, &file_path);
+    let actions = code_actions::code_actions_for_diagnostics(uri, &file_diags);
+    if actions.is_empty() { None } else { Some(actions) }
+}
 
-    // Get diagnostics for this file from the store
+fn resolve_report(
+    store: &Arc<RwLock<ChangeStore>>,
+    file_path: &std::path::Path,
+) -> Option<(ConvertibilityReport, std::path::PathBuf)> {
+    let change_name = store.read().ok()?.resolve_change(file_path)?;
     let report = store.read().ok()?.get_report(&change_name)?.clone();
     let project_root = store.read().ok()?.project_root().to_path_buf();
+    Some((report, project_root))
+}
 
-    let diagnostics = diag::report_to_diagnostics(&report, &project_root);
-    let file_diags: Vec<_> = diagnostics
+fn get_file_diagnostics(
+    report: &ConvertibilityReport,
+    project_root: &std::path::Path,
+    file_path: &std::path::Path,
+) -> Vec<lsp_types::Diagnostic> {
+    let diagnostics = diag::report_to_diagnostics(report, project_root);
+    diagnostics
         .into_iter()
         .find(|(path, _)| *path == file_path)
         .map(|(_, diags)| diags)
-        .unwrap_or_default();
-
-    let actions = code_actions::code_actions_for_diagnostics(uri, &file_diags);
-    if actions.is_empty() {
-        return None;
-    }
-    Some(actions)
+        .unwrap_or_default()
 }
 
 // ── Helpers ──

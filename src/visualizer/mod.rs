@@ -21,7 +21,14 @@ pub fn format_mermaid(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> St
     s.push_str("%%   Subgraph = phase group\n");
     s.push('\n');
 
-    // ── Phase subgraphs ──
+    write_phase_subgraphs_mermaid(&mut s, plan);
+    write_structural_edges_mermaid(&mut s, plan);
+    write_constraint_edges_mermaid(&mut s, plan, constraints);
+
+    s
+}
+
+fn write_phase_subgraphs_mermaid(s: &mut String, plan: &PlanIR) {
     for (pi, phase) in plan.phases.iter().enumerate() {
         let mode = match phase.mode {
             PhaseMode::Concurrent => " [concurrent]",
@@ -30,7 +37,6 @@ pub fn format_mermaid(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> St
         let cleaned_name = clean_label(&phase.name);
         let label = format!("Phase {}: {}{}", pi + 1, cleaned_name, mode);
 
-        // Tasks in this phase
         let tasks_in_phase: Vec<&crate::ir::Task> = plan
             .tasks
             .iter()
@@ -51,8 +57,9 @@ pub fn format_mermaid(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> St
         }
         writeln!(s, "    end").ok();
     }
+}
 
-    // ── Structural edges: unlabeled thin arrows between phases ──
+fn write_structural_edges_mermaid(s: &mut String, plan: &PlanIR) {
     for w in plan.phases.windows(2) {
         let prev_last = plan.tasks.iter().rfind(|t| w[0].task_ids.contains(&t.id));
         let next_first = plan.tasks.iter().find(|t| w[1].task_ids.contains(&t.id));
@@ -60,10 +67,9 @@ pub fn format_mermaid(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> St
             writeln!(s, "    {} --> {}", node_id(&prev.id), node_id(&next.id)).ok();
         }
     }
+}
 
-    // ── Constraint edges ──
-    let mut colored_edges: Vec<(usize, &str)> = Vec::new();
-    let mut edge_idx = 0usize;
+fn write_constraint_edges_mermaid(s: &mut String, plan: &PlanIR, constraints: &[TranslatedConstraint]) {
     for c in constraints {
         if c.ltl.is_some() {
             let task_ids = crate::translator::extract_task_refs(&c.statement, plan);
@@ -78,29 +84,16 @@ pub fn format_mermaid(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> St
                 for pair in task_ids.windows(2) {
                     let a = node_id(&pair[0]);
                     let b = node_id(&pair[1]);
-                    let (color, status_mark) = ("", "");
-
                     writeln!(
                         s,
-                        "    {} {}|\"{}{}\"| {}",
-                        a, edge_style, label, status_mark, b
+                        "    {} {}|\"{}\"| {}",
+                        a, edge_style, label, b
                     )
                     .ok();
-                    if !color.is_empty() {
-                        colored_edges.push((edge_idx, color));
-                    }
-                    edge_idx += 1;
                 }
             }
         }
     }
-
-    // ── linkStyle for colored edges (must use indices, not "default") ──
-    for (idx, color) in &colored_edges {
-        writeln!(s, "    linkStyle {} stroke:{},stroke-width:2px", idx, color).ok();
-    }
-
-    s
 }
 
 /// Generate a Graphviz DOT digraph.
@@ -111,7 +104,15 @@ pub fn format_dot(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String
     s.push_str("    node [shape=box, style=rounded];\n");
     s.push_str("    edge [fontsize=10];\n\n");
 
-    // ── Phase clusters ──
+    write_phase_clusters_dot(&mut s, plan);
+    write_phase_transitions_dot(&mut s, plan);
+    write_constraint_edges_dot(&mut s, plan, constraints);
+
+    s.push_str("}\n");
+    s
+}
+
+fn write_phase_clusters_dot(s: &mut String, plan: &PlanIR) {
     for (pi, phase) in plan.phases.iter().enumerate() {
         let mode = match phase.mode {
             PhaseMode::Concurrent => " [concurrent]",
@@ -154,8 +155,9 @@ pub fn format_dot(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String
             }
         }
     }
+}
 
-    // ── Phase transition edges (unlabeled, gray) ──
+fn write_phase_transitions_dot(s: &mut String, plan: &PlanIR) {
     s.push('\n');
     for w in plan.phases.windows(2) {
         let prev_last = plan.tasks.iter().rfind(|t| w[0].task_ids.contains(&t.id));
@@ -170,16 +172,15 @@ pub fn format_dot(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String
             .ok();
         }
     }
+}
 
-    // ── Constraint edges ──
+fn write_constraint_edges_dot(s: &mut String, plan: &PlanIR, constraints: &[TranslatedConstraint]) {
     s.push('\n');
     for c in constraints {
         if c.ltl.is_some() {
             let task_ids = crate::translator::extract_task_refs(&c.statement, plan);
             if task_ids.len() >= 2 {
                 let label = display_label(c);
-                let edge_color = "gray";
-
                 let style = if c.category == crate::ir::ConstraintCategory::SequentialOrder {
                     "bold"
                 } else {
@@ -189,11 +190,10 @@ pub fn format_dot(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String
                 for pair in task_ids.windows(2) {
                     writeln!(
                         s,
-                        "    {} -> {} [label=\"{}\", color={}, style={}];",
+                        "    {} -> {} [label=\"{}\", color=gray, style={}];",
                         node_id_dot(&pair[0]),
                         node_id_dot(&pair[1]),
                         label,
-                        edge_color,
                         style
                     )
                     .ok();
@@ -201,9 +201,6 @@ pub fn format_dot(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String
             }
         }
     }
-
-    s.push_str("}\n");
-    s
 }
 
 /// Generate a plain markdown table.
@@ -212,6 +209,13 @@ pub fn format_markdown(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> S
     s.push_str("| Phase | Task | Status | Constraints |\n");
     s.push_str("|-------|------|--------|-------------|\n");
 
+    write_markdown_rows(&mut s, plan, constraints);
+    write_markdown_index(&mut s, plan);
+
+    s
+}
+
+fn write_markdown_rows(s: &mut String, plan: &PlanIR, constraints: &[TranslatedConstraint]) {
     for (pi, phase) in plan.phases.iter().enumerate() {
         let tasks_in_phase: Vec<&crate::ir::Task> = plan
             .tasks
@@ -220,13 +224,8 @@ pub fn format_markdown(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> S
             .collect();
 
         for (ti, task) in tasks_in_phase.iter().enumerate() {
-            let status = if task.checked {
-                "✅ done"
-            } else {
-                "⬜ pending"
-            };
+            let status = if task.checked { "✅ done" } else { "⬜ pending" };
 
-            // Collect constraints referencing this task
             let mut con_refs: Vec<String> = Vec::new();
             for c in constraints {
                 if c.ltl.is_some() {
@@ -238,7 +237,6 @@ pub fn format_markdown(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> S
             }
             let constraints_str = con_refs.join(", ");
 
-            // First row of phase gets the phase name
             let phase_name = if ti == 0 {
                 format!("Phase {}: {}", pi + 1, phase.name)
             } else {
@@ -260,8 +258,9 @@ pub fn format_markdown(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> S
             .ok();
         }
     }
+}
 
-    // ── Task index appendix with source links ──
+fn write_markdown_index(s: &mut String, plan: &PlanIR) {
     s.push_str("\n## Task Index\n");
     s.push_str("| ID | Phase | Description | Source |\n");
     s.push_str("|----|-------|-------------|--------|\n");
@@ -286,8 +285,6 @@ pub fn format_markdown(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> S
             .ok();
         }
     }
-
-    s
 }
 
 // ── Helpers ──

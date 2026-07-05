@@ -52,17 +52,9 @@ impl ChangeStore {
                 Ok(e) => e,
                 _ => continue,
             };
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name == "archive" || !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                continue;
+            if let Some((name, change_path)) = is_valid_change_entry(&entry) {
+                self.load_change(&name, &change_path);
             }
-            let change_path = entry.path();
-            let has_tasks = change_path.join("tasks.md").exists();
-            let has_specs = change_path.join("specs").exists();
-            if !has_tasks || !has_specs {
-                continue;
-            }
-            self.load_change(&name, &change_path);
         }
     }
 
@@ -98,22 +90,8 @@ impl ChangeStore {
     fn resolve_by_path_walk(&self, path: &Path) -> Option<String> {
         let mut current = path.parent()?;
         loop {
-            // Check if we're inside openspec/changes/<name>/
-            if current.ends_with("openspec/changes")
-                || current.to_string_lossy().contains("openspec/changes/")
-            {
-                // The parent of <name>/ spec/tasks dirs
-                if let Some(parent) = current.parent()
-                    && let Some(grandparent) = parent.parent()
-                    && (grandparent.ends_with("openspec/changes")
-                        || grandparent.to_string_lossy().contains("openspec/changes/"))
-                    && let Some(name) = parent.file_name()
-                {
-                    let name = name.to_string_lossy().to_string();
-                    if name != "archive" {
-                        return Some(name);
-                    }
-                }
+            if let Some(name) = extract_change_name_from_path(current) {
+                return Some(name);
             }
             if current == self.project_root || !current.parent().is_none_or(|p| p.exists()) {
                 return None;
@@ -121,8 +99,32 @@ impl ChangeStore {
             current = current.parent()?;
         }
     }
+}
 
-    /// Re-parse a change directory and re-run convertibility check.
+/// Given a path, check if it's inside an `openspec/changes/<name>/` directory
+/// and return the change name if so.
+fn extract_change_name_from_path(current: &Path) -> Option<String> {
+    if !current.ends_with("openspec/changes")
+        && !current.to_string_lossy().contains("openspec/changes/")
+    {
+        return None;
+    }
+    let parent = current.parent()?;
+    let grandparent = parent.parent()?;
+    if !grandparent.ends_with("openspec/changes")
+        && !grandparent.to_string_lossy().contains("openspec/changes/")
+    {
+        return None;
+    }
+    let name = parent.file_name()?.to_string_lossy().to_string();
+    if name == "archive" {
+        return None;
+    }
+    Some(name)
+}
+
+impl ChangeStore {
+/// Re-parse a change directory and re-run convertibility check.
     /// Returns a vec of all CheckItems converted to LSP diagnostics.
     pub fn refresh(&mut self, change: &str) -> Vec<(PathBuf, Vec<lsp_types::Diagnostic>)> {
         let change_dir = self
@@ -374,16 +376,31 @@ impl ChangeStore {
     }
 }
 
+/// Check if a directory entry is a valid change directory and return (name, path).
+fn is_valid_change_entry(entry: &std::fs::DirEntry) -> Option<(String, std::path::PathBuf)> {
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name == "archive" || !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+        return None;
+    }
+    let change_path = entry.path();
+    if !change_path.join("tasks.md").exists() || !change_path.join("specs").exists() {
+        return None;
+    }
+    Some((name, change_path))
+}
+
 /// Walk a directory recursively, returning all file paths.
 fn walk_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
     if dir.is_file() {
-        files.push(dir.to_path_buf());
-        return Ok(files);
+        return Ok(vec![dir.to_path_buf()]);
     }
+    collect_dir_files(dir)
+}
+
+fn collect_dir_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
     for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
+        let path = entry?.path();
         if path.is_dir() {
             files.extend(walk_files(&path)?);
         } else {

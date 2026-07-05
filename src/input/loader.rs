@@ -29,37 +29,59 @@ pub fn load_directory(path: &Path, has_tasks: bool, has_specs: bool) -> Result<P
     let mut parser_instance = make_markdown_parser()?;
 
     if has_tasks {
-        let tasks_path = path.join("tasks.md");
-        let tasks_source = std::fs::read_to_string(&tasks_path)
-            .map_err(|e| format!("Cannot read {}: {}", tasks_path.display(), e))?;
-        let (tasks, phases) =
-            parser::parse_tasks(&mut parser_instance, &tasks_source, &tasks_path)?;
-        plan.tasks = tasks;
-        plan.phases = phases;
+        load_tasks_into_plan(&mut plan, &mut parser_instance, path)?;
     }
 
     if has_specs {
-        let specs_dir = path.join("specs");
-        let mut spec_files = Vec::new();
-        collect_specs(&specs_dir, &mut spec_files)
-            .map_err(|e| format!("Error reading specs directory: {}", e))?;
-        spec_files.sort_by(|a, b| a.capability.cmp(&b.capability));
-
-        for spec_file in &spec_files {
-            let source = std::fs::read_to_string(&spec_file.path)
-                .map_err(|e| format!("Cannot read {}: {}", spec_file.path.display(), e))?;
-            let (reqs, standalone_scenarios) = parser::parse_spec(
-                &mut parser_instance,
-                &source,
-                &spec_file.path,
-                &spec_file.capability,
-            )?;
-            plan.requirements.extend(reqs);
-            plan.scenarios.extend(standalone_scenarios);
-        }
+        load_specs_into_plan(&mut plan, &mut parser_instance, path)?;
     }
 
-    // Build source map
+    build_source_map_from_plan(&mut plan);
+    Ok(plan)
+}
+
+fn load_tasks_into_plan(
+    plan: &mut PlanIR,
+    parser_instance: &mut tree_sitter::Parser,
+    path: &Path,
+) -> Result<(), String> {
+    let tasks_path = path.join("tasks.md");
+    let tasks_source = std::fs::read_to_string(&tasks_path)
+        .map_err(|e| format!("Cannot read {}: {}", tasks_path.display(), e))?;
+    let (tasks, phases) =
+        parser::parse_tasks(parser_instance, &tasks_source, &tasks_path)?;
+    plan.tasks = tasks;
+    plan.phases = phases;
+    Ok(())
+}
+
+fn load_specs_into_plan(
+    plan: &mut PlanIR,
+    parser_instance: &mut tree_sitter::Parser,
+    path: &Path,
+) -> Result<(), String> {
+    let specs_dir = path.join("specs");
+    let mut spec_files = Vec::new();
+    collect_specs(&specs_dir, &mut spec_files)
+        .map_err(|e| format!("Error reading specs directory: {}", e))?;
+    spec_files.sort_by(|a, b| a.capability.cmp(&b.capability));
+
+    for spec_file in &spec_files {
+        let source = std::fs::read_to_string(&spec_file.path)
+            .map_err(|e| format!("Cannot read {}: {}", spec_file.path.display(), e))?;
+        let (reqs, standalone_scenarios) = parser::parse_spec(
+            parser_instance,
+            &source,
+            &spec_file.path,
+            &spec_file.capability,
+        )?;
+        plan.requirements.extend(reqs);
+        plan.scenarios.extend(standalone_scenarios);
+    }
+    Ok(())
+}
+
+fn build_source_map_from_plan(plan: &mut PlanIR) {
     for task in &plan.tasks {
         plan.source_map
             .tasks
@@ -70,8 +92,6 @@ pub fn load_directory(path: &Path, has_tasks: bool, has_specs: bool) -> Result<P
             .requirements
             .insert(req.id.clone(), req.source.clone());
     }
-
-    Ok(plan)
 }
 
 /// Collect spec files from a directory tree.
