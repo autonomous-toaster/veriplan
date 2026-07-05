@@ -142,6 +142,7 @@ fn find_change_dir(file_path: &str) -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::*;
 
     #[test]
     fn test_find_task_ref_t3_2() {
@@ -170,5 +171,75 @@ mod tests {
             find_task_ref_at_position("failed_t3_2 == 1", 9),
             Some("3.2".to_string())
         );
+    }
+
+    #[test]
+    fn test_find_change_dir_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+        std::fs::create_dir_all(&change_dir).unwrap();
+        let file_path = change_dir.join("tasks.md");
+        std::fs::write(&file_path, "").unwrap();
+        let result = find_change_dir(file_path.to_str().unwrap());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), change_dir);
+    }
+
+    #[test]
+    fn test_find_change_dir_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("some").join("random").join("file.md");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, "").unwrap();
+        let result = find_change_dir(file_path.to_str().unwrap());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_goto_definition_found() {
+        // Create a temp dir with openspec/changes/my-change structure
+        let dir = tempfile::tempdir().unwrap();
+        let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+        std::fs::create_dir_all(&change_dir).unwrap();
+        std::fs::write(change_dir.join("tasks.md"), "- [ ] 1.1 Setup\n").unwrap();
+        std::fs::create_dir(change_dir.join("specs")).unwrap();
+        let spec_path = change_dir.join("specs").join("cap");
+        std::fs::create_dir_all(&spec_path).unwrap();
+        std::fs::write(spec_path.join("spec.md"), "T1.1 SHALL complete\n").unwrap();
+
+        let plan = PlanIR {
+            tasks: vec![Task {
+                id: "1.1".into(),
+                description: "Setup".into(),
+                phase: "Phase 1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: change_dir.join("tasks.md").to_string_lossy().into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 5,
+                    end_line: 5,
+                },
+            }],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: SourceMap::default(),
+        };
+        let uri = Url::from_file_path(spec_path.join("spec.md")).unwrap();
+        let pos = lsp_types::Position { line: 0, character: 2 };
+        let line_text = "T1.1 SHALL complete";
+        let result = goto_definition(&plan, &uri, &pos, line_text);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_goto_definition_no_match() {
+        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() };
+        let uri = lsp_types::Url::from_file_path("/project/specs/cap/spec.md").unwrap();
+        let pos = lsp_types::Position { line: 0, character: 0 };
+        let line_text = "No task ref here";
+        let result = goto_definition(&plan, &uri, &pos, line_text);
+        assert!(result.is_none());
     }
 }

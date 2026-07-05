@@ -180,6 +180,7 @@ pub fn parse_content(source: &str, filename: &str) -> Result<PlanIR, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::*;
 
     #[test]
     fn test_make_markdown_parser() {
@@ -206,5 +207,56 @@ mod tests {
         collect_specs(dir.path(), &mut files).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].capability, "test-capability");
+    }
+
+    #[test]
+    fn test_load_directory_no_tasks_no_specs() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = load_directory(dir.path(), false, false);
+        assert!(result.is_ok());
+        let plan = result.unwrap();
+        assert!(plan.tasks.is_empty());
+        assert!(plan.requirements.is_empty());
+    }
+
+    #[test]
+    fn test_load_directory_with_tasks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tasks.md"), "- [ ] 1.1 Setup\n").unwrap();
+        let result = load_directory(dir.path(), true, false);
+        assert!(result.is_ok());
+        let plan = result.unwrap();
+        assert!(!plan.tasks.is_empty());
+    }
+
+    #[test]
+    fn test_load_directory_with_specs() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec_dir = dir.path().join("specs").join("cap");
+        std::fs::create_dir_all(&spec_dir).unwrap();
+        std::fs::write(spec_dir.join("spec.md"), "T1.1 SHALL complete\n").unwrap();
+        let result = load_directory(dir.path(), false, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_build_source_map_from_plan() {
+        let mut plan = PlanIR {
+            tasks: vec![Task {
+                id: "1.1".into(),
+                description: "Setup".into(),
+                phase: "Phase 1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1,
+                },
+            }],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: SourceMap::default(),
+        };
+        build_source_map_from_plan(&mut plan);
+        assert!(plan.source_map.tasks.contains_key("1.1"));
     }
 }

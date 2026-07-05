@@ -103,3 +103,76 @@ fn truncate(s: &str, max: usize) -> String {
         format!("{}…", &s[..max])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::*;
+
+    fn make_plan() -> PlanIR {
+        PlanIR {
+            tasks: vec![
+                Task {
+                    id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false,
+                    source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 },
+                },
+                Task {
+                    id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: true,
+                    source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 },
+                },
+            ],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![Phase { name: "Phase 1".into(), task_ids: vec!["1.1".into(), "1.2".into()], mode: PhaseMode::Sequential }],
+            source_map: SourceMap::default(),
+        }
+    }
+
+    #[test]
+    fn test_get_completions_empty_line() {
+        let plan = make_plan();
+        let result = get_completions(&plan, "", 0);
+        assert!(result.is_some());
+        let list = result.unwrap();
+        assert!(!list.items.is_empty());
+    }
+
+    #[test]
+    fn test_get_completions_with_t_prefix() {
+        let plan = make_plan();
+        let result = get_completions(&plan, "T", 1);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_task_id_completions() {
+        let plan = make_plan();
+        let items = task_id_completions(&plan);
+        assert!(items.iter().any(|i| i.label.contains("T1.1")));
+        assert!(items.iter().any(|i| i.label.contains("T1.2")));
+    }
+
+    #[test]
+    fn test_temporal_keyword_completions() {
+        let items = temporal_keyword_completions();
+        assert!(items.iter().any(|i| i.label == "BEFORE"));
+        assert!(items.iter().any(|i| i.label == "AFTER"));
+    }
+
+    #[test]
+    fn test_keyword_item() {
+        let item = keyword_item("BEFORE", "Temporal ordering", "BEFORE");
+        assert_eq!(item.label, "BEFORE");
+    }
+
+    #[test]
+    fn test_truncate_short() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long() {
+        let t = truncate("hello world", 5);
+        assert_eq!(t, "hello\u{2026}");
+    }
+}

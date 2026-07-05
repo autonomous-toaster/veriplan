@@ -187,3 +187,92 @@ fn is_active_change_dir(entry: &std::fs::DirEntry) -> bool {
     let change_path = entry.path();
     change_path.join("tasks.md").exists() || change_path.join("specs").exists()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_valid_change_dir_true() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tasks.md"), "").unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        assert!(is_valid_change_dir(dir.path()));
+    }
+
+    #[test]
+    fn test_is_valid_change_dir_false_no_tasks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        assert!(!is_valid_change_dir(dir.path()));
+    }
+
+    #[test]
+    fn test_is_valid_change_dir_false_no_specs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tasks.md"), "").unwrap();
+        assert!(!is_valid_change_dir(dir.path()));
+    }
+
+    #[test]
+    fn test_is_valid_change_dir_false_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_valid_change_dir(dir.path()));
+    }
+
+    #[test]
+    fn test_resolve_change_dir_with_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let changes = dir.path().join("openspec").join("changes");
+        std::fs::create_dir_all(&changes).unwrap();
+        let change_dir = changes.join("my-change");
+        std::fs::create_dir(&change_dir).unwrap();
+        std::fs::write(change_dir.join("tasks.md"), "").unwrap();
+        std::fs::create_dir(change_dir.join("specs")).unwrap();
+        let result = resolve_change_dir(dir.path(), Some("my-change"));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), change_dir);
+    }
+
+    #[test]
+    fn test_resolve_change_dir_no_name_no_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = resolve_change_dir(dir.path(), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_change_in_path_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let direct = Path::new("nonexistent");
+        let result = find_change_in_path(dir.path(), "nonexistent", direct);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_render_diagram_mermaid() {
+        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: veriplan::ir::SourceMap::default() };
+        let _constraints: Vec<veriplan::translator::TranslatedConstraint> = vec![];
+        let result = render_diagram(Some("mermaid"), &plan, &[]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("flowchart"));
+    }
+
+    #[test]
+    fn test_render_diagram_unknown_format() {
+        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: veriplan::ir::SourceMap::default() };
+        let _constraints: Vec<veriplan::translator::TranslatedConstraint> = vec![];
+        let result = render_diagram(Some("bogus"), &plan, &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_render_diagram_default_mermaid() {
+        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: veriplan::ir::SourceMap::default() };
+        let _constraints: Vec<veriplan::translator::TranslatedConstraint> = vec![];
+        let result = render_diagram(None, &plan, &[]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("flowchart"));
+    }
+}

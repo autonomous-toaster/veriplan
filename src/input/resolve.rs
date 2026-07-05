@@ -103,3 +103,63 @@ pub fn read_stdin() -> Result<String, String> {
     }
     Ok(content)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_change_dir_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = find_change_dir(dir.path(), "nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_change_dir_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+        std::fs::create_dir_all(&change_dir).unwrap();
+        std::fs::write(change_dir.join("tasks.md"), "").unwrap();
+        std::fs::create_dir(change_dir.join("specs")).unwrap();
+        let result = find_change_dir(dir.path(), "my-change");
+        assert!(result.is_ok());
+        match result.unwrap() {
+            InputSource::OpenSpec { change_name, .. } => assert_eq!(change_name, "my-change"),
+            _ => panic!("Expected OpenSpec"),
+        }
+    }
+
+    #[test]
+    fn test_find_change_dir_direct_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tasks.md"), "").unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        let result = find_change_dir(dir.path(), dir.path().to_str().unwrap());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_resolve_auto_no_openspec() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = resolve_auto(dir.path());
+        assert!(result.is_ok());
+        match result.unwrap() {
+            InputSource::Empty { .. } => {},
+            _ => panic!("Expected Empty"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_auto_with_openspec() {
+        let dir = tempfile::tempdir().unwrap();
+        let changes_dir = dir.path().join("openspec").join("changes");
+        std::fs::create_dir_all(&changes_dir).unwrap();
+        let change_dir = changes_dir.join("my-change");
+        std::fs::create_dir(&change_dir).unwrap();
+        std::fs::write(change_dir.join("tasks.md"), "").unwrap();
+        std::fs::create_dir(change_dir.join("specs")).unwrap();
+        let result = resolve_auto(dir.path());
+        assert!(result.is_ok());
+    }
+}

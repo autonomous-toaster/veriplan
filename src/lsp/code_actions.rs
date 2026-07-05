@@ -53,3 +53,80 @@ pub fn code_actions_for_diagnostics(
 
     actions
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsp_types::{Position, Range, Url};
+    use serde_json::json;
+
+    #[test]
+    fn test_code_actions_for_diagnostics_empty() {
+        let uri = Url::from_file_path("/test.md").unwrap();
+        let result = code_actions_for_diagnostics(&uri, &[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_code_actions_for_diagnostics_no_fix_data() {
+        let uri = Url::from_file_path("/test.md").unwrap();
+        let diag = Diagnostic {
+            range: Range {
+                start: Position { line: 0, character: 0 },
+                end: Position { line: 0, character: 10 },
+            },
+            severity: None,
+            code: None,
+            code_description: None,
+            source: None,
+            message: "test".into(),
+            related_information: None,
+            tags: None,
+            data: None,
+        };
+        let result = code_actions_for_diagnostics(&uri, &[diag]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_code_actions_for_diagnostics_with_fix() {
+        let uri = Url::from_file_path("/test.md").unwrap();
+        let diag = Diagnostic {
+            range: Range {
+                start: Position { line: 0, character: 0 },
+                end: Position { line: 0, character: 10 },
+            },
+            severity: None,
+            code: None,
+            code_description: None,
+            source: None,
+            message: "test".into(),
+            related_information: None,
+            tags: None,
+            data: Some(json!({"fix": "Add before-task"})),
+        };
+        let result = code_actions_for_diagnostics(&uri, &[diag]);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_code_actions_for_diagnostics_fix_no_text() {
+        let uri = Url::from_file_path("/test.md").unwrap();
+        let diag = Diagnostic {
+            range: Range {
+                start: Position { line: 0, character: 0 },
+                end: Position { line: 0, character: 10 },
+            },
+            severity: None,
+            code: None,
+            code_description: None,
+            source: None,
+            message: "test".into(),
+            related_information: None,
+            tags: None,
+            data: Some(json!({"other": "value"})),
+        };
+        let result = code_actions_for_diagnostics(&uri, &[diag]);
+        assert!(result.is_empty());
+    }
+}

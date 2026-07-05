@@ -324,4 +324,53 @@ mod tests {
         let strength = detect_rfc2119("The system does something");
         assert_eq!(strength, crate::ir::Rfc2119Strength::None);
     }
+
+    #[test]
+    fn test_parse_one_scenario_simple() {
+        let lines = vec![
+            "#### Scenario: Test scenario",
+            "- **GIVEN** some condition",
+            "- **WHEN** action happens",
+            "- **THEN** result occurs",
+        ];
+        let result = parse_one_scenario(&lines, 0, "test.md");
+        assert!(result.is_some());
+        let (scenario, consumed) = result.unwrap();
+        assert_eq!(scenario.name, "Test scenario");
+        assert_eq!(consumed, 4);
+        assert_eq!(scenario.steps.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_one_scenario_no_steps() {
+        let lines = vec!["#### Scenario: Empty"];
+        let result = parse_one_scenario(&lines, 0, "test.md");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_one_scenario_stops_at_heading() {
+        let lines = vec![
+            "#### Scenario: First",
+            "- **GIVEN** condition",
+            "#### Scenario: Second",
+        ];
+        let result = parse_one_scenario(&lines, 0, "test.md");
+        assert!(result.is_some());
+        let (_, consumed) = result.unwrap();
+        assert_eq!(consumed, 2);
+    }
+
+    #[test]
+    fn test_extract_shall_statement_simple() {
+        let result = extract_shall_statement("T1.1 SHALL complete BEFORE T1.2.", "spec.md");
+        assert!(result.contains("SHALL"));
+        assert!(result.contains("BEFORE"));
+    }
+
+    #[test]
+    fn test_extract_shall_statement_no_shall_2() {
+        let result = extract_shall_statement("No keyword here", "spec.md");
+        assert_eq!(result, "No keyword here");
+    }
 }

@@ -166,3 +166,87 @@ pub fn spec_document_symbols_with_labels(
 
     Some(DocumentSymbolResponse::Nested(symbols))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::*;
+
+    fn make_plan() -> PlanIR {
+        PlanIR {
+            tasks: vec![
+                Task {
+                    id: "1.1".into(),
+                    description: "Setup".into(),
+                    phase: "Phase 1".into(),
+                    checked: false,
+                    source: SourceLocation {
+                        file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1,
+                    },
+                },
+                Task {
+                    id: "1.2".into(),
+                    description: "Build".into(),
+                    phase: "Phase 1".into(),
+                    checked: true,
+                    source: SourceLocation {
+                        file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2,
+                    },
+                },
+            ],
+            requirements: vec![Requirement {
+                id: "R1".into(),
+                statement: "T1.1 SHALL complete".into(),
+                strength: Rfc2119Strength::Must,
+                category: ConstraintCategory::SequentialOrder,
+                ltl: None,
+                scenarios: vec![],
+                source: SourceLocation {
+                    file: "specs/cap/spec.md".into(), start_byte: 0, end_byte: 0, start_line: 3, end_line: 3,
+                },
+            }],
+            scenarios: vec![],
+            phases: vec![Phase {
+                name: "Phase 1".into(),
+                task_ids: vec!["1.1".into(), "1.2".into()],
+                mode: PhaseMode::Sequential,
+            }],
+            source_map: SourceMap::default(),
+        }
+    }
+
+    #[test]
+    fn test_tasks_document_symbols_has_phase() {
+        let plan = make_plan();
+        let result = tasks_document_symbols(&plan);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_tasks_document_symbols_empty() {
+        let plan = PlanIR {
+            tasks: vec![],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: SourceMap::default(),
+        };
+        let result = tasks_document_symbols(&plan);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_spec_document_symbols_with_labels_has_requirement() {
+        let plan = make_plan();
+        let reqs: Vec<Requirement> = plan.requirements.clone();
+        let categories: Vec<String> = reqs.iter().map(|r| format!("{:?}", r.category)).collect();
+        let result = spec_document_symbols_with_labels(&reqs, &categories);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_spec_document_symbols_with_labels_empty() {
+        let result = spec_document_symbols_with_labels(&[], &[]);
+        assert!(result.is_none());
+    }
+}

@@ -95,6 +95,13 @@ fn evaluate_ltl_condition(cond: &str, state: &HashMap<String, u8>, _plan: &PlanI
         return !evaluate_ltl_condition(inner, state, _plan);
     }
 
+    // active_X <-> active_Y (bidirectional) — check before -> to avoid matching <->
+    if let Some((left, right)) = cond.split_once("<->") {
+        let left_val = evaluate_ltl_atom(left.trim(), state);
+        let right_val = evaluate_ltl_atom(right.trim(), state);
+        return left_val == right_val;
+    }
+
     // active_X -> done_Y (implication)
     if let Some((ante, conseq)) = cond.split_once("->") {
         let ante = ante.trim();
@@ -102,13 +109,6 @@ fn evaluate_ltl_condition(cond: &str, state: &HashMap<String, u8>, _plan: &PlanI
         let ante_val = evaluate_ltl_atom(ante, state);
         let conseq_val = evaluate_ltl_atom(conseq, state);
         return !ante_val || conseq_val; // implication: a -> b ≡ !a || b
-    }
-
-    // active_X <-> active_Y (bidirectional)
-    if let Some((left, right)) = cond.split_once("<->") {
-        let left_val = evaluate_ltl_atom(left.trim(), state);
-        let right_val = evaluate_ltl_atom(right.trim(), state);
-        return left_val == right_val;
     }
 
     // F active_X (eventually)
@@ -125,7 +125,7 @@ fn evaluate_ltl_atom(atom: &str, state: &HashMap<String, u8>) -> bool {
 
     // Negation
     if let Some(var) = atom.strip_prefix('!') {
-        return !state.get(var).copied().unwrap_or(0) == 1;
+        return state.get(var).copied().unwrap_or(0) == 0;
     }
 
     // Check if this is a variable name
@@ -419,5 +419,155 @@ mod suggest_tests {
     fn test_suggest_fix_global() {
         let fix = suggest_fix(&ConstraintCategory::Global, "true", "R1");
         assert!(fix.is_none());
+    }
+
+    fn make_state() -> HashMap<String, u8> {
+        let mut state = HashMap::new();
+        state.insert("active_t1_1".into(), 1);
+        state.insert("done_t1_1".into(), 0);
+        state.insert("active_t1_2".into(), 0);
+        state.insert("done_t1_2".into(), 1);
+        state
+    }
+
+    #[test]
+    fn test_evaluate_ltl_atom_true() {
+        let state = make_state();
+        assert!(evaluate_ltl_atom("active_t1_1", &state));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_atom_false() {
+        let state = make_state();
+        assert!(!evaluate_ltl_atom("active_t1_2", &state));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_atom_negation() {
+        let state = make_state();
+        assert!(evaluate_ltl_atom("!active_t1_2", &state));
+        assert!(!evaluate_ltl_atom("!active_t1_1", &state));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_atom_unknown() {
+        let state = make_state();
+        assert!(!evaluate_ltl_atom("nonexistent", &state));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_condition_implication() {
+        let state = make_state();
+        // active_t1_1 -> done_t1_2: true -> true = true
+        assert!(evaluate_ltl_condition("active_t1_1 -> done_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // active_t1_2 -> done_t1_1: false -> false = true
+        assert!(evaluate_ltl_condition("active_t1_2 -> done_t1_1", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // active_t1_1 -> done_t1_1: true -> false = false
+        assert!(!evaluate_ltl_condition("active_t1_1 -> done_t1_1", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_condition_bidirectional() {
+        let state = make_state();
+        // active_t1_1 <-> done_t1_2: 1 == 1 = true
+        assert!(evaluate_ltl_condition("active_t1_1 <-> done_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // active_t1_1 <-> active_t1_2: 1 == 0 = false
+        assert!(!evaluate_ltl_condition("active_t1_1 <-> active_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_condition_negation() {
+        let state = make_state();
+        assert!(evaluate_ltl_condition("!(active_t1_2)", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        assert!(!evaluate_ltl_condition("!(active_t1_1)", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_condition_and() {
+        let state = make_state();
+        assert!(evaluate_ltl_condition("active_t1_1 && done_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        assert!(!evaluate_ltl_condition("active_t1_1 && active_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_condition_eventually() {
+        let state = make_state();
+        assert!(evaluate_ltl_condition("F active_t1_1", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        assert!(!evaluate_ltl_condition("F active_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_always() {
+        let state = make_state();
+        // G ( active_t1_1 -> done_t1_2 )
+        let ltl = "G ( active_t1_1 -> done_t1_2 )";
+        assert!(evaluate_ltl(ltl, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // G ( active_t1_1 -> done_t1_1 )
+        let ltl2 = "G ( active_t1_1 -> done_t1_1 )";
+        assert!(!evaluate_ltl(ltl2, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+    }
+
+    #[test]
+    fn test_evaluate_ltl_unrecognized() {
+        let state = make_state();
+        // Unrecognized patterns pass conservatively
+        assert!(evaluate_ltl("unknown pattern", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+    }
+
+    fn make_plan_with_phases() -> PlanIR {
+        PlanIR {
+            tasks: vec![
+                Task { id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "t.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 } },
+                Task { id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "t.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 } },
+                Task { id: "2.1".into(), description: "Deploy".into(), phase: "Phase 2".into(), checked: false, source: SourceLocation { file: "t.md".into(), start_byte: 0, end_byte: 0, start_line: 3, end_line: 3 } },
+            ],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![
+                Phase { name: "Phase 1".into(), task_ids: vec!["1.1".into(), "1.2".into()], mode: PhaseMode::Sequential },
+                Phase { name: "Phase 2".into(), task_ids: vec!["2.1".into()], mode: PhaseMode::Sequential },
+            ],
+            source_map: SourceMap::default(),
+        }
+    }
+
+    #[test]
+    fn test_find_predecessors_first_in_phase() {
+        let plan = make_plan_with_phases();
+        let preds = find_predecessors(&plan, "1.1");
+        // First task in first phase: no predecessor
+        assert!(preds.is_empty());
+    }
+
+    #[test]
+    fn test_find_predecessors_second_in_phase() {
+        let plan = make_plan_with_phases();
+        let preds = find_predecessors(&plan, "1.2");
+        assert_eq!(preds, vec!["1.1"]);
+    }
+
+    #[test]
+    fn test_find_predecessors_first_in_second_phase() {
+        let plan = make_plan_with_phases();
+        let preds = find_predecessors(&plan, "2.1");
+        assert_eq!(preds, vec!["1.2"]);
+    }
+
+    #[test]
+    fn test_find_predecessors_unknown_task() {
+        let plan = make_plan_with_phases();
+        let preds = find_predecessors(&plan, "99.9");
+        assert!(preds.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_short() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long() {
+        let t = truncate("hello world", 5);
+        assert_eq!(t, "hello...");
     }
 }

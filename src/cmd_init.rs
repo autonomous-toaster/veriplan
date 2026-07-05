@@ -324,4 +324,40 @@ mod tests {
         assert!(specs.iter().any(|v| v.as_str() == Some("Existing rule")));
         assert!(specs.iter().any(|v| v.as_str() == Some("New rule")));
     }
+
+    #[test]
+    fn test_update_gitignore_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = update_gitignore(dir.path());
+        assert!(result.is_ok());
+        let gitignore = dir.path().join(".gitignore");
+        assert!(gitignore.exists());
+        let content = std::fs::read_to_string(&gitignore).unwrap();
+        assert!(content.contains("veriplan init"));
+        assert!(content.contains("*.trail"));
+    }
+
+    #[test]
+    fn test_update_gitignore_already_has_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let gitignore = dir.path().join(".gitignore");
+        std::fs::write(&gitignore, "# veriplan init\n*.trail\n").unwrap();
+        let result = update_gitignore(dir.path());
+        assert!(result.is_ok());
+        // Content should not be duplicated
+        let content = std::fs::read_to_string(&gitignore).unwrap();
+        assert_eq!(content.lines().filter(|l| *l == "*.trail").count(), 1);
+    }
+
+    #[test]
+    fn test_update_gitignore_appends_to_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let gitignore = dir.path().join(".gitignore");
+        std::fs::write(&gitignore, "target/\n").unwrap();
+        let result = update_gitignore(dir.path());
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(&gitignore).unwrap();
+        assert!(content.contains("target/"));
+        assert!(content.contains("veriplan init"));
+    }
 }
