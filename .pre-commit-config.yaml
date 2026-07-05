@@ -3,3 +3,36 @@ repos:
     rev: v0.1.0
     hooks:
       - id: veriplan-system
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace -- -Dwarnings
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: cargo-machete
+        name: cargo machete
+        entry: cargo machete
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: rust-file-length
+        name: Rust file length (<=500 lines)
+        entry: >-
+          awk
+          'END{if(NR>500){print FILENAME": "NR" lines (limit 500)";exit 1}}'
+        language: system
+        types: [rust]
+        pass_filenames: true
+        exclude: ^(target/|.*\.pb\.rs$)
