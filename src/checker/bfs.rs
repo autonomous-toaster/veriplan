@@ -11,41 +11,12 @@ fn run_bfs_check(
     conv_report: ConvertibilityReport,
 ) -> VerificationResult {
     let formalizable: Vec<_> = constraints.iter().filter(|c| c.ltl.is_some()).collect();
-
     let mut violations = Vec::new();
 
-    // Simple state enumeration
     for state_bits in 0u64..(1u64 << plan.tasks.len().min(20)) {
-        let mut state: HashMap<String, u8> = HashMap::new();
-        for (j, task) in plan.tasks.iter().enumerate() {
-            let val = if (state_bits >> j) & 1 == 1 { 1 } else { 0 };
-            state.insert(task.id.clone(), val);
-        }
-
+        let state = build_state(state_bits, plan);
         for c in &formalizable {
-            if let Some(ltl) = &c.ltl
-                && !evaluate_ltl(ltl, &state, plan)
-                && !violations
-                    .iter()
-                    .any(|v: &Violation| v.constraint_id == c.requirement_id)
-            {
-                let state_str: Vec<String> = state
-                    .iter()
-                    .filter(|(_, v)| **v == 1)
-                    .map(|(k, _)| k.clone())
-                    .collect();
-                violations.push(Violation {
-                    constraint_id: c.requirement_id.clone(),
-                    requirement_statement: c.statement.clone(),
-                    ltl: ltl.clone(),
-                    category: format!("{:?}", c.category),
-                    state: state_str.join(", "),
-                    task_source: None,
-                    req_source: None,
-                    suggested_fix: None,
-                    plan: plan_name.to_string(),
-                });
-            }
+            check_and_record_violation(c, &state, plan, &mut violations, plan_name);
         }
     }
 
@@ -66,6 +37,45 @@ fn run_bfs_check(
         },
         constraints_summary: vec![],
         skip_reason: None,
+    }
+}
+
+fn build_state(state_bits: u64, plan: &PlanIR) -> HashMap<String, u8> {
+    let mut state: HashMap<String, u8> = HashMap::new();
+    for (j, task) in plan.tasks.iter().enumerate() {
+        let val = if (state_bits >> j) & 1 == 1 { 1 } else { 0 };
+        state.insert(task.id.clone(), val);
+    }
+    state
+}
+
+fn check_and_record_violation(
+    c: &translator::TranslatedConstraint,
+    state: &HashMap<String, u8>,
+    plan: &PlanIR,
+    violations: &mut Vec<Violation>,
+    plan_name: &str,
+) {
+    if let Some(ltl) = &c.ltl
+        && !evaluate_ltl(ltl, state, plan)
+        && !violations.iter().any(|v: &Violation| v.constraint_id == c.requirement_id)
+    {
+        let state_str: Vec<String> = state
+            .iter()
+            .filter(|(_, v)| **v == 1)
+            .map(|(k, _)| k.clone())
+            .collect();
+        violations.push(Violation {
+            constraint_id: c.requirement_id.clone(),
+            requirement_statement: c.statement.clone(),
+            ltl: ltl.clone(),
+            category: format!("{:?}", c.category),
+            state: state_str.join(", "),
+            task_source: None,
+            req_source: None,
+            suggested_fix: None,
+            plan: plan_name.to_string(),
+        });
     }
 }
 

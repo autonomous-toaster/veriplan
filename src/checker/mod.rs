@@ -417,7 +417,7 @@ mod tests {
         let r1 = make_result("a", false, None, 0);
         let r2 = make_result("b", true, Some(true), 0);
         let result = merge_results(&[r1, r2]);
-        assert_eq!(result.convertible, false);
+        assert!(!result.convertible);
         assert_eq!(result.valid, None);
     }
 

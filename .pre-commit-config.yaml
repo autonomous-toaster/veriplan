@@ -31,7 +31,7 @@ repos:
         name: Rust file length (<=550 lines)
         entry: >-
           awk
-          'END{if(NR>550){print FILENAME": "NR" lines (limit 550)";exit 1}}'
+          'END{if(FNR>550){print FILENAME": "FNR" lines (limit 550)";exit 1}}'
         language: system
         types: [rust]
         pass_filenames: true

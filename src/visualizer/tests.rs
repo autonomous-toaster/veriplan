@@ -1,7 +1,5 @@
-#[cfg(test)]
-mod tests {
-    use crate::visualizer::*;
-    use crate::ir::*;
+use crate::visualizer::*;
+use crate::ir::*;
 
     #[test]
     fn test_clean_label() {
@@ -262,4 +260,3 @@ mod tests {
         assert!(result.contains("T1.1"));
         assert!(result.contains("T1.2"));
     }
-}

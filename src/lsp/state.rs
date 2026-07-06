@@ -429,54 +429,5 @@ fn parse_location(location: &str) -> (PathBuf, usize) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_inside_changes_dir_ends_with() {
-        let p = Path::new("/project/openspec/changes");
-        assert!(is_inside_changes_dir(p));
-    }
-
-    #[test]
-    fn test_is_inside_changes_dir_contains() {
-        let p = Path::new("/project/openspec/changes/my-change/tasks.md");
-        assert!(is_inside_changes_dir(p));
-    }
-
-    #[test]
-    fn test_is_inside_changes_dir_not() {
-        let p = Path::new("/project/src/main.rs");
-        assert!(!is_inside_changes_dir(p));
-    }
-
-    #[test]
-    fn test_collect_dir_files_empty_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        let files = collect_dir_files(dir.path()).unwrap();
-        assert!(files.is_empty());
-    }
-
-    #[test]
-    fn test_collect_dir_files_with_files() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.md"), "").unwrap();
-        std::fs::write(dir.path().join("b.md"), "").unwrap();
-        let files = collect_dir_files(dir.path()).unwrap();
-        assert_eq!(files.len(), 2);
-    }
-
-    #[test]
-    fn test_parse_location_with_line() {
-        let (path, line) = parse_location("file.md:42");
-        assert_eq!(path, PathBuf::from("file.md"));
-        assert_eq!(line, 42);
-    }
-
-    #[test]
-    fn test_parse_location_without_line() {
-        let (path, line) = parse_location("file.md");
-        assert_eq!(path, PathBuf::from("file.md"));
-        assert_eq!(line, 0);
-    }
-}
+#[path = "state_tests.rs"]
+mod tests;

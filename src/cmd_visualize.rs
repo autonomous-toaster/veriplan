@@ -23,14 +23,16 @@ pub fn run_visualize(
 
     // Generate output
     let diagram = render_diagram(format, &plan, &constraints)?;
+    write_diagram_output(&diagram, output)
+}
 
+fn write_diagram_output(diagram: &str, output: Option<&str>) -> anyhow::Result<()> {
     if let Some(path) = output {
-        std::fs::write(path, &diagram)?;
+        std::fs::write(path, diagram)?;
         println!("✓ Visualization written to {}", path);
     } else {
         print!("{}", diagram);
     }
-
     Ok(())
 }
 
