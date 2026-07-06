@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-
 use anyhow::Result;
 use anyhow::Context;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
@@ -545,7 +544,6 @@ pub(crate) fn walk_files_for_clear(dir: &Path) -> std::io::Result<Vec<std::path:
     }
     Ok(files)
 }
-
 
 #[cfg(test)]
 #[path = "handlers_tests.rs"]
