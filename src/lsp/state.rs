@@ -122,7 +122,11 @@ fn extract_change_name_from_path(current: &Path) -> Option<String> {
         return None;
     }
     let name = parent.file_name()?.to_string_lossy().to_string();
-    if name == "archive" { None } else { Some(name) }
+    (!is_archive_dir(&name)).then_some(name)
+}
+
+fn is_archive_dir(name: &str) -> bool {
+    name == "archive"
 }
 
 impl ChangeStore {

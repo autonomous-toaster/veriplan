@@ -303,22 +303,30 @@ fn clear_unpublished_diagnostics(
             .join("changes")
             .join(&change);
         if let Ok(entries) = walk_files_for_clear(&change_dir) {
-            for path in entries {
-                if !published_uris.contains(&path)
-                    && let Ok(uri) = lsp_types::Url::from_file_path(&path)
-                {
-                    let params = PublishDiagnosticsParams {
-                        uri,
-                        diagnostics: Vec::new(),
-                        version: None,
-                    };
-                    let notif = Notification::new(
-                        "textDocument/publishDiagnostics".to_string(),
-                        params,
-                    );
-                    let _ = connection.sender.send(Message::Notification(notif));
-                }
-            }
+            clear_diagnostics_for_entries(connection, &entries, published_uris);
+        }
+    }
+}
+
+fn clear_diagnostics_for_entries(
+    connection: &Connection,
+    entries: &[std::path::PathBuf],
+    published_uris: &[std::path::PathBuf],
+) {
+    for path in entries {
+        if !published_uris.contains(path)
+            && let Ok(uri) = lsp_types::Url::from_file_path(path)
+        {
+            let params = PublishDiagnosticsParams {
+                uri,
+                diagnostics: Vec::new(),
+                version: None,
+            };
+            let notif = Notification::new(
+                "textDocument/publishDiagnostics".to_string(),
+                params,
+            );
+            let _ = connection.sender.send(Message::Notification(notif));
         }
     }
 }
@@ -397,19 +405,13 @@ pub(crate) fn handle_completion(
         .uri
         .to_file_path()
         .ok()?;
-    let change_name = store.read().ok()?.resolve_change(&file_path)?;
-    let plan = store.read().ok()?.get_plan(&change_name)?.clone();
-
-    // Read the current line to determine context
+    let (_, plan) = resolve_plan(store, &file_path)?;
     let pos = params.text_document_position.position;
-    // We don't have the line text without re-reading, but completions can work
-    // with just the plan context
     let completions = completions::get_completions(
         &plan,
         "", // line text (simplified)
         pos.character as usize,
     )?;
-
     Some(CompletionResponse::List(completions))
 }
 
@@ -420,12 +422,8 @@ pub(crate) fn handle_goto_definition(
     let uri = &params.text_document_position_params.text_document.uri;
     let file_path = uri.to_file_path().ok()?;
     let pos = params.text_document_position_params.position;
-    let change_name = store.read().ok()?.resolve_change(&file_path)?;
-    let plan = store.read().ok()?.get_plan(&change_name)?.clone();
-
-    // Read the current line from the file for cursor context
+    let (_, plan) = resolve_plan(store, &file_path)?;
     let line_text = read_line(&file_path, pos.line as usize)?;
-
     navigation::goto_definition(&plan, uri, &pos, &line_text)
 }
 
@@ -433,9 +431,7 @@ pub(crate) fn handle_hover(store: &Arc<RwLock<ChangeStore>>, params: &HoverParam
     let uri = &params.text_document_position_params.text_document.uri;
     let file_path = uri.to_file_path().ok()?;
     let pos = params.text_document_position_params.position;
-    let change_name = store.read().ok()?.resolve_change(&file_path)?;
-    let plan = store.read().ok()?.get_plan(&change_name)?.clone();
-
+    let (_, plan) = resolve_plan(store, &file_path)?;
     let line_text = read_line(&file_path, pos.line as usize)?;
     navigation::hover(&plan, &pos, &line_text)
 }
@@ -444,13 +440,17 @@ pub(crate) fn handle_document_symbols(
     store: &Arc<RwLock<ChangeStore>>,
     params: &DocumentSymbolParams,
 ) -> Option<DocumentSymbolResponse> {
-    let file_path = params.text_document.uri.to_file_path().ok()?;
+    let file_path = resolve_doc_symbol_path(params)?;
     let (_, plan) = resolve_plan(store, &file_path)?;
     let file_name = file_path.file_name()?.to_string_lossy().to_string();
     match file_name.as_str() {
         "tasks.md" => symbols::tasks_document_symbols(&plan),
         _ => handle_spec_symbols(&plan, &file_path),
     }
+}
+
+fn resolve_doc_symbol_path(params: &DocumentSymbolParams) -> Option<std::path::PathBuf> {
+    params.text_document.uri.to_file_path().ok()
 }
 
 fn handle_spec_symbols(
@@ -499,9 +499,11 @@ fn resolve_report(
     store: &Arc<RwLock<ChangeStore>>,
     file_path: &std::path::Path,
 ) -> Option<(ConvertibilityReport, std::path::PathBuf)> {
-    let change_name = store.read().ok()?.resolve_change(file_path)?;
-    let report = store.read().ok()?.get_report(&change_name)?.clone();
-    let project_root = store.read().ok()?.project_root().to_path_buf();
+    let guard = store.read().ok()?;
+    let change_name = guard.resolve_change(file_path)?;
+    let report = guard.get_report(&change_name)?.clone();
+    let project_root = guard.project_root().to_path_buf();
+    drop(guard);
     Some((report, project_root))
 }
 
