@@ -9,7 +9,9 @@
 mod checks;
 mod convertibility;
 pub mod bfs;
+pub mod promela;
 pub mod spin;
+pub mod spin_rs;
 
 pub use convertibility::check_convertibility;
 
@@ -58,6 +60,30 @@ pub struct VerificationResult {
     pub constraints_summary: Vec<ConstraintSummary>,
 }
 
+/// Checker backend selection.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CheckerBackend {
+    /// External spin binary (default).
+    Spin,
+    /// In-process spin-rs library.
+    SpinRs,
+}
+
+impl std::str::FromStr for CheckerBackend {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "spin" => Ok(CheckerBackend::Spin),
+            "spin-rs" => Ok(CheckerBackend::SpinRs),
+            other => Err(format!(
+                "unknown checker backend '{}'. Supported: spin, spin-rs",
+                other
+            )),
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Phase 2: Model Checking
 // ═══════════════════════════════════════════════════════════════
@@ -79,6 +105,7 @@ pub fn verify(
     no_model: bool,
     pre_commit: bool,
     is_openspec: bool,
+    backend: CheckerBackend,
 ) -> VerificationResult {
     // Phase 1: Convertibility check
     let conv_report = check_convertibility(plan, is_openspec);
@@ -145,7 +172,9 @@ pub fn verify(
         };
     }
 
-    if let Err(msg) = require_spin() {
+    if backend == CheckerBackend::Spin
+        && let Err(msg) = require_spin()
+    {
         // Missing SPIN: plan is convertible, but we can't model-check.
         // In pre-commit mode, this is non-blocking (exit 0 with a warning).
         // In normal mode, this is a hard failure (exit 2) because verification
@@ -164,7 +193,10 @@ pub fn verify(
         };
     }
 
-    spin::run_spin_check(plan, plan_name, &constraints, conv_report)
+    match backend {
+        CheckerBackend::Spin => spin::run_spin_check(plan, plan_name, &constraints, conv_report),
+        CheckerBackend::SpinRs => spin_rs::run_spin_rs_check(plan, plan_name, &constraints, conv_report),
+    }
 }
 
 /// Verify multiple plans and merge the results into a single report.
@@ -173,10 +205,11 @@ pub fn verify_all(
     no_model: bool,
     pre_commit: bool,
     is_openspec: bool,
+    backend: CheckerBackend,
 ) -> VerificationResult {
     let mut all_results: Vec<VerificationResult> = Vec::new();
     for (name, plan) in plans {
-        let result = verify(plan, name, no_model, pre_commit, is_openspec);
+        let result = verify(plan, name, no_model, pre_commit, is_openspec, backend);
         all_results.push(result);
     }
     merge_results(&all_results)
@@ -253,8 +286,9 @@ pub fn verify_with_strictness(
     pre_commit: bool,
     strictness: crate::input::StrictnessProfile,
     is_openspec: bool,
+    backend: CheckerBackend,
 ) -> VerificationResult {
-    let mut result = verify(plan, plan_name, no_model, pre_commit, is_openspec);
+    let mut result = verify(plan, plan_name, no_model, pre_commit, is_openspec, backend);
 
     // Apply strictness-based severity mapping
     result = apply_strictness(result, strictness, is_openspec);

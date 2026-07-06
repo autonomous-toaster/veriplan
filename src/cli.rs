@@ -13,6 +13,7 @@ pub fn check_all_changes(
     verbose: bool,
     pre_commit: bool,
     strictness: input::StrictnessProfile,
+    backend: checker::CheckerBackend,
 ) -> anyhow::Result<()> {
     let mut results = Vec::new();
 
@@ -26,6 +27,7 @@ pub fn check_all_changes(
         let result = checker::verify_with_strictness(
             &plan, change, false, // no_model
             pre_commit, strictness, true, // is_openspec
+            backend,
         );
         results.push((change.clone(), result));
     }

@@ -70,6 +70,12 @@ enum Commands {
         /// Lax checking: ungrounded patterns are info
         #[arg(long)]
         lax: bool,
+        /// Checker backend: spin (default) or spin-rs
+        #[arg(long)]
+        checker: Option<String>,
+        /// Run both backends and compare results
+        #[arg(long)]
+        compare: bool,
     },
     /// Init openspec/config.yaml with formal-verification-friendly rules
     Init {
@@ -111,6 +117,8 @@ fn main() -> anyhow::Result<()> {
             strict,
             moderate,
             lax,
+            checker,
+            compare,
         } => run_check(
             change,
             phase.as_deref(),
@@ -121,6 +129,8 @@ fn main() -> anyhow::Result<()> {
             strict,
             moderate,
             lax,
+            checker,
+            compare,
         ),
         Commands::Init { project_root } => cmd_init::run_init(project_root.as_deref()),
         Commands::Visualize {
@@ -149,6 +159,8 @@ fn run_check(
     _strict: bool,
     moderate: bool,
     lax: bool,
+    checker: Option<String>,
+    compare: bool,
 ) -> anyhow::Result<()> {
     // Validate plan format if provided
     let format_val = format.unwrap_or("human");
@@ -167,6 +179,14 @@ fn run_check(
     } else {
         veriplan::input::StrictnessProfile::Strict // default
     };
+
+    // Resolve checker backend: CLI flag overrides env var, default is spin
+    let backend_str = checker
+        .or_else(|| std::env::var("VERIPLAN_CHECKER").ok())
+        .unwrap_or_else(|| "spin".to_string());
+    let backend = backend_str
+        .parse::<checker::CheckerBackend>()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let project_root = std::env::current_dir()?;
 
@@ -192,6 +212,7 @@ fn run_check(
             verbose,
             pre_commit,
             strictness,
+            backend,
         )?;
         return Ok(());
     }
@@ -223,6 +244,11 @@ fn run_check(
     let label = source.label();
     let is_openspec = source.is_openspec();
 
+    // Comparison mode: run both backends and diff
+    if compare {
+        return run_compare(&plan, &label, no_model, pre_commit, strictness, is_openspec, format.unwrap_or("human"), verbose);
+    }
+
     // Run checker with strictness profile
     let result = checker::verify_with_strictness(
         &plan,
@@ -231,6 +257,7 @@ fn run_check(
         pre_commit,
         strictness,
         is_openspec,
+        backend,
     );
     let annotated = annotator::annotate(&result, &[(label.clone(), plan.clone())]);
 
@@ -283,4 +310,120 @@ fn run_check(
     }
 
     Ok(())
+}
+
+/// Run both backends and compare results.
+#[allow(clippy::too_many_arguments)]
+fn run_compare(
+    plan: &veriplan::ir::PlanIR,
+    label: &str,
+    no_model: bool,
+    pre_commit: bool,
+    strictness: veriplan::input::StrictnessProfile,
+    is_openspec: bool,
+    _format: &str,
+    _verbose: bool,
+) -> anyhow::Result<()> {
+    use std::time::Instant;
+
+    // Run spin backend
+    let spin_start = Instant::now();
+    let spin_result = checker::verify_with_strictness(
+        plan, label, no_model, pre_commit, strictness, is_openspec,
+        checker::CheckerBackend::Spin,
+    );
+    let spin_elapsed = spin_start.elapsed();
+
+    // Run spin-rs backend
+    let spin_rs_start = Instant::now();
+    let spin_rs_result = checker::verify_with_strictness(
+        plan, label, no_model, pre_commit, strictness, is_openspec,
+        checker::CheckerBackend::SpinRs,
+    );
+    let spin_rs_elapsed = spin_rs_start.elapsed();
+
+    // Build comparison table
+    let _spin_summary: std::collections::HashMap<&str, bool> = spin_result
+        .constraints_summary
+        .iter()
+        .map(|c| (c.requirement_id.as_str(), c.satisfied))
+        .collect();
+
+    let mut mismatches = 0u32;
+    let mut total = 0u32;
+
+    println!("═══ Backend Comparison: {} ═══", label);
+    println!();
+    println!("{:<30} {:<10} {:<10} {:<8}", "Constraint", "spin", "spin-rs", "Match?");
+    println!("{}", "-".repeat(60));
+
+    for c in &spin_result.constraints_summary {
+        let spin_rs_satisfied = spin_rs_result
+            .constraints_summary
+            .iter()
+            .find(|sc| sc.requirement_id == c.requirement_id)
+            .map(|sc| sc.satisfied)
+            .unwrap_or(false);
+
+        let matched = c.satisfied == spin_rs_satisfied;
+        if !matched {
+            mismatches += 1;
+        }
+        total += 1;
+
+        let spin_status = if c.satisfied { "pass" } else { "FAIL" };
+        let spin_rs_status = if spin_rs_satisfied { "pass" } else { "FAIL" };
+        let match_icon = if matched { "✓" } else { "✗" };
+
+        println!(
+            "{:<30} {:<10} {:<10} {:<8}",
+            truncate(&c.requirement_id, 28),
+            spin_status,
+            spin_rs_status,
+            match_icon,
+        );
+    }
+
+    println!();
+    println!(
+        "spin:    {:.2}s  |  valid={}  |  violations={}",
+        spin_elapsed.as_secs_f64(),
+        format_valid(spin_result.valid),
+        spin_result.violations.len(),
+    );
+    println!(
+        "spin-rs: {:.2}s  |  valid={}  |  violations={}",
+        spin_rs_elapsed.as_secs_f64(),
+        format_valid(spin_rs_result.valid),
+        spin_rs_result.violations.len(),
+    );
+    println!();
+    println!(
+        "{}/{} constraints match, {} mismatches",
+        total - mismatches,
+        total,
+        mismatches,
+    );
+
+    if mismatches > 0 {
+        eprintln!("⚠ Backends disagree on {} constraint(s)", mismatches);
+    }
+
+    Ok(())
+}
+
+fn format_valid(valid: Option<bool>) -> String {
+    match valid {
+        Some(true) => "✓".into(),
+        Some(false) => "✗".into(),
+        None => "?".into(),
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max.saturating_sub(1)])
+    }
 }
