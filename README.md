@@ -115,9 +115,9 @@ This step maps the six temporal categories (sequential, exclusive,
 conditional, concurrent, global, fixed-time) into LTL patterns that
 can be checked by either the built-in BFS checker or SPIN.
 
-### 5. Model check (BFS or SPIN)
+### 5. Model check (BFS, SPIN, or spin-rs)
 
-veriplan offers two model checking backends:
+veriplan offers three model checking backends:
 
 #### Built-in BFS checker (default)
 
@@ -131,9 +131,9 @@ No external dependencies required. The BFS checker:
 - Evaluates every LTL property against each reachable state
 - Reports violations with the offending state and the property that failed
 
-Suitable for plans with up to ~20 tasks. For larger plans, use SPIN.
+Suitable for plans with up to ~20 tasks. For larger plans, use SPIN or spin-rs.
 
-#### SPIN model checker (optional)
+#### SPIN model checker (optional, default)
 
 For larger plans or when deeper liveness analysis is needed, veriplan
 generates a **Promela model** and runs SPIN:
@@ -148,6 +148,53 @@ that window, the property is marked **unchecked** (`~`).
 
 SPIN must be installed separately (`brew install spin` / `apt install spin`).
 If SPIN is not available, veriplan falls back to the BFS checker automatically.
+
+#### spin-rs model checker (in-process, optional)
+
+veriplan also supports **spin-rs**, a Rust-native Promela model checker
+that runs entirely in-process with no external dependencies. It parses
+the same Promela model, compiles it to Lua, and runs DFS/BFS verification
+with LTL→Büchi support via nested DFS.
+
+To use spin-rs instead of the external SPIN binary:
+
+```bash
+# Via CLI flag
+veriplan check my-change --checker spin-rs
+
+# Via environment variable
+VERIPLAN_CHECKER=spin-rs veriplan check my-change
+```
+
+spin-rs is significantly faster for small-to-medium models because it
+skips the `spin -a` + `gcc` compile step. It also works on systems
+where SPIN is not installed.
+
+#### Comparing backends: `--compare`
+
+Run both SPIN and spin-rs on the same plan and diff the results:
+
+```bash
+veriplan check my-change --compare
+```
+
+Output:
+```
+═══ Backend Comparison: my-change ═══
+
+Constraint                     spin       spin-rs    Match?
+------------------------------------------------------------
+checker-backend-selection::…   pass       pass       ✓
+...
+
+spin:    0.55s  |  valid=✓  |  violations=0
+spin-rs: 0.01s  |  valid=✓  |  violations=0
+
+11/11 constraints match, 0 mismatches
+```
+
+Useful for validating spin-rs correctness against SPIN, or for
+performance benchmarking.
 
 ### 6. Read the report
 
@@ -336,9 +383,9 @@ fast guard rail; CI is the authoritative check.
 - **SPIN** (model checker, optional) — must be on PATH for SPIN-based
   model checking. Install via `brew install spin` (macOS) or
   `apt install spin` (Debian/Ubuntu). veriplan includes a built-in
-  BFS checker that works without SPIN.
+  BFS checker and a spin-rs backend that work without SPIN.
 - **gcc** (optional) — SPIN generates C code that must be compiled.
-  Not needed when using the built-in BFS checker.
+  Not needed when using the built-in BFS checker or spin-rs backend.
 
 ---
 
@@ -361,6 +408,16 @@ cargo build --release
 
 # Check a change in an external project
 ./target/release/veriplan check /path/to/project
+
+# Use spin-rs backend (in-process, no external SPIN needed)
+./target/release/veriplan check my-change --checker spin-rs
+
+# Compare SPIN and spin-rs results
+./target/release/veriplan check my-change --compare
+
+# Set spin-rs as default via environment variable
+export VERIPLAN_CHECKER=spin-rs
+./target/release/veriplan check my-change
 
 # JSON output for machine consumption
 ./target/release/veriplan check my-change --format json
@@ -429,7 +486,11 @@ you exactly which requirement is unrealistic and why.
 src/
   parser/      — Parse OpenSpec markdown into structured data
   ir/          — Intermediate representation (tasks, requirements, phases)
-  checker/     — Convertibility checks + BFS/SPIN model checking
+  checker/     — Convertibility checks + BFS/SPIN/spin-rs model checking
+    promela.rs   — Shared Promela generation for all backends
+    spin.rs      — External SPIN binary backend
+    spin_rs.rs   — In-process spin-rs library backend
+    bfs.rs       — Built-in BFS fallback checker
   translator/  — Map SHALL statements to LTL formulas
   grounding/   — Ground requirements against plan task signature
   visualizer/  — Generate diagrams (Mermaid, DOT, markdown)
