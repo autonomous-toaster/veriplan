@@ -13,17 +13,6 @@ which describes the pipeline this tool implements.
 
 ## How it works, step by step
 
-### 1. Parse the plan (markdown → data)
-
-veriplan reads your OpenSpec change directory: `tasks.md`, `specs/`,
-`design.md`, `proposal.md`. It uses tree-sitter (a syntax-aware parser)
-to turn the markdown into structured data — tasks with N.M IDs,
-requirements with RFC 2119 keywords (MUST / SHALL / SHOULD / MAY),
-scenarios with GIVEN / WHEN / THEN steps, and phase groupings.
-
-If the markdown is malformed or missing required fields, parsing fails
-with a clear error.
-
 ### 0. Setting up a project: `veriplan init`
 
 Before writing any tasks or requirements, run `veriplan init` once to
@@ -44,6 +33,17 @@ still write requirements that don't follow the temporal grammar — that's
 what the convertibility check is for. But with `init`, the rules are
 there in the project configuration from day one, making it more likely
 that specs come out structurally sound on the first try.
+
+### 1. Parse the plan (markdown → data)
+
+veriplan reads your OpenSpec change directory: `tasks.md`, `specs/`,
+`design.md`, `proposal.md`. It uses tree-sitter (a syntax-aware parser)
+to turn the markdown into structured data — tasks with N.M IDs,
+requirements with RFC 2119 keywords (MUST / SHALL / SHOULD / MAY),
+scenarios with GIVEN / WHEN / THEN steps, and phase groupings.
+
+If the markdown is malformed or missing required fields, parsing fails
+with a clear error.
 
 ### 2. Convertibility check: "Can this plan be built?"
 
@@ -78,11 +78,28 @@ Requirements without a temporal keyword are **NonFormalizable** —
 they block the pipeline. The fix is always to rewrite using one of
 the six patterns above.
 
-### 3. Translate to LTL (temporal logic)
+### 3. Grounding check: "Does every requirement refer to real tasks?"
 
-Once the plan passes convertibility, each SHALL requirement is
-translated into an **LTL formula** — a precise mathematical statement
-about sequences of states. For example:
+Before translating to LTL, veriplan runs a **grounding** pass that
+maps each requirement's SHALL statement to actual task IDs using
+keyword matching and positional heuristics. This uses the
+[groundcontrol](https://github.com/autonomous-toaster/groundcontrol)
+library's `RuleGrounder`.
+
+Each requirement is checked against the plan's task signature:
+- Every task reference in a SHALL statement is resolved to a real task ID
+- Ambiguous references (e.g. "the system" without a task) are flagged
+- The grounding status (FullyGrounded, PartiallyGrounded, or
+  NotGrounded) is reported per requirement
+
+This catches requirements that talk about tasks that don't exist,
+or use vague language that can't be formally checked.
+
+### 4. Translate to LTL (temporal logic)
+
+Once the plan passes convertibility and grounding, each SHALL
+requirement is translated into an **LTL formula** — a precise
+mathematical statement about sequences of states. For example:
 
 > *T2.1 SHALL complete BEFORE T3.1 SHALL run*
 
@@ -96,18 +113,30 @@ becomes the LTL property:
 
 This step maps the six temporal categories (sequential, exclusive,
 conditional, concurrent, global, fixed-time) into LTL patterns that
-SPIN can check.
+can be checked by either the built-in BFS checker or SPIN.
 
-### 4. Model check with SPIN
+### 5. Model check (BFS or SPIN)
 
-veriplan generates a **Promela model** — a formal state machine
-description of your plan. Each task becomes a process with three
-states: inactive, active, done. Phase ordering is enforced by guards.
-The model is deliberately simple: it reflects the task-phase structure,
-not the spec constraints. This avoids circular reasoning.
+veriplan offers two model checking backends:
 
-Then SPIN (the model checker) runs every LTL property against this
-model:
+#### Built-in BFS checker (default)
+
+A fast, built-in breadth-first search that explores all possible
+task execution sequences up to 2^N states (N = number of tasks).
+No external dependencies required. The BFS checker:
+
+- Builds a state space where each task is inactive, active, or done
+- Enforces phase ordering (sequential phases execute in order,
+  concurrent phases allow overlap)
+- Evaluates every LTL property against each reachable state
+- Reports violations with the offending state and the property that failed
+
+Suitable for plans with up to ~20 tasks. For larger plans, use SPIN.
+
+#### SPIN model checker (optional)
+
+For larger plans or when deeper liveness analysis is needed, veriplan
+generates a **Promela model** and runs SPIN:
 
 - **Safety properties** (things that must never happen) are checked
   with a fast bitstate search.
@@ -117,13 +146,18 @@ model:
 Each property gets a 5-second timeout. If SPIN can't decide within
 that window, the property is marked **unchecked** (`~`).
 
-### 5. Read the report
+SPIN must be installed separately (`brew install spin` / `apt install spin`).
+If SPIN is not available, veriplan falls back to the BFS checker automatically.
 
-veriplan outputs a summary:
+### 6. Read the report
+
+veriplan outputs a summary with three phases:
 
 ```
 Plan: my-change — ✓ VALID
-  All constraints satisfied.
+  Convertibility: 7/7 passed
+  Grounding:      5/5 fully grounded
+  Model check:    22/22 satisfied
   Satisfied: 22 | Violated: 0 | Unchecked: 0 | Total: 22
 ```
 
@@ -134,6 +168,7 @@ If there are violations, each one includes:
 - A suggested fix (e.g. "remove CONCURRENTLY keyword or restructure")
 - For conditional constraints: which task is the trigger and which is
   the consequent
+- The grounding status (which task references were resolved)
 
 Violations mean the spec demands something the plan structure cannot
 guarantee — they are spec-plan mismatches, not implementation bugs.
@@ -297,43 +332,32 @@ fast guard rail; CI is the authoritative check.
 
 ## Requirements
 
-- **SPIN** (model checker) — must be on PATH. Install via
-  `brew install spin` (macOS) or `apt install spin` (Debian/Ubuntu).
-- **gcc** — SPIN generates C code that must be compiled.
-  Both `gcc` and `spin` are checked at runtime; missing either is a
-  hard failure (exit code 2).
 - **Rust toolchain** (for building) — `cargo build --release`.
+- **SPIN** (model checker, optional) — must be on PATH for SPIN-based
+  model checking. Install via `brew install spin` (macOS) or
+  `apt install spin` (Debian/Ubuntu). veriplan includes a built-in
+  BFS checker that works without SPIN.
+- **gcc** (optional) — SPIN generates C code that must be compiled.
+  Not needed when using the built-in BFS checker.
 
 ---
 
 ## Quick start
 
-**Before using veriplan, install SPIN and gcc:**
-
-```bash
-# macOS
-brew install spin gcc
-
-# Debian / Ubuntu
-sudo apt install spin gcc
-```
-
-SPIN is the model checker that runs the formal proofs. gcc compiles
-SPIN's generated C code. Both are checked at startup — missing either
-produces a clear error with install instructions.
-
 ```bash
 # Build
 cargo build --release
 
-# Check a change in the current project
+# Check a change in the current project (full pipeline)
 ./target/release/veriplan check my-change-name
 
 # Check all active changes
 ./target/release/veriplan check
 
-# Run convertibility check only (no SPIN)
+# Run a specific phase only
 ./target/release/veriplan check my-change --phase convertibility
+./target/release/veriplan check my-change --phase grounding
+./target/release/veriplan check my-change --phase model-check
 
 # Check a change in an external project
 ./target/release/veriplan check /path/to/project
@@ -341,7 +365,7 @@ cargo build --release
 # JSON output for machine consumption
 ./target/release/veriplan check my-change --format json
 
-# Verbose mode (see tasks, requirements, temporal classifications)
+# Verbose mode (see tasks, requirements, temporal classifications, grounding)
 ./target/release/veriplan check my-change --verbose
 
 # Auto-configure an OpenSpec project
@@ -405,11 +429,13 @@ you exactly which requirement is unrealistic and why.
 src/
   parser/      — Parse OpenSpec markdown into structured data
   ir/          — Intermediate representation (tasks, requirements, phases)
-  checker/     — Convertibility checks + SPIN orchestration
+  checker/     — Convertibility checks + BFS/SPIN model checking
   translator/  — Map SHALL statements to LTL formulas
+  grounding/   — Ground requirements against plan task signature
   visualizer/  — Generate diagrams (Mermaid, DOT, markdown)
   lsp/         — Language Server Protocol (diagnostics, completions, navigation)
   annotator/   — Human-readable and JSON report formatting
+  input/       — Plan loading, source resolution, strictness profiles
   main.rs      — CLI entry point
 
 ```
