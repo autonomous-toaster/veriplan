@@ -31,35 +31,63 @@ mod suggest_tests {
 
     #[test]
     fn test_suggest_fix_sequential() {
-        let fix = suggest_fix(&ConstraintCategory::SequentialOrder, "[] ( active_t1_2 -> done_t1_1 )", "R1");
+        let fix = suggest_fix(&ConstraintCategory::SequentialOrder, "[] ( active_t1_2 -> done_t1_1 )", "R1", "T1.1 SHALL complete BEFORE T1.2");
         assert!(fix.is_some());
         assert!(fix.unwrap().contains("before-task"));
     }
 
     #[test]
     fn test_suggest_fix_exclusive() {
-        let fix = suggest_fix(&ConstraintCategory::Exclusive, "[] ( !(active_t2_1 && active_t2_2) )", "R1");
+        let fix = suggest_fix(&ConstraintCategory::Exclusive, "[] ( !(active_t2_1 && active_t2_2) )", "R1", "At most one of T2.1, T2.2 SHALL be active");
         assert!(fix.is_some());
         assert!(fix.unwrap().contains("mutually exclusive"));
     }
 
     #[test]
+    fn test_suggest_fix_exclusive_only_one() {
+        let fix = suggest_fix(&ConstraintCategory::Exclusive, "[] ( !(active_t2_1 && active_t2_2) )", "R1", "IF the messages array contains only one message");
+        assert!(fix.is_some());
+        let msg = fix.unwrap();
+        assert!(msg.contains("only one"), "Expected 'only one' in message: {}", msg);
+        // Should not mention AT MOST ONE as the detected trigger
+        assert!(
+            msg.find("body text contains 'only one'").unwrap_or(0)
+                < msg.find("AT MOST ONE").unwrap_or(usize::MAX),
+            "body text detection should come before generic AT MOST ONE reference"
+        );
+    }
+
+    #[test]
     fn test_suggest_fix_concurrent() {
-        let fix = suggest_fix(&ConstraintCategory::ConcurrentEvents, "[] ( active_t3_1 <-> active_t3_2 )", "R1");
+        let fix = suggest_fix(&ConstraintCategory::ConcurrentEvents, "[] ( active_t3_1 <-> active_t3_2 )", "R1", "T3.1 and T3.2 SHALL run concurrently");
         assert!(fix.is_some());
         assert!(fix.unwrap().contains("CONCURRENTLY"));
     }
 
     #[test]
     fn test_suggest_fix_conditional() {
-        let fix = suggest_fix(&ConstraintCategory::Conditional, "[] ( failed_t1_1 -> <> active_t2_1 )", "R1");
+        let fix = suggest_fix(&ConstraintCategory::Conditional, "[] ( failed_t1_1 -> <> active_t2_1 )", "R1", "IF T1.1 fails THEN T2.1 SHALL run");
         assert!(fix.is_some());
         assert!(fix.unwrap().contains("IF"));
     }
 
     #[test]
+    fn test_suggest_fix_conditional_if_in_body() {
+        let fix = suggest_fix(&ConstraintCategory::Conditional, "[] ( failed_t1_1 -> <> active_t2_1 )", "R1", "T1.1 SHALL complete BEFORE T1.2. If absent, the handler MUST return 400.");
+        assert!(fix.is_some());
+        let msg = fix.unwrap();
+        assert!(msg.contains("body text contains 'if'"), "Expected body text message: {}", msg);
+        // The message should identify the trigger before explaining IF...THEN
+        assert!(
+            msg.find("body text contains 'if'").unwrap_or(0)
+                < msg.find("IF...THEN is designed").unwrap_or(usize::MAX),
+            "body text detection should come before IF...THEN explanation"
+        );
+    }
+
+    #[test]
     fn test_suggest_fix_global() {
-        let fix = suggest_fix(&ConstraintCategory::Global, "true", "R1");
+        let fix = suggest_fix(&ConstraintCategory::Global, "true", "R1", "T1.1 SHALL ALWAYS be available");
         assert!(fix.is_none());
     }
 

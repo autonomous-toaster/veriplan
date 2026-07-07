@@ -108,7 +108,7 @@ pub fn verify(
     backend: CheckerBackend,
 ) -> VerificationResult {
     // Phase 1: Convertibility check
-    let conv_report = check_convertibility(plan, is_openspec);
+    let (conv_report, updated_plan) = check_convertibility(plan, is_openspec);
 
     if conv_report.status == ConvertibilityStatus::Blocking {
         return VerificationResult {
@@ -147,8 +147,8 @@ pub fn verify(
         };
     }
 
-    // Phase 2: Model checking
-    let constraints = translator::translate_all(plan);
+    // Phase 2: Model checking — use updated_plan so PatternUngrounded requirements are skipped
+    let constraints = translator::translate_all(&updated_plan);
     let formalizable: Vec<_> = constraints.iter().filter(|c| c.ltl.is_some()).collect();
 
     if formalizable.is_empty() {

@@ -46,6 +46,9 @@ enum Commands {
         /// Change name, file path, or directory. Use '-' for stdin. Omit to auto-detect.
         #[arg(required = false)]
         change: Option<String>,
+        /// Alias for CHANGE (e.g., --change my-change)
+        #[arg(long = "change", required = false)]
+        change_alias: Option<String>,
         /// Stop after convertibility check (Phase 1)
         #[arg(long)]
         phase: Option<String>,
@@ -109,6 +112,7 @@ fn main() -> anyhow::Result<()> {
     let result = match cli.command {
         Commands::Check {
             change,
+            change_alias,
             phase,
             format,
             verbose: _verbose,
@@ -120,7 +124,7 @@ fn main() -> anyhow::Result<()> {
             checker,
             compare,
         } => run_check(
-            change,
+            change.or(change_alias),
             phase.as_deref(),
             format.as_deref(),
             _verbose,

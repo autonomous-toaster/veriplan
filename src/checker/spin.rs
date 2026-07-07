@@ -100,6 +100,7 @@ pub(crate) fn run_spin_check(
                 &c.category,
                 c.ltl.as_deref().unwrap_or(""),
                 &c.requirement_id,
+                &c.statement,
             );
             violations.push(Violation {
                 constraint_id: c.requirement_id.clone(),

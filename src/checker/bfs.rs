@@ -286,6 +286,7 @@ pub(crate) fn suggest_fix(
     category: &crate::ir::ConstraintCategory,
     ltl: &str,
     _req_id: &str,
+    statement: &str,
 ) -> Option<String> {
     let task_ids = extract_task_ids(ltl);
     let task_list = if task_ids.is_empty() {
@@ -299,6 +300,16 @@ pub(crate) fn suggest_fix(
     } else {
         format!(" tasks {}", task_ids.join(", "))
     };
+
+    // Detect actual keywords in the statement for more precise messages
+    let lower = statement.to_lowercase();
+    let has_if = lower.contains(" if ");
+    let has_only_one = lower.contains("only one");
+    let has_when_then = lower.contains("when") && lower.contains("then");
+    let has_fail_then = lower.contains("fail") && lower.contains("then");
+    let has_unless = lower.contains("unless");
+    let has_at_most_one = lower.contains("at most one");
+    let has_not_concurrently = lower.contains("not") && lower.contains("concurrently");
 
     match category {
         crate::ir::ConstraintCategory::ConcurrentEvents => {
@@ -315,21 +326,43 @@ pub(crate) fn suggest_fix(
             }
         }
         crate::ir::ConstraintCategory::Conditional => {
-            Some(
-                "The trigger task fails non-deterministically but the consequent task never activates.\n  IF...THEN is designed for **failure-recovery** patterns (e.g. 'IF T1.1 fails THEN T2.1 SHALL run').\n  For **branching/decision logic** (e.g. 'IF X THEN A, IF not X THEN B'), use Sequential ordering instead:\n  \"T1.5 SHALL complete BEFORE T1.4 SHALL run\".\n  Otherwise mark this constraint as aspirational by removing IF...THEN."
-                    .into(),
-            )
+            // Detect what triggered the Conditional classification
+            let trigger = if has_if {
+                "body text contains 'if' (likely prose, not a constraint)"
+            } else if has_when_then {
+                "body text contains 'when' and 'then' (likely prose, not a constraint)"
+            } else if has_fail_then {
+                "body text contains 'fail' and 'then' (likely prose, not a constraint)"
+            } else if has_unless {
+                "body text contains 'unless' (likely prose, not a constraint)"
+            } else {
+                "statement uses IF...THEN pattern"
+            };
+            Some(format!(
+                "The trigger task fails non-deterministically but the consequent task never activates.\n  Detected: {}.\n  IF...THEN is designed for **failure-recovery** patterns (e.g. 'IF T1.1 fails THEN T2.1 SHALL run').\n  For **branching/decision logic** (e.g. 'IF X THEN A, IF not X THEN B'), use Sequential ordering instead:\n  \"T1.5 SHALL complete BEFORE T1.4 SHALL run\".\n  Otherwise mark this constraint as aspirational by removing the conditional pattern.",
+                trigger,
+            ))
         }
         crate::ir::ConstraintCategory::Exclusive => {
+            // Detect what triggered the Exclusive classification
+            let trigger = if has_only_one {
+                "body text contains 'only one' (likely prose, not a constraint)"
+            } else if has_at_most_one {
+                "statement uses 'at most one'"
+            } else if has_not_concurrently {
+                "statement uses 'not concurrently'"
+            } else {
+                "statement uses an exclusive pattern"
+            };
             if task_list.is_empty() {
-                Some(
-                    "Two tasks can be active simultaneously in the model — they are not mutually exclusive.\n  Either add a phase ordering between them, or mark this constraint as aspirational\n  by removing AT MOST ONE / NOT CONCURRENTLY."
-                        .into(),
-                )
+                Some(format!(
+                    "Two tasks can be active simultaneously in the model — they are not mutually exclusive.\n  Detected: {}.\n  Either add a phase ordering between them, or mark this constraint as aspirational.",
+                    trigger,
+                ))
             } else {
                 Some(format!(
-            "Tasks{} can both be active at the same time in the model — they are not mutually exclusive.\n  Either add a phase ordering between them (different phases execute sequentially),\n  or mark this constraint as aspirational by removing AT MOST ONE / NOT CONCURRENTLY.",
-                    task_list
+            "Tasks{} can both be active at the same time in the model — they are not mutually exclusive.\n  Detected: {}.\n  Either add a phase ordering between them (different phases execute sequentially),\n  or mark this constraint as aspirational.",
+                    task_list, trigger,
                 ))
             }
         }

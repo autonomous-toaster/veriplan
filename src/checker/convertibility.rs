@@ -6,7 +6,9 @@ use crate::grounding;
 use crate::ir::{ConvertibilityReport, ConvertibilityStatus, PlanIR};
 
 /// Run the full convertibility check (Phase 1).
-pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> ConvertibilityReport {
+/// Returns (report, updated_plan) where updated_plan has PatternUngrounded
+/// populated on requirements that failed grounding.
+pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> (ConvertibilityReport, PlanIR) {
     let mut blockers = Vec::new();
     let mut warnings = Vec::new();
     let mut info = Vec::new();
@@ -71,10 +73,6 @@ pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> ConvertibilityR
                 req.category = crate::ir::ConstraintCategory::PatternUngrounded;
             }
     }
-    // Note: updated_plan is not used further here since the report is already built.
-    // The category update is for downstream consumers that read PlanIR after convertibility.
-    // For now, the grounding CheckItems in the report carry the information.
-    let _ = updated_plan;
 
     // Check 5: Temporal classifiability
     let class_check = checks::check_classifiability(plan, is_openspec);
@@ -115,11 +113,13 @@ pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> ConvertibilityR
         ConvertibilityStatus::Convertible
     };
 
-    ConvertibilityReport {
+    let report = ConvertibilityReport {
         status,
         blockers,
         warnings,
         info,
         rephrase_directives,
-    }
+    };
+
+    (report, updated_plan)
 }

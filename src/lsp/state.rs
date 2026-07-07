@@ -64,7 +64,7 @@ impl ChangeStore {
             Ok(p) => p,
             Err(_) => return,
         };
-        let report = checker::check_convertibility(&plan, true); // LSP always processes OpenSpec changes
+        let (report, updated_plan) = checker::check_convertibility(&plan, true); // LSP always processes OpenSpec changes
 
         // Build file index: map every file under the change dir to this change name
         if let Ok(entries) = walk_files(path) {
@@ -73,7 +73,7 @@ impl ChangeStore {
             }
         }
 
-        self.plans.insert(name.to_string(), plan);
+        self.plans.insert(name.to_string(), updated_plan);
         self.reports.insert(name.to_string(), report);
     }
 
@@ -142,10 +142,10 @@ impl ChangeStore {
             Ok(p) => p,
             Err(_) => return Vec::new(),
         };
-        let report = checker::check_convertibility(&plan, true); // LSP always processes OpenSpec changes
+        let (report, updated_plan) = checker::check_convertibility(&plan, true); // LSP always processes OpenSpec changes
 
         // Update caches
-        self.plans.insert(change.to_string(), plan);
+        self.plans.insert(change.to_string(), updated_plan);
         self.reports.insert(change.to_string(), report);
 
         // Rebuild file index
@@ -203,9 +203,9 @@ impl ChangeStore {
             }
         };
 
-        let report = checker::check_convertibility(&plan, false); // Standalone files are not OpenSpec
+        let (report, updated_plan) = checker::check_convertibility(&plan, false); // Standalone files are not OpenSpec
         self.standalone
-            .insert(file_path.to_path_buf(), (plan, report));
+            .insert(file_path.to_path_buf(), (updated_plan, report));
         true
     }
 

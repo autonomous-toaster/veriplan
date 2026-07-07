@@ -209,6 +209,65 @@ pub fn check_grounding(
 
         let result = grounder.ground(&req.statement, &sig);
 
+        // Multi-keyword pre-check: detect if multiple predicates matched
+        let mut matched_predicates: Vec<&str> = result
+            .candidates
+            .iter()
+            .filter(|c| c.confidence > 0.5)
+            .map(|c| c.predicate.as_str())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        matched_predicates.sort();
+
+        if matched_predicates.len() > 1 {
+            let keywords = matched_predicates.join(" and ");
+            let detail = format!(
+                "GROUNDING AMBIGUITY: statement matches multiple temporal keywords ({}). \
+                 Split into separate requirements, one temporal keyword per requirement.",
+                keywords,
+            );
+            let fix = format!(
+                "Split the requirement into separate statements, each using only one of: {}",
+                keywords,
+            );
+
+            match strictness {
+                StrictnessProfile::Strict => blockers.push(CheckItem {
+                    severity: "blocker".into(),
+                    check: "grounding_ambiguous_multi_keyword".into(),
+                    element: format!("Requirement '{}'", req.id),
+                    location: format!("{}:{}", req.source.file, req.source.start_line),
+                    detail,
+                    fix: Some(fix),
+                }),
+                StrictnessProfile::Moderate => warnings.push(CheckItem {
+                    severity: "warning".into(),
+                    check: "grounding_ambiguous_multi_keyword".into(),
+                    element: format!("Requirement '{}'", req.id),
+                    location: format!("{}:{}", req.source.file, req.source.start_line),
+                    detail,
+                    fix: Some(fix),
+                }),
+                StrictnessProfile::Lax => info.push(CheckItem {
+                    severity: "info".into(),
+                    check: "grounding_ambiguous_multi_keyword".into(),
+                    element: format!("Requirement '{}'", req.id),
+                    location: format!("{}:{}", req.source.file, req.source.start_line),
+                    detail,
+                    fix: Some(fix),
+                }),
+            }
+
+            // Still record the outcome for downstream use
+            outcomes.push(GroundingOutcome {
+                requirement_id: req.id.clone(),
+                failed: true,
+                status: GroundingStatus::Ambiguous,
+            });
+            continue;
+        }
+
         let failed = matches!(
             result.status,
             GroundingStatus::Ungroundable | GroundingStatus::Ambiguous

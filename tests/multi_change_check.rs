@@ -201,3 +201,62 @@ fn test_explicit_change_name() {
         "Did not expect 'change-b' in output"
     );
 }
+
+#[test]
+fn test_grounding_failure_skips_bfs() {
+    let dir = TempDir::new().expect("Failed to create temp dir");
+    let change_dir = dir
+        .path()
+        .join("openspec/changes/multi-keyword-change");
+    fs::create_dir_all(&change_dir).expect("Failed to create change dir");
+
+    // Create tasks.md with tasks
+    fs::write(
+        change_dir.join("tasks.md"),
+        "# Tasks\n\n## Phase 1: Setup\n\n- [x] 1.1 First task\n- [ ] 1.2 Second task\n- [ ] 2.1 Third task\n",
+    )
+    .expect("Failed to write tasks.md");
+
+    // Create spec with multi-keyword requirement (BEFORE + ALWAYS)
+    let specs_dir = change_dir.join("specs");
+    fs::create_dir_all(&specs_dir).expect("Failed to create specs dir");
+    fs::write(
+        specs_dir.join("spec.md"),
+        "# Specification\n\n## Task Reference\n\n| Task ID | Description |\n|---------|-------------|\n| T1.1 | First task |\n| T1.2 | Second task |\n| T2.1 | Third task |\n\n### Requirement: Multi-keyword\n\nT1.1 SHALL complete BEFORE T1.2. T2.1 SHALL ALWAYS be available.\n"
+    ).expect("Failed to write spec.md");
+
+    let output = Command::new(veriplan_bin())
+        .args(["check", "multi-keyword-change"])
+        .current_dir(&dir)
+        .output()
+        .expect("Failed to run command");
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Should report a blocker (multi-keyword grounding error), not a BFS violation
+    assert!(
+        combined.contains("GROUNDING AMBIGUITY"),
+        "Expected GROUNDING AMBIGUITY message, got: {}",
+        combined
+    );
+    assert!(
+        combined.contains("BEFORE"),
+        "Expected BEFORE in message, got: {}",
+        combined
+    );
+    assert!(
+        combined.contains("ALWAYS"),
+        "Expected ALWAYS in message, got: {}",
+        combined
+    );
+    // Should NOT contain BFS violation messages like "IF...THEN" or "AT MOST ONE"
+    assert!(
+        !combined.contains("IF...THEN"),
+        "Should not contain IF...THEN message, got: {}",
+        combined
+    );
+}

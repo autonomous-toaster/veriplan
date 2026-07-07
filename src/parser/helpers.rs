@@ -2,21 +2,21 @@
 
 use std::path::Path;
 
-/// Extract SHALL statement from requirement body.
+/// Extract the first paragraph from a requirement body for classification.
+///
+/// Returns only the text before the first blank line or `####` heading.
+/// Body paragraphs after the first are excluded from classification
+/// but remain in the requirement's source text for documentation.
 pub fn extract_shall_statement(body: &str, _file: &str) -> String {
-    let bytes = body.as_bytes();
-    let mut start = 0;
-    let mut end = body.len();
-
-    while start < body.len() && bytes[start].is_ascii_whitespace() {
-        start += 1;
-    }
-
-    while end > start && bytes[end - 1].is_ascii_whitespace() {
-        end -= 1;
-    }
-
-    body[start..end].to_string()
+    body.lines()
+        .take_while(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with("####")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
 }
 
 /// Extract scenarios from requirement body.
@@ -372,5 +372,30 @@ mod tests {
     fn test_extract_shall_statement_no_shall_2() {
         let result = extract_shall_statement("No keyword here", "spec.md");
         assert_eq!(result, "No keyword here");
+    }
+
+    #[test]
+    fn test_extract_shall_statement_multi_paragraph() {
+        let body = "T1.1 SHALL complete BEFORE T1.2 runs.\n\nThe system SHALL accept DATABASE_HOST as an alternative.";
+        let result = extract_shall_statement(body, "spec.md");
+        assert_eq!(result, "T1.1 SHALL complete BEFORE T1.2 runs.");
+        assert!(!result.contains("DATABASE_HOST"));
+    }
+
+    #[test]
+    fn test_extract_shall_statement_stops_at_scenario() {
+        let body = "T1.1 SHALL complete BEFORE T1.2 runs.\n#### Scenario: Test\n- **WHEN** x\n- **THEN** y";
+        let result = extract_shall_statement(body, "spec.md");
+        assert_eq!(result, "T1.1 SHALL complete BEFORE T1.2 runs.");
+        assert!(!result.contains("Scenario"));
+    }
+
+    #[test]
+    fn test_extract_shall_statement_preserves_newlines_in_paragraph() {
+        let body = "T1.1 SHALL complete BEFORE T1.2 runs.\nT1.2 SHALL ALWAYS resolve component vars.\n\nBody paragraph here.";
+        let result = extract_shall_statement(body, "spec.md");
+        assert!(result.contains("T1.1"));
+        assert!(result.contains("T1.2"));
+        assert!(!result.contains("Body paragraph"));
     }
 }

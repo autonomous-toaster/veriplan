@@ -78,6 +78,7 @@ pub(crate) fn run_spin_rs_check(
                     &c.category,
                     c.ltl.as_deref().unwrap_or(""),
                     &c.requirement_id,
+                    &c.statement,
                 ),
                 plan: plan_name.to_string(),
             });
