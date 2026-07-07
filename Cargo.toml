@@ -31,7 +31,7 @@ env_logger = "0.11"
 streaming-iterator = "0.1"
 
 # spin-rs: Rust-native Promela model checker (in-process alternative to spin binary)
-spin-rs = { git = "https://github.com/autonomous-toaster/spin-rs", rev = "0ee4afcc530d2653b2bed3347cf30dd57167fb73" }
+spin-rs = { git = "https://github.com/autonomous-toaster/spin-rs", rev = "d1fa273" }
 
 # Optional: Z3 SAT checking
 z3 = { version = "0.14", optional = true }
