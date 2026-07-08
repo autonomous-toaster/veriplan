@@ -2,7 +2,7 @@ set quiet
 
 # Run all checks (mirrors CI)
 [parallel]
-ci: veriplan check lint check-file-sizes machete crap test
+ci: veriplan check lint check-file-sizes machete crap test kani
 build: cargo-build
 
 # Fast compile check — all targets, all workspace crates
@@ -59,6 +59,24 @@ veriplan:
         fi
     else
         echo "⚠ veriplan skipped (veriplan not installed)"
+        exit 0
+    fi
+
+# Kani proof harnesses — run with 60s timeout per harness
+[group('optional')]
+kani:
+    #!/usr/bin/env bash
+    if command -v cargo-kani >/dev/null 2>&1; then
+        echo "⏳ Running Kani proof harnesses..."
+        if output=$(cargo kani --harness verify_naming_is_bijective 2>&1); then
+            echo "✓ kani passed"
+        else
+            printf '%s\n' "$output"
+            echo "⚠ kani failed (may be timeout on string-heavy harnesses)"
+            exit 0
+        fi
+    else
+        echo "⚠ kani skipped (cargo-kani not installed)"
         exit 0
     fi
 

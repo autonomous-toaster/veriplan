@@ -74,7 +74,8 @@ pub fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedCons
     let formalizable: Vec<_> = constraints.iter().filter(|c| c.ltl.is_some()).collect();
     for (i, c) in formalizable.iter().enumerate() {
         if let Some(ltl) = &c.ltl {
-            writeln!(s, "ltl p{} {{ {} }} /* {} */", i, ltl, c.requirement_id).ok();
+            let ltl_str = crate::ir::ltl::ltl_to_string(ltl);
+            writeln!(s, "ltl p{} {{ {} }} /* {} */", i, ltl_str, c.requirement_id).ok();
         }
     }
 

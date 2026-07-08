@@ -6,7 +6,7 @@
 //!   3. BFS fallback (Phase 2b): built-in explorer when SPIN unavailable
 #![allow(dead_code)]
 
-mod checks;
+pub(crate) mod checks;
 mod convertibility;
 pub mod bfs;
 pub mod promela;

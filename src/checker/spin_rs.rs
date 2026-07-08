@@ -67,7 +67,7 @@ pub(crate) fn run_spin_rs_check(
             violations.push(Violation {
                 constraint_id: c.requirement_id.clone(),
                 requirement_statement: c.statement.clone(),
-                ltl: c.ltl.clone().unwrap_or_default(),
+                ltl: c.ltl_string(),
                 category: format!("{:?}", c.category),
                 state: spin_violation
                     .map(|v| v.description.clone())
@@ -76,7 +76,7 @@ pub(crate) fn run_spin_rs_check(
                 req_source: None,
                 suggested_fix: super::bfs::suggest_fix(
                     &c.category,
-                    c.ltl.as_deref().unwrap_or(""),
+                    c.ltl_string().as_str(),
                     &c.requirement_id,
                     &c.statement,
                 ),

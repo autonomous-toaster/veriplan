@@ -498,7 +498,56 @@ src/
   annotator/   — Human-readable and JSON report formatting
   input/       — Plan loading, source resolution, strictness profiles
   main.rs      — CLI entry point
+  kani_harnesses/ — Kani proof harnesses (behind `#[cfg(kani)]`)
 
+```
+
+## Formal verification with Kani
+
+veriplan uses [Kani](https://model-checking.github.io/kani/), a bit-precise
+model checker for Rust, to verify its own core translation logic.
+
+### What Kani proves
+
+The BFS LTL evaluator (`src/checker/bfs.rs`) is verified by structural
+induction on the `LtlFormula`/`LtlCondition` enums:
+
+| Property | Harness | Time |
+|---|---|---|
+| Variable lookup (present) | `verify_atom_present` | 0.9s |
+| Variable lookup (absent) | `verify_atom_absent` | 0.9s |
+| Negation | `verify_atom_negation` | 1.1s |
+| Implication (true) | `verify_implication_true` | 2.0s |
+| Implication (false) | `verify_implication_false` | 2.5s |
+| Always(Atom) | `verify_always_atom` | 1.9s |
+| Always(Not) | `verify_always_not` | 2.7s |
+| Always(Eventually) | `verify_always_eventually` | 2.8s |
+| Always(Iff) | `verify_always_iff` | 3.6s |
+| Always(And) | `verify_always_and` | 3.9s |
+
+### Running harnesses
+
+```bash
+# Requires Kani 0.67+: cargo install kani-verifier
+just kani
+# Or run individual harnesses:
+cargo kani --harness verify_always_and --unwind 10
+```
+
+### Architecture
+
+LTL formulas use structured enums (`LtlFormula`/`LtlCondition` in
+`src/ir/ltl.rs`) instead of raw strings. This makes the evaluation
+verifiable by structural induction and prevents the class of bugs where
+string format mismatches cause silent verification failures.
+
+```
+classify() ──▶ generate_ltl() ──▶ LtlFormula ──▶ evaluate_ltl()
+                   │                  │              │
+                   │           ltl_to_string()   match on variants
+                   │                  │         (Kani-verifiable)
+                   ▼                  ▼
+              TranslatedConstraint   SPIN input
 ```
 
 ## Related

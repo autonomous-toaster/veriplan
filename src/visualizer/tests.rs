@@ -1,5 +1,6 @@
 use crate::visualizer::*;
 use crate::ir::*;
+use crate::ir::ltl::{LtlCondition, LtlFormula};
 
     #[test]
     fn test_clean_label() {
@@ -157,7 +158,10 @@ use crate::ir::*;
             requirement_id: "R1".into(),
             category: ConstraintCategory::SequentialOrder,
             statement: "T1.1 SHALL complete BEFORE T1.2".into(),
-            ltl: Some("[] ( active_t1_2 -> done_t1_1 )".into()),
+            ltl: Some(LtlFormula::Always(LtlCondition::Implies(
+                Box::new(LtlCondition::Atom("active_t1_2".into())),
+                Box::new(LtlCondition::Atom("done_t1_1".into())),
+            ))),
             strength: Rfc2119Strength::Must,
             is_hard: true,
         };
@@ -170,7 +174,10 @@ use crate::ir::*;
             requirement_id: "R1".into(),
             category: ConstraintCategory::FixedTime,
             statement: "T1.1 SHALL complete BEFORE T1.2".into(),
-            ltl: Some("[] ( active_t1_2 -> done_t1_1 )".into()),
+            ltl: Some(LtlFormula::Always(LtlCondition::Implies(
+                Box::new(LtlCondition::Atom("active_t1_2".into())),
+                Box::new(LtlCondition::Atom("done_t1_1".into())),
+            ))),
             strength: Rfc2119Strength::Must,
             is_hard: true,
         };
@@ -183,7 +190,7 @@ use crate::ir::*;
             requirement_id: "R1".into(),
             category: ConstraintCategory::FixedTime,
             statement: "The system SHALL respond within 5s".into(),
-            ltl: Some("[] ( active_t1_1 -> <> done_t1_1 )".into()),
+            ltl: Some(LtlFormula::Always(LtlCondition::Eventually(Box::new(LtlCondition::Atom("done_t1_1".into()))))),
             strength: Rfc2119Strength::Must,
             is_hard: true,
         };

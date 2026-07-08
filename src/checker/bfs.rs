@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use crate::ir::ltl::{LtlCondition, LtlFormula};
 
 use crate::checker::{VerificationResult, Violation};
 use crate::ir::*;
@@ -40,18 +40,18 @@ fn run_bfs_check(
     }
 }
 
-fn build_state(state_bits: u64, plan: &PlanIR) -> HashMap<String, u8> {
-    let mut state: HashMap<String, u8> = HashMap::new();
+fn build_state(state_bits: u64, plan: &PlanIR) -> Vec<(String, u8)> {
+    let mut state: Vec<(String, u8)> = Vec::new();
     for (j, task) in plan.tasks.iter().enumerate() {
         let val = if (state_bits >> j) & 1 == 1 { 1 } else { 0 };
-        state.insert(task.id.clone(), val);
+        state.push((task.id.clone(), val));
     }
     state
 }
 
 fn check_and_record_violation(
     c: &translator::TranslatedConstraint,
-    state: &HashMap<String, u8>,
+    state: &[(String, u8)],
     plan: &PlanIR,
     violations: &mut Vec<Violation>,
     plan_name: &str,
@@ -60,15 +60,16 @@ fn check_and_record_violation(
         && !evaluate_ltl(ltl, state, plan)
         && !violations.iter().any(|v: &Violation| v.constraint_id == c.requirement_id)
     {
+        let ltl_str = crate::ir::ltl::ltl_to_string(ltl);
         let state_str: Vec<String> = state
             .iter()
-            .filter(|(_, v)| **v == 1)
+            .filter(|(_, v)| *v == 1)
             .map(|(k, _)| k.clone())
             .collect();
         violations.push(Violation {
             constraint_id: c.requirement_id.clone(),
             requirement_statement: c.statement.clone(),
-            ltl: ltl.clone(),
+            ltl: ltl_str,
             category: format!("{:?}", c.category),
             state: state_str.join(", "),
             task_source: None,
@@ -79,68 +80,46 @@ fn check_and_record_violation(
     }
 }
 
-/// Simple LTL evaluator for BFS explorer.
-fn evaluate_ltl(ltl: &str, state: &HashMap<String, u8>, plan: &PlanIR) -> bool {
-    // Very basic evaluation: parse simple G ( condition ) patterns
-    if let Some(inner) = ltl.strip_prefix("G ( ").and_then(|s| s.strip_suffix(" )")) {
-        let inner = inner.trim();
-        return evaluate_ltl_condition(inner, state, plan);
+/// Evaluate an LTL formula against a state by structural induction on the AST.
+pub(crate) fn evaluate_ltl(formula: &LtlFormula, state: &[(String, u8)], _plan: &PlanIR) -> bool {
+    match formula {
+        LtlFormula::Always(cond) => evaluate_ltl_condition(cond, state),
     }
-    // For anything we can't evaluate, assume pass (conservative)
-    true
 }
 
-fn evaluate_ltl_condition(cond: &str, state: &HashMap<String, u8>, _plan: &PlanIR) -> bool {
-    // Split on && for compound conditions
-    if cond.contains("&&") {
-        return cond
-            .split("&&")
-            .all(|part| evaluate_ltl_condition(part.trim(), state, _plan));
+/// Evaluate an LTL condition against a state by structural induction.
+pub(crate) fn evaluate_ltl_condition(cond: &LtlCondition, state: &[(String, u8)]) -> bool {
+    match cond {
+        LtlCondition::Atom(name) => {
+            if name == "true" {
+                return true;
+            }
+            evaluate_ltl_atom(name, state)
+        }
+        LtlCondition::Not(inner) => !evaluate_ltl_condition(inner, state),
+        LtlCondition::And(terms) => terms.iter().all(|t| evaluate_ltl_condition(t, state)),
+        LtlCondition::Or(terms) => terms.iter().any(|t| evaluate_ltl_condition(t, state)),
+        LtlCondition::Implies(a, b) => {
+            !evaluate_ltl_condition(a, state) || evaluate_ltl_condition(b, state)
+        }
+        LtlCondition::Iff(a, b) => {
+            evaluate_ltl_condition(a, state) == evaluate_ltl_condition(b, state)
+        }
+        LtlCondition::Eventually(inner) => evaluate_ltl_condition(inner, state),
     }
-
-    let cond = cond.trim();
-
-    // Negation: !(expr)
-    if let Some(inner) = cond.strip_prefix("!(").and_then(|s| s.strip_suffix(')')) {
-        return !evaluate_ltl_condition(inner, state, _plan);
-    }
-
-    // active_X <-> active_Y (bidirectional) — check before -> to avoid matching <->
-    if let Some((left, right)) = cond.split_once("<->") {
-        let left_val = evaluate_ltl_atom(left.trim(), state);
-        let right_val = evaluate_ltl_atom(right.trim(), state);
-        return left_val == right_val;
-    }
-
-    // active_X -> done_Y (implication)
-    if let Some((ante, conseq)) = cond.split_once("->") {
-        let ante = ante.trim();
-        let conseq = conseq.trim();
-        let ante_val = evaluate_ltl_atom(ante, state);
-        let conseq_val = evaluate_ltl_atom(conseq, state);
-        return !ante_val || conseq_val; // implication: a -> b ≡ !a || b
-    }
-
-    // F active_X (eventually)
-    if let Some(arg) = cond.strip_prefix("F ") {
-        return evaluate_ltl_atom(arg.trim(), state);
-    }
-
-    // Atomic
-    evaluate_ltl_atom(cond, state)
 }
 
-fn evaluate_ltl_atom(atom: &str, state: &HashMap<String, u8>) -> bool {
+/// Evaluate a single atomic variable.
+pub(crate) fn evaluate_ltl_atom(atom: &str, state: &[(String, u8)]) -> bool {
     let atom = atom.trim();
 
     // Negation
     if let Some(var) = atom.strip_prefix('!') {
-        return state.get(var).copied().unwrap_or(0) == 0;
+        return state.iter().any(|(k, v)| k == var && *v == 0);
     }
 
     // Check if this is a variable name
-    let val = state.get(atom).copied().unwrap_or(0);
-    val == 1
+    state.iter().any(|(k, v)| k == atom && *v == 1)
 }
 
 // ═══════════════════════════════════════════════════════════════

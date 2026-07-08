@@ -1,4 +1,5 @@
 use crate::checker::bfs::*;
+use crate::translator::TranslatedConstraint;
 
 #[test]
 fn test_extract_task_ids_t_prefix() {
@@ -27,7 +28,7 @@ fn test_extract_task_ids_mixed() {
 #[cfg(test)]
 mod suggest_tests {
     use crate::checker::bfs::*;
-    use crate::translator::TranslatedConstraint;
+    use crate::ir::ltl::{LtlCondition, LtlFormula};
 
     #[test]
     fn test_suggest_fix_sequential() {
@@ -91,13 +92,13 @@ mod suggest_tests {
         assert!(fix.is_none());
     }
 
-    fn make_state() -> HashMap<String, u8> {
-        let mut state = HashMap::new();
-        state.insert("active_t1_1".into(), 1);
-        state.insert("done_t1_1".into(), 0);
-        state.insert("active_t1_2".into(), 0);
-        state.insert("done_t1_2".into(), 1);
-        state
+    fn make_state() -> Vec<(String, u8)> {
+        vec![
+            ("active_t1_1".into(), 1),
+            ("done_t1_1".into(), 0),
+            ("active_t1_2".into(), 0),
+            ("done_t1_2".into(), 1),
+        ]
     }
 
     #[test]
@@ -129,60 +130,103 @@ mod suggest_tests {
     fn test_evaluate_ltl_condition_implication() {
         let state = make_state();
         // active_t1_1 -> done_t1_2: true -> true = true
-        assert!(evaluate_ltl_condition("active_t1_1 -> done_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::Implies(
+            Box::new(LtlCondition::Atom("active_t1_1".into())),
+            Box::new(LtlCondition::Atom("done_t1_2".into())),
+        );
+        assert!(evaluate_ltl_condition(&cond, &state));
         // active_t1_2 -> done_t1_1: false -> false = true
-        assert!(evaluate_ltl_condition("active_t1_2 -> done_t1_1", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::Implies(
+            Box::new(LtlCondition::Atom("active_t1_2".into())),
+            Box::new(LtlCondition::Atom("done_t1_1".into())),
+        );
+        assert!(evaluate_ltl_condition(&cond, &state));
         // active_t1_1 -> done_t1_1: true -> false = false
-        assert!(!evaluate_ltl_condition("active_t1_1 -> done_t1_1", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::Implies(
+            Box::new(LtlCondition::Atom("active_t1_1".into())),
+            Box::new(LtlCondition::Atom("done_t1_1".into())),
+        );
+        assert!(!evaluate_ltl_condition(&cond, &state));
     }
 
     #[test]
     fn test_evaluate_ltl_condition_bidirectional() {
         let state = make_state();
         // active_t1_1 <-> done_t1_2: 1 == 1 = true
-        assert!(evaluate_ltl_condition("active_t1_1 <-> done_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::Iff(
+            Box::new(LtlCondition::Atom("active_t1_1".into())),
+            Box::new(LtlCondition::Atom("done_t1_2".into())),
+        );
+        assert!(evaluate_ltl_condition(&cond, &state));
         // active_t1_1 <-> active_t1_2: 1 == 0 = false
-        assert!(!evaluate_ltl_condition("active_t1_1 <-> active_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::Iff(
+            Box::new(LtlCondition::Atom("active_t1_1".into())),
+            Box::new(LtlCondition::Atom("active_t1_2".into())),
+        );
+        assert!(!evaluate_ltl_condition(&cond, &state));
     }
 
     #[test]
     fn test_evaluate_ltl_condition_negation() {
         let state = make_state();
-        assert!(evaluate_ltl_condition("!(active_t1_2)", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
-        assert!(!evaluate_ltl_condition("!(active_t1_1)", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::Not(Box::new(LtlCondition::Atom("active_t1_2".into())));
+        assert!(evaluate_ltl_condition(&cond, &state));
+        let cond = LtlCondition::Not(Box::new(LtlCondition::Atom("active_t1_1".into())));
+        assert!(!evaluate_ltl_condition(&cond, &state));
     }
 
     #[test]
     fn test_evaluate_ltl_condition_and() {
         let state = make_state();
-        assert!(evaluate_ltl_condition("active_t1_1 && done_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
-        assert!(!evaluate_ltl_condition("active_t1_1 && active_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::And(vec![
+            LtlCondition::Atom("active_t1_1".into()),
+            LtlCondition::Atom("done_t1_2".into()),
+        ]);
+        assert!(evaluate_ltl_condition(&cond, &state));
+        let cond = LtlCondition::And(vec![
+            LtlCondition::Atom("active_t1_1".into()),
+            LtlCondition::Atom("active_t1_2".into()),
+        ]);
+        assert!(!evaluate_ltl_condition(&cond, &state));
     }
 
     #[test]
     fn test_evaluate_ltl_condition_eventually() {
         let state = make_state();
-        assert!(evaluate_ltl_condition("F active_t1_1", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
-        assert!(!evaluate_ltl_condition("F active_t1_2", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        let cond = LtlCondition::Eventually(Box::new(LtlCondition::Atom("active_t1_1".into())));
+        assert!(evaluate_ltl_condition(&cond, &state));
+        let cond = LtlCondition::Eventually(Box::new(LtlCondition::Atom("active_t1_2".into())));
+        assert!(!evaluate_ltl_condition(&cond, &state));
     }
 
     #[test]
     fn test_evaluate_ltl_always() {
         let state = make_state();
-        // G ( active_t1_1 -> done_t1_2 )
-        let ltl = "G ( active_t1_1 -> done_t1_2 )";
-        assert!(evaluate_ltl(ltl, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
-        // G ( active_t1_1 -> done_t1_1 )
-        let ltl2 = "G ( active_t1_1 -> done_t1_1 )";
-        assert!(!evaluate_ltl(ltl2, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // [] ( active_t1_1 -> done_t1_2 ): true -> true = true
+        let formula = LtlFormula::Always(LtlCondition::Implies(
+            Box::new(LtlCondition::Atom("active_t1_1".into())),
+            Box::new(LtlCondition::Atom("done_t1_2".into())),
+        ));
+        assert!(evaluate_ltl(&formula, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // [] ( active_t1_1 -> done_t1_1 ): true -> false = false
+        let formula = LtlFormula::Always(LtlCondition::Implies(
+            Box::new(LtlCondition::Atom("active_t1_1".into())),
+            Box::new(LtlCondition::Atom("done_t1_1".into())),
+        ));
+        assert!(!evaluate_ltl(&formula, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
     }
 
     #[test]
-    fn test_evaluate_ltl_unrecognized() {
+    fn test_evaluate_ltl_eventually() {
         let state = make_state();
-        // Unrecognized patterns pass conservatively
-        assert!(evaluate_ltl("unknown pattern", &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // [] ( <> active_t1_1 ): true = true
+        let formula = LtlFormula::Always(LtlCondition::Eventually(Box::new(LtlCondition::Atom("active_t1_1".into()))));
+        assert!(evaluate_ltl(&formula, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
+        // [] ( <> active_t1_2 ): false = false
+        let formula = LtlFormula::Always(LtlCondition::Eventually(Box::new(LtlCondition::Atom("active_t1_2".into()))));
+        assert!(!evaluate_ltl(&formula, &state, &PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() }));
     }
+}
 
     fn make_plan_with_phases() -> PlanIR {
         PlanIR {
@@ -254,14 +298,14 @@ mod suggest_tests {
             source_map: SourceMap::default(),
         };
         let state = build_state(0, &plan);
-        assert_eq!(state.get("1.1"), Some(&0));
-        assert_eq!(state.get("1.2"), Some(&0));
+        assert_eq!(state.iter().find(|(k, _)| k == "1.1").map(|(_, v)| v), Some(&0));
+        assert_eq!(state.iter().find(|(k, _)| k == "1.2").map(|(_, v)| v), Some(&0));
         let state = build_state(1, &plan);
-        assert_eq!(state.get("1.1"), Some(&1));
-        assert_eq!(state.get("1.2"), Some(&0));
+        assert_eq!(state.iter().find(|(k, _)| k == "1.1").map(|(_, v)| v), Some(&1));
+        assert_eq!(state.iter().find(|(k, _)| k == "1.2").map(|(_, v)| v), Some(&0));
         let state = build_state(3, &plan);
-        assert_eq!(state.get("1.1"), Some(&1));
-        assert_eq!(state.get("1.2"), Some(&1));
+        assert_eq!(state.iter().find(|(k, _)| k == "1.1").map(|(_, v)| v), Some(&1));
+        assert_eq!(state.iter().find(|(k, _)| k == "1.2").map(|(_, v)| v), Some(&1));
     }
 
     #[test]
@@ -307,7 +351,10 @@ mod suggest_tests {
             statement: "T1.1 SHALL complete BEFORE T1.2".into(),
             strength: Rfc2119Strength::Must,
             category: ConstraintCategory::SequentialOrder,
-            ltl: Some("G ( active_t1_1 -> done_t1_2 )".into()),
+            ltl: Some(LtlFormula::Always(LtlCondition::Implies(
+                Box::new(LtlCondition::Atom("active_t1_1".into())),
+                Box::new(LtlCondition::Atom("done_t1_2".into())),
+            ))),
             is_hard: true,
         }];
         let report = ConvertibilityReport {
@@ -323,4 +370,3 @@ mod suggest_tests {
         assert_eq!(result.valid, Some(true));
         assert!(result.violations.is_empty());
     }
-}

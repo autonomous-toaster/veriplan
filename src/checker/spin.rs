@@ -60,7 +60,7 @@ pub(crate) fn run_spin_check(
         let label = format!("p{}", i);
 
         // Liveness properties (with <>) need -a; safety properties don't — much faster
-        let has_liveness = c.ltl.as_deref().unwrap_or("").contains("<>");
+        let has_liveness = c.ltl_string().contains("<>");
         let mut pan_args = vec!["-N", &label, "-n"];
         if has_liveness {
             pan_args.push("-a");
@@ -98,14 +98,14 @@ pub(crate) fn run_spin_check(
         } else if violated {
             let fix = super::bfs::suggest_fix(
                 &c.category,
-                c.ltl.as_deref().unwrap_or(""),
+                c.ltl_string().as_str(),
                 &c.requirement_id,
                 &c.statement,
             );
             violations.push(Violation {
                 constraint_id: c.requirement_id.clone(),
                 requirement_statement: c.statement.clone(),
-                ltl: c.ltl.clone().unwrap_or_default(),
+                ltl: c.ltl_string(),
                 category: format!("{:?}", c.category),
                 state: format!("(violated in property {})", label),
                 task_source: None,

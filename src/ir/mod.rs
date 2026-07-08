@@ -3,7 +3,7 @@
 //! Every element carries a `SourceLocation` for bidirectional trace↔markdown
 //! projection during counterexample annotation.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Byte-precise location in a source file from tree-sitter AST.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -167,9 +167,9 @@ pub struct ConvertibilityReport {
 /// Bidirectional mapping from element IDs to source locations.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct SourceMap {
-    pub tasks: HashMap<String, SourceLocation>,
-    pub requirements: HashMap<String, SourceLocation>,
-    pub scenarios: HashMap<(String, String), SourceLocation>,
+    pub tasks: BTreeMap<String, SourceLocation>,
+    pub requirements: BTreeMap<String, SourceLocation>,
+    pub scenarios: BTreeMap<(String, String), SourceLocation>,
 }
 
 /// The full plan intermediate representation.
@@ -186,3 +186,5 @@ pub struct PlanIR {
     /// Bidirectional source location mapping.
     pub source_map: SourceMap,
 }
+
+pub mod ltl;

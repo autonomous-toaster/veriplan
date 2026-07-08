@@ -4,6 +4,7 @@
 //! and maps them to LTL formulas for SPIN/Promela model checking.
 
 use crate::ir::{
+    ltl::{LtlCondition, LtlFormula},
     ConstraintCategory::{self, *},
     PhaseMode, PlanIR, Rfc2119Strength,
 };
@@ -15,10 +16,17 @@ pub struct TranslatedConstraint {
     pub statement: String,
     pub strength: Rfc2119Strength,
     pub category: ConstraintCategory,
-    /// LTL formula (None if NonFormalizable)
-    pub ltl: Option<String>,
+    /// LTL formula AST (None if NonFormalizable)
+    pub ltl: Option<LtlFormula>,
     /// Whether this is a hard constraint (MUST/MUST NOT)
     pub is_hard: bool,
+}
+
+impl TranslatedConstraint {
+    /// Serialize the LTL formula to string, or return empty string if None.
+    pub fn ltl_string(&self) -> String {
+        self.ltl.as_ref().map(crate::ir::ltl::ltl_to_string).unwrap_or_default()
+    }
 }
 
 /// Check if all referenced task IDs are in the same concurrent phase.
@@ -40,7 +48,7 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
         let ltl = if category == ConcurrentEvents
             && tasks_in_same_concurrent_phase(plan, &extract_task_refs(&req.statement, plan))
         {
-            Some("true".into()) // structurally guaranteed — no LTL
+            Some(LtlFormula::Always(LtlCondition::Atom("true".into()))) // structurally guaranteed — no LTL
         } else if category != NonFormalizable && category != PatternUngrounded {
             generate_ltl(&category, &req.statement, plan)
         } else {
@@ -146,23 +154,25 @@ pub fn generate_ltl(
     category: &ConstraintCategory,
     statement: &str,
     plan: &PlanIR,
-) -> Option<String> {
+) -> Option<LtlFormula> {
     let task_ids = extract_task_refs(statement, plan);
 
     match category {
         SequentialOrder => {
             // Extract which task is before which
             if let Some((before_id, after_id)) = find_sequential_pair(statement, &task_ids) {
-                Some(format!(
-                    "[] ( active_{} -> done_{} )",
-                    normalize_id(&after_id),
-                    normalize_id(&before_id),
-                ))
+                Some(LtlFormula::Always(LtlCondition::Implies(
+                    Box::new(LtlCondition::Atom(format!("active_{}", normalize_id(&after_id)))),
+                    Box::new(LtlCondition::Atom(format!("done_{}", normalize_id(&before_id)))),
+                )))
             } else if task_ids.len() >= 2 {
                 // General case: if A and B are referenced, A before B
                 let a = normalize_id(&task_ids[0]);
                 let b = normalize_id(&task_ids[1]);
-                Some(format!("[] ( active_{} -> done_{} )", b, a))
+                Some(LtlFormula::Always(LtlCondition::Implies(
+                    Box::new(LtlCondition::Atom(format!("active_{}", b))),
+                    Box::new(LtlCondition::Atom(format!("done_{}", a))),
+                )))
             } else {
                 None
             }
@@ -172,25 +182,28 @@ pub fn generate_ltl(
             if task_ids.len() < 2 {
                 return None;
             }
-            let pairs: Vec<String> = (0..task_ids.len())
+            let pairs: Vec<LtlCondition> = (0..task_ids.len())
                 .flat_map(|i| (i + 1..task_ids.len()).map(move |j| (i, j)))
                 .map(|(i, j)| {
                     let a = normalize_id(&task_ids[i]);
                     let b = normalize_id(&task_ids[j]);
-                    format!("!(active_{} && active_{})", a, b)
+                    LtlCondition::Not(Box::new(LtlCondition::And(vec![
+                        LtlCondition::Atom(format!("active_{}", a)),
+                        LtlCondition::Atom(format!("active_{}", b)),
+                    ])))
                 })
                 .collect();
-            Some(format!("[] ( {} )", pairs.join(" && ")))
+            Some(LtlFormula::Always(LtlCondition::And(pairs)))
         }
         Conditional => {
             // Find the trigger task and the consequent task
             if task_ids.len() >= 2 {
                 let trigger = normalize_id(&task_ids[0]);
                 let consequent = normalize_id(&task_ids[1]);
-                Some(format!(
-                    "[] ( failed_{} -> <> active_{} )",
-                    trigger, consequent
-                ))
+                Some(LtlFormula::Always(LtlCondition::Implies(
+                    Box::new(LtlCondition::Atom(format!("failed_{}", trigger))),
+                    Box::new(LtlCondition::Eventually(Box::new(LtlCondition::Atom(format!("active_{}", consequent))))),
+                )))
             } else {
                 None
             }
@@ -200,7 +213,10 @@ pub fn generate_ltl(
             if task_ids.len() >= 2 {
                 let a = normalize_id(&task_ids[0]);
                 let b = normalize_id(&task_ids[1]);
-                Some(format!("[] ( active_{} <-> active_{} )", a, b))
+                Some(LtlFormula::Always(LtlCondition::Iff(
+                    Box::new(LtlCondition::Atom(format!("active_{}", a))),
+                    Box::new(LtlCondition::Atom(format!("active_{}", b))),
+                )))
             } else {
                 None
             }
@@ -208,8 +224,7 @@ pub fn generate_ltl(
         FixedTime | Global => {
             // Global invariants and fixed-time constraints without reliable durations
             // Just note the constraint exists — evaluated as always-true placeholder
-            // since we lack a concrete condition.
-            Some("true".into())
+            Some(LtlFormula::Always(LtlCondition::Atom("true".into())))
         }
         NonFormalizable => None,
         PatternUngrounded => None,
@@ -280,7 +295,7 @@ fn find_matching_task(id: &str, task_ids: &[String], lower: &str, statement: &st
 }
 
 /// Normalize a task ID (1.3 → t_1_3) for use in LTL variable names.
-fn normalize_id(id: &str) -> String {
+pub(crate) fn normalize_id(id: &str) -> String {
     format!("t{}", id.replace('.', "_"))
 }
 
@@ -323,9 +338,9 @@ mod tests {
         let plan = make_test_plan();
         let ltl = generate_ltl(&ConstraintCategory::SequentialOrder, "T1.1 SHALL complete BEFORE T1.2", &plan);
         assert!(ltl.is_some());
-        let ltl = ltl.unwrap();
-        assert!(ltl.contains("active_t1_2"));
-        assert!(ltl.contains("done_t1_1"));
+        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+        assert!(ltl_str.contains("active_t1_2"));
+        assert!(ltl_str.contains("done_t1_1"));
     }
 
     #[test]
@@ -333,9 +348,9 @@ mod tests {
         let plan = make_test_plan();
         let ltl = generate_ltl(&ConstraintCategory::Exclusive, "At most one of T1.1, T1.2 SHALL be active", &plan);
         assert!(ltl.is_some());
-        let ltl = ltl.unwrap();
-        assert!(ltl.contains("active_t1_1"));
-        assert!(ltl.contains("active_t1_2"));
+        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+        assert!(ltl_str.contains("active_t1_1"));
+        assert!(ltl_str.contains("active_t1_2"));
     }
 
     #[test]
@@ -343,9 +358,9 @@ mod tests {
         let plan = make_test_plan();
         let ltl = generate_ltl(&ConstraintCategory::Conditional, "IF T1.1 fails THEN T2.1 SHALL run", &plan);
         assert!(ltl.is_some());
-        let ltl = ltl.unwrap();
-        assert!(ltl.contains("failed_t1_1"));
-        assert!(ltl.contains("active_t2_1"));
+        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+        assert!(ltl_str.contains("failed_t1_1"));
+        assert!(ltl_str.contains("active_t2_1"));
     }
 
     #[test]
@@ -353,8 +368,8 @@ mod tests {
         let plan = make_test_plan();
         let ltl = generate_ltl(&ConstraintCategory::ConcurrentEvents, "T3.1 and T3.2 SHALL run concurrently", &plan);
         assert!(ltl.is_some());
-        let ltl = ltl.unwrap();
-        assert!(ltl.contains("<->"));
+        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+        assert!(ltl_str.contains("<->"));
     }
 
     #[test]

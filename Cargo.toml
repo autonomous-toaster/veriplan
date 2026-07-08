@@ -36,6 +36,15 @@ spin-rs = { git = "https://github.com/autonomous-toaster/spin-rs", rev = "d1fa27
 # Optional: Z3 SAT checking
 z3 = { version = "0.14", optional = true }
 
+[dev-dependencies]
+kani = "0.0.1"
+
+[package.metadata.kani]
+flags = ["--enable-unstable"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [features]
 default = []
 z3 = ["dep:z3"]
