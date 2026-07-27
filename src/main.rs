@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use veriplan::annotator;
 use veriplan::checker;
 use veriplan::input;
+use veriplan::util;
 
 mod cli;
 mod cmd_init;
@@ -107,6 +108,11 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
+    if is_veriplan_disabled() {
+        eprintln!("veriplan: disabled by VERIPLAN_DISABLE");
+        return Ok(());
+    }
+
     let cli = Cli::parse();
 
     let result = match cli.command {
@@ -250,7 +256,16 @@ fn run_check(
 
     // Comparison mode: run both backends and diff
     if compare {
-        return run_compare(&plan, &label, no_model, pre_commit, strictness, is_openspec, format.unwrap_or("human"), verbose);
+        return run_compare(
+            &plan,
+            &label,
+            no_model,
+            pre_commit,
+            strictness,
+            is_openspec,
+            format.unwrap_or("human"),
+            verbose,
+        );
     }
 
     // Run checker with strictness profile
@@ -333,7 +348,12 @@ fn run_compare(
     // Run spin backend
     let spin_start = Instant::now();
     let spin_result = checker::verify_with_strictness(
-        plan, label, no_model, pre_commit, strictness, is_openspec,
+        plan,
+        label,
+        no_model,
+        pre_commit,
+        strictness,
+        is_openspec,
         checker::CheckerBackend::Spin,
     );
     let spin_elapsed = spin_start.elapsed();
@@ -341,7 +361,12 @@ fn run_compare(
     // Run spin-rs backend
     let spin_rs_start = Instant::now();
     let spin_rs_result = checker::verify_with_strictness(
-        plan, label, no_model, pre_commit, strictness, is_openspec,
+        plan,
+        label,
+        no_model,
+        pre_commit,
+        strictness,
+        is_openspec,
         checker::CheckerBackend::SpinRs,
     );
     let spin_rs_elapsed = spin_rs_start.elapsed();
@@ -358,7 +383,10 @@ fn run_compare(
 
     println!("═══ Backend Comparison: {} ═══", label);
     println!();
-    println!("{:<30} {:<10} {:<10} {:<8}", "Constraint", "spin", "spin-rs", "Match?");
+    println!(
+        "{:<30} {:<10} {:<10} {:<8}",
+        "Constraint", "spin", "spin-rs", "Match?"
+    );
     println!("{}", "-".repeat(60));
 
     for c in &spin_result.constraints_summary {
@@ -381,7 +409,7 @@ fn run_compare(
 
         println!(
             "{:<30} {:<10} {:<10} {:<8}",
-            truncate(&c.requirement_id, 28),
+            util::truncate(&c.requirement_id, 28),
             spin_status,
             spin_rs_status,
             match_icon,
@@ -424,10 +452,71 @@ fn format_valid(valid: Option<bool>) -> String {
     }
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max.saturating_sub(1)])
+/// Check if veriplan should be disabled by the VERIPLAN_DISABLE env var.
+/// Truthy values (1, true, yes, or any non-falsy non-empty string) disable.
+/// Falsy values (0, false, no, empty) do not disable.
+fn is_veriplan_disabled() -> bool {
+    match std::env::var("VERIPLAN_DISABLE").as_deref() {
+        Ok(v) => !matches!(v, "0" | "false" | "no" | ""),
+        Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_disabled_unset() {
+        unsafe { std::env::remove_var("VERIPLAN_DISABLE") };
+        assert!(!is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_empty() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "") };
+        assert!(!is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_zero() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "0") };
+        assert!(!is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_false() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "false") };
+        assert!(!is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_no() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "no") };
+        assert!(!is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_one() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "1") };
+        assert!(is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_true() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "true") };
+        assert!(is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_yes() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "yes") };
+        assert!(is_veriplan_disabled());
+    }
+
+    #[test]
+    fn test_disabled_arbitrary() {
+        unsafe { std::env::set_var("VERIPLAN_DISABLE", "anything") };
+        assert!(is_veriplan_disabled());
     }
 }

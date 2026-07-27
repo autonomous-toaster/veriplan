@@ -54,7 +54,9 @@ pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> (Convertibility
     } else {
         // Create a filtered plan excluding requirements with bad references
         let mut filtered = plan.clone();
-        filtered.requirements.retain(|r| !failed_ref_ids.contains(&r.id));
+        filtered
+            .requirements
+            .retain(|r| !failed_ref_ids.contains(&r.id));
         grounding::check_grounding(&filtered, &crate::input::StrictnessProfile::Strict)
     };
     blockers.extend(g_blockers);
@@ -69,9 +71,9 @@ pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> (Convertibility
                 .requirements
                 .iter_mut()
                 .find(|r| r.id == outcome.requirement_id)
-            {
-                req.category = crate::ir::ConstraintCategory::PatternUngrounded;
-            }
+        {
+            req.category = crate::ir::ConstraintCategory::PatternUngrounded;
+        }
     }
 
     // Check 5: Temporal classifiability

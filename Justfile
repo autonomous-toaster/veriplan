@@ -2,7 +2,7 @@ set quiet
 
 # Run all checks (mirrors CI)
 [parallel]
-ci: veriplan check lint check-file-sizes machete crap test kani
+ci: veriplan check lint check-lint-rules check-file-sizes machete crap test kani
 build: cargo-build
 
 # Fast compile check — all targets, all workspace crates
@@ -145,3 +145,20 @@ check-file-sizes max="500" tolerance="10":
         fi
     done < <(find src -name '*.rs' | grep -v '/tests/')
     [ $fail -eq 0 ] && echo "✓ all source files within $MAX lines (target $TARGET + ${TOL}% tolerance)"
+
+# Verify that panic-forbidding lint rules are present in Cargo.toml
+check-lint-rules:
+    #!/usr/bin/env bash
+    required=("unwrap_used" "expect_used" "panic")
+    missing=()
+    for rule in "${required[@]}"; do
+        if ! grep -q "$rule = \"deny\"" Cargo.toml; then
+            missing+=("$rule")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "✗ missing lint rules in [lints.clippy]: ${missing[*]}"
+        exit 1
+    else
+        echo "✓ all lint rules present: ${required[*]}"
+    fi

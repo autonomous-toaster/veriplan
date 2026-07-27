@@ -45,6 +45,11 @@ flags = ["--enable-unstable"]
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
 [features]
 default = []
 z3 = ["dep:z3"]

@@ -33,8 +33,13 @@ fn verify_promela_balanced_braces() {
     assert_eq!(do_count, od_count, "Unbalanced do/od");
 
     let proctype_count = promela.matches("proctype").count();
-    assert_eq!(proctype_count, plan.tasks.len(),
-        "Expected {} proctype declarations, got {}", plan.tasks.len(), proctype_count);
+    assert_eq!(
+        proctype_count,
+        plan.tasks.len(),
+        "Expected {} proctype declarations, got {}",
+        plan.tasks.len(),
+        proctype_count
+    );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -50,8 +55,12 @@ fn verify_each_task_has_proctype() {
     for task in &plan.tasks {
         let proc_name = format!("task_{}", task.id.replace('.', "_"));
         let proc_decl = format!("proctype {}()", proc_name);
-        assert!(promela.contains(&proc_decl),
-            "Missing proctype for task {}: expected '{}'", task.id, proc_decl);
+        assert!(
+            promela.contains(&proc_decl),
+            "Missing proctype for task {}: expected '{}'",
+            task.id,
+            proc_decl
+        );
     }
 }
 
@@ -96,9 +105,12 @@ fn verify_ltl_variables_are_declared() {
                             || clean.starts_with("done_")
                             || clean.starts_with("failed_")
                         {
-                            assert!(declared.contains(&clean.to_string()),
+                            assert!(
+                                declared.contains(&clean.to_string()),
                                 "LTL references undeclared variable '{}' in: {}",
-                                clean, formula);
+                                clean,
+                                formula
+                            );
                         }
                     }
                 }
@@ -124,8 +136,32 @@ fn verify_promela_generator_no_panic() {
 fn build_test_plan() -> PlanIR {
     PlanIR {
         tasks: vec![
-            Task { id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 } },
-            Task { id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 } },
+            Task {
+                id: "1.1".into(),
+                description: "Setup".into(),
+                phase: "Phase 1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 1,
+                    end_line: 1,
+                },
+            },
+            Task {
+                id: "1.2".into(),
+                description: "Build".into(),
+                phase: "Phase 1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 2,
+                    end_line: 2,
+                },
+            },
         ],
         requirements: vec![],
         scenarios: vec![],
@@ -139,19 +175,26 @@ fn build_test_plan() -> PlanIR {
 }
 
 fn build_test_constraints(plan: &PlanIR) -> Vec<translator::TranslatedConstraint> {
-    vec![
-        translator::TranslatedConstraint {
-            requirement_id: "R1".into(),
-            statement: format!("T{} SHALL complete BEFORE T{}", plan.tasks[0].id, plan.tasks[1].id),
-            strength: Rfc2119Strength::Must,
-            category: ConstraintCategory::SequentialOrder,
-            ltl: Some(LtlFormula::Always(LtlCondition::Implies(
-                Box::new(LtlCondition::Atom(format!("active_{}", normalize_id(&plan.tasks[1].id)))),
-                Box::new(LtlCondition::Atom(format!("done_{}", normalize_id(&plan.tasks[0].id)))),
+    vec![translator::TranslatedConstraint {
+        requirement_id: "R1".into(),
+        statement: format!(
+            "T{} SHALL complete BEFORE T{}",
+            plan.tasks[0].id, plan.tasks[1].id
+        ),
+        strength: Rfc2119Strength::Must,
+        category: ConstraintCategory::SequentialOrder,
+        ltl: Some(LtlFormula::Always(LtlCondition::Implies(
+            Box::new(LtlCondition::Atom(format!(
+                "active_{}",
+                normalize_id(&plan.tasks[1].id)
             ))),
-            is_hard: true,
-        },
-    ]
+            Box::new(LtlCondition::Atom(format!(
+                "done_{}",
+                normalize_id(&plan.tasks[0].id)
+            ))),
+        ))),
+        is_hard: true,
+    }]
 }
 
 fn normalize_id(id: &str) -> String {

@@ -9,6 +9,7 @@ use std::fmt::Write;
 
 use crate::ir::{PhaseMode, PlanIR};
 use crate::translator::TranslatedConstraint;
+use crate::util;
 
 /// Generate a Mermaid flowchart diagram.
 pub fn format_mermaid(plan: &PlanIR, constraints: &[TranslatedConstraint]) -> String {
@@ -55,7 +56,7 @@ fn write_phase_subgraphs_mermaid(s: &mut String, plan: &PlanIR) {
 
 fn write_mermaid_task_node(s: &mut String, task: &crate::ir::Task) {
     let nid = node_id(&task.id);
-    let desc = clean_label(&truncate(&task.description, 40));
+    let desc = clean_label(&util::truncate(&task.description, 40));
     if task.checked {
         writeln!(s, "        {}[\"✅ T{}: {}\"]", nid, task.id, desc).ok();
     } else {
@@ -73,7 +74,11 @@ fn write_structural_edges_mermaid(s: &mut String, plan: &PlanIR) {
     }
 }
 
-fn write_constraint_edges_mermaid(s: &mut String, plan: &PlanIR, constraints: &[TranslatedConstraint]) {
+fn write_constraint_edges_mermaid(
+    s: &mut String,
+    plan: &PlanIR,
+    constraints: &[TranslatedConstraint],
+) {
     for c in constraints {
         if c.ltl.is_some() {
             let task_ids = crate::translator::extract_task_refs(&c.statement, plan);
@@ -88,12 +93,7 @@ fn write_constraint_edges_mermaid(s: &mut String, plan: &PlanIR, constraints: &[
                 for pair in task_ids.windows(2) {
                     let a = node_id(&pair[0]);
                     let b = node_id(&pair[1]);
-                    writeln!(
-                        s,
-                        "    {} {}|\"{}\"| {}",
-                        a, edge_style, label, b
-                    )
-                    .ok();
+                    writeln!(s, "    {} {}|\"{}\"| {}", a, edge_style, label, b).ok();
                 }
             }
         }
@@ -147,7 +147,7 @@ fn write_phase_clusters_dot(s: &mut String, plan: &PlanIR) {
 
 fn write_dot_task_node(s: &mut String, task: &crate::ir::Task) {
     let nid = node_id_dot(&task.id);
-    let desc = escape_dot(&clean_label(&truncate(&task.description, 50)));
+    let desc = escape_dot(&clean_label(&util::truncate(&task.description, 50)));
     if task.checked {
         writeln!(
             s,
@@ -232,7 +232,11 @@ fn write_markdown_rows(s: &mut String, plan: &PlanIR, constraints: &[TranslatedC
             .collect();
 
         for (ti, task) in tasks_in_phase.iter().enumerate() {
-            let status = if task.checked { "✅ done" } else { "⬜ pending" };
+            let status = if task.checked {
+                "✅ done"
+            } else {
+                "⬜ pending"
+            };
 
             let mut con_refs: Vec<String> = Vec::new();
             for c in constraints {
@@ -348,7 +352,7 @@ fn markdown_label(c: &TranslatedConstraint, plan: &PlanIR) -> String {
             .split(['.', '\n'])
             .next()
             .unwrap_or(&c.statement);
-        truncate(first.trim(), 30)
+        util::truncate(first.trim(), 30)
     }
 }
 
@@ -358,20 +362,6 @@ fn node_id(id: &str) -> String {
 
 fn node_id_dot(id: &str) -> String {
     format!("t_{}", id.replace('.', "_"))
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        return s.to_string();
-    }
-    // Find the char boundary at or before max
-    let idx = s
-        .char_indices()
-        .take_while(|(i, _)| *i < max.saturating_sub(1))
-        .last()
-        .map(|(i, c)| i + c.len_utf8())
-        .unwrap_or(0);
-    format!("{}…", &s[..idx])
 }
 
 fn escape_dot(s: &str) -> String {

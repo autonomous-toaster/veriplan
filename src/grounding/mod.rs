@@ -10,6 +10,7 @@ use groundcontrol::types::{Grounder, GroundingStatus, Signature};
 
 use crate::input::StrictnessProfile;
 use crate::ir::{CheckItem, PlanIR, Rfc2119Strength};
+use crate::util::truncate;
 
 /// Build a groundcontrol Signature from a PlanIR.
 ///
@@ -393,14 +394,6 @@ pub fn check_grounding(
     });
 
     (blockers, warnings, info, outcomes)
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max])
-    }
 }
 
 #[cfg(test)]

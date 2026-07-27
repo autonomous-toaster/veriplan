@@ -130,7 +130,7 @@ fn is_archive_dir(name: &str) -> bool {
 }
 
 impl ChangeStore {
-/// Re-parse a change directory and re-run convertibility check.
+    /// Re-parse a change directory and re-run convertibility check.
     /// Returns a vec of all CheckItems converted to LSP diagnostics.
     pub fn refresh(&mut self, change: &str) -> Vec<(PathBuf, Vec<lsp_types::Diagnostic>)> {
         let change_dir = self

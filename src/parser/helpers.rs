@@ -34,11 +34,12 @@ pub fn extract_scenarios(
     while i < lines.len() {
         let line = lines[i].trim();
         if (line.starts_with("#### Scenario:") || line.starts_with("#### scenario:"))
-            && let Some((scenario, consumed)) = parse_one_scenario(&lines, i, file) {
-                scenarios.push(scenario);
-                i += consumed;
-                continue;
-            }
+            && let Some((scenario, consumed)) = parse_one_scenario(&lines, i, file)
+        {
+            scenarios.push(scenario);
+            i += consumed;
+            continue;
+        }
         i += 1;
     }
 
@@ -46,7 +47,11 @@ pub fn extract_scenarios(
 }
 
 /// Parse a single scenario starting at the given line index.
-fn parse_one_scenario(lines: &[&str], start: usize, file: &str) -> Option<(crate::ir::Scenario, usize)> {
+fn parse_one_scenario(
+    lines: &[&str],
+    start: usize,
+    file: &str,
+) -> Option<(crate::ir::Scenario, usize)> {
     let line = lines[start].trim();
     let name = line
         .strip_prefix("#### Scenario:")
@@ -290,7 +295,8 @@ mod tests {
 
     #[test]
     fn test_extract_shall_statement() {
-        let result = extract_shall_statement("T1.1 SHALL complete BEFORE T1.2 SHALL run.", "spec.md");
+        let result =
+            extract_shall_statement("T1.1 SHALL complete BEFORE T1.2 SHALL run.", "spec.md");
         assert!(result.contains("SHALL"));
         assert!(result.contains("BEFORE"));
     }

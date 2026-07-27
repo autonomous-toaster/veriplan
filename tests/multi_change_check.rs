@@ -205,9 +205,7 @@ fn test_explicit_change_name() {
 #[test]
 fn test_grounding_failure_skips_bfs() {
     let dir = TempDir::new().expect("Failed to create temp dir");
-    let change_dir = dir
-        .path()
-        .join("openspec/changes/multi-keyword-change");
+    let change_dir = dir.path().join("openspec/changes/multi-keyword-change");
     fs::create_dir_all(&change_dir).expect("Failed to create change dir");
 
     // Create tasks.md with tasks

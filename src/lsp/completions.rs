@@ -3,6 +3,7 @@
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionList};
 
 use crate::ir::PlanIR;
+use crate::util::truncate;
 
 /// Build completion list for a given cursor context in a spec file.
 /// Returns None if the file isn't in a known change.
@@ -96,14 +97,6 @@ fn keyword_item(label: &str, detail: &str, insert: &str) -> CompletionItem {
     }
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,17 +106,39 @@ mod tests {
         PlanIR {
             tasks: vec![
                 Task {
-                    id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false,
-                    source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 },
+                    id: "1.1".into(),
+                    description: "Setup".into(),
+                    phase: "Phase 1".into(),
+                    checked: false,
+                    source: SourceLocation {
+                        file: "tasks.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 1,
+                        end_line: 1,
+                    },
                 },
                 Task {
-                    id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: true,
-                    source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 },
+                    id: "1.2".into(),
+                    description: "Build".into(),
+                    phase: "Phase 1".into(),
+                    checked: true,
+                    source: SourceLocation {
+                        file: "tasks.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 2,
+                        end_line: 2,
+                    },
                 },
             ],
             requirements: vec![],
             scenarios: vec![],
-            phases: vec![Phase { name: "Phase 1".into(), task_ids: vec!["1.1".into(), "1.2".into()], mode: PhaseMode::Sequential }],
+            phases: vec![Phase {
+                name: "Phase 1".into(),
+                task_ids: vec!["1.1".into(), "1.2".into()],
+                mode: PhaseMode::Sequential,
+            }],
             source_map: SourceMap::default(),
         }
     }
@@ -167,12 +182,12 @@ mod tests {
 
     #[test]
     fn test_truncate_short() {
-        assert_eq!(truncate("hello", 10), "hello");
+        assert_eq!(crate::util::truncate("hello", 10), "hello");
     }
 
     #[test]
     fn test_truncate_long() {
-        let t = truncate("hello world", 5);
-        assert_eq!(t, "hello\u{2026}");
+        let t = crate::util::truncate("hello world", 5);
+        assert_eq!(t, "hell\u{2026}");
     }
 }

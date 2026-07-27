@@ -33,8 +33,11 @@ pub fn annotate(
             .iter()
             .find(|(name, _)| name == &violation.plan)
             .map(|(_, p)| p)
-            .or_else(|| plans.first().map(|(_, p)| p))
-            .unwrap();
+            .or_else(|| plans.first().map(|(_, p)| p));
+
+        let Some(plan) = plan else {
+            continue;
+        };
 
         let (task_source, req_source) = resolve_source(violation, plan);
 
@@ -111,7 +114,11 @@ fn status_label(result: &crate::checker::VerificationResult) -> &'static str {
     }
 }
 
-fn format_report_items(output: &mut String, report: &crate::ir::ConvertibilityReport, verbose: bool) {
+fn format_report_items(
+    output: &mut String,
+    report: &crate::ir::ConvertibilityReport,
+    verbose: bool,
+) {
     if !report.blockers.is_empty() {
         output.push_str(&format!("  {} blocker(s):\n", report.blockers.len()));
         for item in &report.blockers {
@@ -168,7 +175,10 @@ fn format_violations(
     for (i, v) in annotated.iter().enumerate() {
         output.push_str(&format!("\n  Violation {}:\n", i + 1));
         output.push_str(&format!("    Requirement: {}\n", v.violation.constraint_id));
-        output.push_str(&format!("    Statement: {}\n", v.violation.requirement_statement));
+        output.push_str(&format!(
+            "    Statement: {}\n",
+            v.violation.requirement_statement
+        ));
         output.push_str(&format!("    Category: {}\n", v.category));
 
         if let Some(phase) = &v.phase_context {
@@ -293,7 +303,7 @@ fn verbose_section(
 mod tests {
     use super::*;
     use crate::checker::{VerificationResult, Violation};
-    use crate::ir::{ConvertibilityReport, PlanIR, Task, SourceLocation};
+    use crate::ir::{ConvertibilityReport, PlanIR, SourceLocation, Task};
 
     fn make_plan() -> PlanIR {
         PlanIR {

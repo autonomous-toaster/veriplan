@@ -6,9 +6,9 @@
 //!   3. BFS fallback (Phase 2b): built-in explorer when SPIN unavailable
 #![allow(dead_code)]
 
+pub mod bfs;
 pub(crate) mod checks;
 mod convertibility;
-pub mod bfs;
 pub mod promela;
 pub mod spin;
 pub mod spin_rs;
@@ -195,7 +195,9 @@ pub fn verify(
 
     match backend {
         CheckerBackend::Spin => spin::run_spin_check(plan, plan_name, &constraints, conv_report),
-        CheckerBackend::SpinRs => spin_rs::run_spin_rs_check(plan, plan_name, &constraints, conv_report),
+        CheckerBackend::SpinRs => {
+            spin_rs::run_spin_rs_check(plan, plan_name, &constraints, conv_report)
+        }
     }
 }
 
@@ -311,8 +313,18 @@ fn apply_strictness(
         let mut new_warnings = Vec::new();
         let mut new_info = Vec::new();
 
-        drain_by_severity(&mut report.blockers, &mut new_blockers, &mut new_warnings, &mut new_info);
-        drain_by_severity(&mut report.warnings, &mut new_blockers, &mut new_warnings, &mut new_info);
+        drain_by_severity(
+            &mut report.blockers,
+            &mut new_blockers,
+            &mut new_warnings,
+            &mut new_info,
+        );
+        drain_by_severity(
+            &mut report.warnings,
+            &mut new_blockers,
+            &mut new_warnings,
+            &mut new_info,
+        );
         new_info.append(&mut report.info);
 
         report.blockers = new_blockers;
@@ -346,20 +358,14 @@ fn strictness_severity(check: &str, strictness: crate::input::StrictnessProfile)
     match strictness {
         crate::input::StrictnessProfile::Strict => "blocker",
         crate::input::StrictnessProfile::Moderate => {
-            if check == "pattern_ungrounded"
-                || check == "no_requirements"
-                || check == "no_tasks"
-            {
+            if check == "pattern_ungrounded" || check == "no_requirements" || check == "no_tasks" {
                 "warning"
             } else {
                 "blocker"
             }
         }
         crate::input::StrictnessProfile::Lax => {
-            if check == "pattern_ungrounded"
-                || check == "no_requirements"
-                || check == "no_tasks"
-            {
+            if check == "pattern_ungrounded" || check == "no_requirements" || check == "no_tasks" {
                 "info"
             } else {
                 "blocker"
@@ -388,24 +394,31 @@ mod tests {
     use super::*;
     use crate::ir::CheckItem;
 
-    fn make_result(plan_name: &str, convertible: bool, valid: Option<bool>, violations: usize) -> VerificationResult {
+    fn make_result(
+        plan_name: &str,
+        convertible: bool,
+        valid: Option<bool>,
+        violations: usize,
+    ) -> VerificationResult {
         VerificationResult {
             plan_name: plan_name.into(),
             phase: "full".into(),
             convertible,
             convertibility_report: None,
             valid,
-            violations: (0..violations).map(|i| Violation {
-                constraint_id: format!("R{}", i),
-                requirement_statement: "test".into(),
-                ltl: String::new(),
-                category: String::new(),
-                state: String::new(),
-                task_source: None,
-                req_source: None,
-                suggested_fix: None,
-                plan: plan_name.into(),
-            }).collect(),
+            violations: (0..violations)
+                .map(|i| Violation {
+                    constraint_id: format!("R{}", i),
+                    requirement_statement: "test".into(),
+                    ltl: String::new(),
+                    category: String::new(),
+                    state: String::new(),
+                    task_source: None,
+                    req_source: None,
+                    suggested_fix: None,
+                    plan: plan_name.into(),
+                })
+                .collect(),
             total_constraints: 10,
             satisfied_constraints: 5,
             constraints_summary: vec![],

@@ -96,15 +96,14 @@ mod tests {
             LtlCondition::Atom("active_t1_1".into()),
             LtlCondition::Atom("active_t1_2".into()),
         ]))));
-        assert_eq!(
-            ltl_to_string(&f),
-            "[] ( !(active_t1_1 && active_t1_2) )"
-        );
+        assert_eq!(ltl_to_string(&f), "[] ( !(active_t1_1 && active_t1_2) )");
     }
 
     #[test]
     fn test_ltl_to_string_eventually() {
-        let f = LtlFormula::Always(LtlCondition::Eventually(Box::new(LtlCondition::Atom("active_t2_1".into()))));
+        let f = LtlFormula::Always(LtlCondition::Eventually(Box::new(LtlCondition::Atom(
+            "active_t2_1".into(),
+        ))));
         assert_eq!(ltl_to_string(&f), "[] ( <> active_t2_1 )");
     }
 

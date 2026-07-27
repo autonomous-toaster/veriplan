@@ -181,7 +181,11 @@ mod tests {
                     phase: "Phase 1".into(),
                     checked: false,
                     source: SourceLocation {
-                        file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1,
+                        file: "tasks.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 1,
+                        end_line: 1,
                     },
                 },
                 Task {
@@ -190,7 +194,11 @@ mod tests {
                     phase: "Phase 1".into(),
                     checked: true,
                     source: SourceLocation {
-                        file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2,
+                        file: "tasks.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 2,
+                        end_line: 2,
                     },
                 },
             ],
@@ -202,7 +210,11 @@ mod tests {
                 ltl: None,
                 scenarios: vec![],
                 source: SourceLocation {
-                    file: "specs/cap/spec.md".into(), start_byte: 0, end_byte: 0, start_line: 3, end_line: 3,
+                    file: "specs/cap/spec.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 3,
+                    end_line: 3,
                 },
             }],
             scenarios: vec![],

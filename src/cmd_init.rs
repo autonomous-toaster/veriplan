@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 pub fn run_init(project_root: Option<&str>) -> anyhow::Result<()> {
-    let root = project_root
-        .map(|p| Path::new(p).to_path_buf())
-        .unwrap_or_else(|| std::env::current_dir().unwrap());
+    let root = match project_root {
+        Some(p) => Path::new(p).to_path_buf(),
+        None => std::env::current_dir()?,
+    };
 
     let config_path = root.join("openspec").join("config.yaml");
     merge_config(&config_path)?;
@@ -166,7 +167,10 @@ fn create_fresh_config() -> String {
         VERIPLAN_CONTEXT,
         &veriplan_rules(),
     );
-    let output = serde_yaml::to_string(&merged).unwrap();
+    let output = serde_yaml::to_string(&merged).unwrap_or_else(|e| {
+        eprintln!("Failed to serialize config: {e}");
+        String::new()
+    });
     format!("# veriplan init\n{}", output)
 }
 

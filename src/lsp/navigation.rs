@@ -176,7 +176,11 @@ mod tests {
     #[test]
     fn test_find_change_dir_found() {
         let dir = tempfile::tempdir().unwrap();
-        let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+        let change_dir = dir
+            .path()
+            .join("openspec")
+            .join("changes")
+            .join("my-change");
         std::fs::create_dir_all(&change_dir).unwrap();
         let file_path = change_dir.join("tasks.md");
         std::fs::write(&file_path, "").unwrap();
@@ -199,7 +203,11 @@ mod tests {
     fn test_goto_definition_found() {
         // Create a temp dir with openspec/changes/my-change structure
         let dir = tempfile::tempdir().unwrap();
-        let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+        let change_dir = dir
+            .path()
+            .join("openspec")
+            .join("changes")
+            .join("my-change");
         std::fs::create_dir_all(&change_dir).unwrap();
         std::fs::write(change_dir.join("tasks.md"), "- [ ] 1.1 Setup\n").unwrap();
         std::fs::create_dir(change_dir.join("specs")).unwrap();
@@ -227,7 +235,10 @@ mod tests {
             source_map: SourceMap::default(),
         };
         let uri = Url::from_file_path(spec_path.join("spec.md")).unwrap();
-        let pos = lsp_types::Position { line: 0, character: 2 };
+        let pos = lsp_types::Position {
+            line: 0,
+            character: 2,
+        };
         let line_text = "T1.1 SHALL complete";
         let result = goto_definition(&plan, &uri, &pos, line_text);
         assert!(result.is_some());
@@ -235,9 +246,18 @@ mod tests {
 
     #[test]
     fn test_goto_definition_no_match() {
-        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: SourceMap::default() };
+        let plan = PlanIR {
+            tasks: vec![],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: SourceMap::default(),
+        };
         let uri = lsp_types::Url::from_file_path("/project/specs/cap/spec.md").unwrap();
-        let pos = lsp_types::Position { line: 0, character: 0 };
+        let pos = lsp_types::Position {
+            line: 0,
+            character: 0,
+        };
         let line_text = "No task ref here";
         let result = goto_definition(&plan, &uri, &pos, line_text);
         assert!(result.is_none());

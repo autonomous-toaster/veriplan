@@ -72,8 +72,14 @@ mod tests {
         let uri = Url::from_file_path("/test.md").unwrap();
         let diag = Diagnostic {
             range: Range {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: 10 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 10,
+                },
             },
             severity: None,
             code: None,
@@ -93,8 +99,14 @@ mod tests {
         let uri = Url::from_file_path("/test.md").unwrap();
         let diag = Diagnostic {
             range: Range {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: 10 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 10,
+                },
             },
             severity: None,
             code: None,
@@ -114,8 +126,14 @@ mod tests {
         let uri = Url::from_file_path("/test.md").unwrap();
         let diag = Diagnostic {
             range: Range {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: 10 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 10,
+                },
             },
             severity: None,
             code: None,

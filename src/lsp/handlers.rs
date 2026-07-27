@@ -1,9 +1,9 @@
-use std::path::Path;
-use std::sync::{Arc, RwLock};
-use anyhow::Result;
 use anyhow::Context;
+use anyhow::Result;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
 use lsp_types::*;
+use std::path::Path;
+use std::sync::{Arc, RwLock};
 
 use super::code_actions;
 use super::completions;
@@ -73,8 +73,7 @@ fn handle_hover_req(
     store: &Arc<RwLock<ChangeStore>>,
     req: Request,
 ) -> Result<()> {
-    let params: HoverParams =
-        serde_json::from_value(req.params).context("Bad hover params")?;
+    let params: HoverParams = serde_json::from_value(req.params).context("Bad hover params")?;
     let result = handle_hover(store, &params);
     let response = Response::new_ok(req.id, result);
     connection.sender.send(Message::Response(response))?;
@@ -192,12 +191,15 @@ fn resolve_change_with_rescan(
     store: &Arc<RwLock<ChangeStore>>,
     file_path: &std::path::Path,
 ) -> Option<String> {
-    let read_store = store.read().unwrap();
+    let read_store = store.read().unwrap_or_else(|e| e.into_inner());
     let resolved = read_store.resolve_change(file_path);
     drop(read_store);
     if resolved.is_none() {
-        store.write().unwrap().rescan();
-        store.read().unwrap().resolve_change(file_path)
+        store.write().unwrap_or_else(|e| e.into_inner()).rescan();
+        store
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .resolve_change(file_path)
     } else {
         resolved
     }
@@ -211,10 +213,13 @@ fn get_diagnostics_for_file(
 ) -> Vec<(std::path::PathBuf, Vec<lsp_types::Diagnostic>)> {
     if let Some(change) = change_name {
         eprintln!("[veriplan-lsp] resolved change '{}', refreshing...", change);
-        store.write().unwrap().refresh(change)
+        store
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .refresh(change)
     } else {
         eprintln!("[veriplan-lsp] file not in any change, trying standalone");
-        let mut write_store = store.write().unwrap();
+        let mut write_store = store.write().unwrap_or_else(|e| e.into_inner());
         if write_store.refresh_standalone(file_path).is_some() {
             vec![(
                 file_path.to_path_buf(),
@@ -229,10 +234,17 @@ fn get_diagnostics_for_file(
 }
 
 /// Publish diagnostics for all files.
-fn publish_diagnostics(connection: &Connection, diagnostics: &[(std::path::PathBuf, Vec<lsp_types::Diagnostic>)]) {
+fn publish_diagnostics(
+    connection: &Connection,
+    diagnostics: &[(std::path::PathBuf, Vec<lsp_types::Diagnostic>)],
+) {
     for (path, diags) in diagnostics {
         if let Ok(uri) = lsp_types::Url::from_file_path(path) {
-            eprintln!("[veriplan-lsp] publishDiagnostics: {} ({} diags)", uri, diags.len());
+            eprintln!(
+                "[veriplan-lsp] publishDiagnostics: {} ({} diags)",
+                uri,
+                diags.len()
+            );
             let params = PublishDiagnosticsParams {
                 uri,
                 diagnostics: diags.clone(),
@@ -293,10 +305,14 @@ fn clear_unpublished_diagnostics(
     file_path: &std::path::Path,
     published_uris: &[std::path::PathBuf],
 ) {
-    if let Some(change) = store.read().unwrap().resolve_change(file_path) {
+    if let Some(change) = store
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .resolve_change(file_path)
+    {
         let change_dir = store
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .project_root()
             .join("openspec")
             .join("changes")
@@ -321,10 +337,7 @@ fn clear_diagnostics_for_entries(
                 diagnostics: Vec::new(),
                 version: None,
             };
-            let notif = Notification::new(
-                "textDocument/publishDiagnostics".to_string(),
-                params,
-            );
+            let notif = Notification::new("textDocument/publishDiagnostics".to_string(), params);
             let _ = connection.sender.send(Message::Notification(notif));
         }
     }
@@ -337,12 +350,15 @@ fn handle_standalone_open(
     file_path: &std::path::Path,
 ) {
     eprintln!("[veriplan-lsp] didOpen: file not in any change, trying standalone mode");
-    let mut write_store = store.write().unwrap();
+    let mut write_store = store.write().unwrap_or_else(|e| e.into_inner());
     if write_store.load_standalone(file_path) {
         let diagnostics = write_store
             .get_standalone_diagnostics(file_path)
             .unwrap_or_default();
-        eprintln!("[veriplan-lsp] didOpen: loaded as standalone, {} diagnostics", diagnostics.len());
+        eprintln!(
+            "[veriplan-lsp] didOpen: loaded as standalone, {} diagnostics",
+            diagnostics.len()
+        );
         if let Ok(uri) = lsp_types::Url::from_file_path(file_path) {
             let params = PublishDiagnosticsParams {
                 uri,
@@ -353,7 +369,9 @@ fn handle_standalone_open(
             let _ = connection.sender.send(Message::Notification(notif));
         }
     } else {
-        eprintln!("[veriplan-lsp] didOpen: not a valid standalone file, publishing empty diagnostics");
+        eprintln!(
+            "[veriplan-lsp] didOpen: not a valid standalone file, publishing empty diagnostics"
+        );
         if let Ok(uri) = lsp_types::Url::from_file_path(file_path) {
             let params = PublishDiagnosticsParams {
                 uri,
@@ -372,7 +390,10 @@ fn publish_change_diagnostics(
     store: &Arc<RwLock<ChangeStore>>,
     change: &str,
 ) {
-    let diagnostics = store.write().unwrap().refresh(change);
+    let diagnostics = store
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .refresh(change);
     eprintln!(
         "[veriplan-lsp] didOpen: resolved change '{}', {} diagnostic files",
         change,
@@ -380,7 +401,11 @@ fn publish_change_diagnostics(
     );
     for (path, diags) in diagnostics {
         if let Ok(uri) = lsp_types::Url::from_file_path(&path) {
-            eprintln!("[veriplan-lsp] publishDiagnostics: {} ({} diagnostics)", uri, diags.len());
+            eprintln!(
+                "[veriplan-lsp] publishDiagnostics: {} ({} diagnostics)",
+                uri,
+                diags.len()
+            );
             let params = PublishDiagnosticsParams {
                 uri,
                 diagnostics: diags,
@@ -426,7 +451,10 @@ pub(crate) fn handle_goto_definition(
     navigation::goto_definition(&plan, uri, &pos, &line_text)
 }
 
-pub(crate) fn handle_hover(store: &Arc<RwLock<ChangeStore>>, params: &HoverParams) -> Option<Hover> {
+pub(crate) fn handle_hover(
+    store: &Arc<RwLock<ChangeStore>>,
+    params: &HoverParams,
+) -> Option<Hover> {
     let uri = &params.text_document_position_params.text_document.uri;
     let file_path = uri.to_file_path().ok()?;
     let pos = params.text_document_position_params.position;
@@ -491,7 +519,11 @@ pub(crate) fn handle_code_action(
     let (report, project_root) = resolve_report(store, &file_path)?;
     let file_diags = get_file_diagnostics(&report, &project_root, &file_path);
     let actions = code_actions::code_actions_for_diagnostics(uri, &file_diags);
-    if actions.is_empty() { None } else { Some(actions) }
+    if actions.is_empty() {
+        None
+    } else {
+        Some(actions)
+    }
 }
 
 fn resolve_report(

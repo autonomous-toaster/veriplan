@@ -9,7 +9,7 @@
 //!   - Convertibility check severity invariants hold
 
 mod bfs_evaluator;
-mod naming_convention;
-mod translator;
-mod promela_generator;
 mod convertibility;
+mod naming_convention;
+mod promela_generator;
+mod translator;

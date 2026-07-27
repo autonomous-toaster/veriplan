@@ -95,7 +95,10 @@ pub fn print_multi_json(results: &[(String, checker::VerificationResult)]) {
         "invalid_changes": invalid_changes,
     });
 
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    match serde_json::to_string_pretty(&output) {
+        Ok(json) => println!("{json}"),
+        Err(e) => eprintln!("Failed to serialize output: {e}"),
+    }
 }
 
 /// Flush stdio and exit with the given code.

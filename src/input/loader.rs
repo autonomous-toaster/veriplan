@@ -48,8 +48,7 @@ fn load_tasks_into_plan(
     let tasks_path = path.join("tasks.md");
     let tasks_source = std::fs::read_to_string(&tasks_path)
         .map_err(|e| format!("Cannot read {}: {}", tasks_path.display(), e))?;
-    let (tasks, phases) =
-        parser::parse_tasks(parser_instance, &tasks_source, &tasks_path)?;
+    let (tasks, phases) = parser::parse_tasks(parser_instance, &tasks_source, &tasks_path)?;
     plan.tasks = tasks;
     plan.phases = phases;
     Ok(())
@@ -248,7 +247,11 @@ mod tests {
                 phase: "Phase 1".into(),
                 checked: false,
                 source: SourceLocation {
-                    file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1,
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 1,
+                    end_line: 1,
                 },
             }],
             requirements: vec![],

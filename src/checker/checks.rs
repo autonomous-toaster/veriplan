@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::ir::{CheckItem, ConstraintCategory, PlanIR, Rfc2119Strength, StepKind, Task};
 use crate::translator;
+use crate::util::truncate;
 
 #[cfg(test)]
 mod checks_tests;
@@ -489,12 +490,4 @@ pub fn check_task_coverage(plan: &PlanIR, is_openspec: bool) -> (Vec<CheckItem>,
     });
 
     (warnings, info)
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max])
-    }
 }

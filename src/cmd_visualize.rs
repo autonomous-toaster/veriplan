@@ -87,7 +87,8 @@ fn find_change_dir(project_root: &Path, change_name: &str) -> anyhow::Result<std
     let looks_like_path =
         change_name.contains('/') || change_name.contains('\\') || direct.exists();
 
-    if looks_like_path && let Some(found) = find_change_in_path(project_root, change_name, direct)? {
+    if looks_like_path && let Some(found) = find_change_in_path(project_root, change_name, direct)?
+    {
         return Ok(found);
     }
 
@@ -131,8 +132,7 @@ fn show_available_changes(
 ) -> anyhow::Result<std::path::PathBuf> {
     let changes_dir = project_root.join("openspec").join("changes");
     if changes_dir.exists() {
-        let entries: Vec<_> = std::fs::read_dir(&changes_dir)
-            .unwrap()
+        let entries: Vec<_> = std::fs::read_dir(&changes_dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
@@ -254,7 +254,13 @@ mod tests {
 
     #[test]
     fn test_render_diagram_mermaid() {
-        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: veriplan::ir::SourceMap::default() };
+        let plan = PlanIR {
+            tasks: vec![],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: veriplan::ir::SourceMap::default(),
+        };
         let _constraints: Vec<veriplan::translator::TranslatedConstraint> = vec![];
         let result = render_diagram(Some("mermaid"), &plan, &[]);
         assert!(result.is_ok());
@@ -263,7 +269,13 @@ mod tests {
 
     #[test]
     fn test_render_diagram_unknown_format() {
-        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: veriplan::ir::SourceMap::default() };
+        let plan = PlanIR {
+            tasks: vec![],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: veriplan::ir::SourceMap::default(),
+        };
         let _constraints: Vec<veriplan::translator::TranslatedConstraint> = vec![];
         let result = render_diagram(Some("bogus"), &plan, &[]);
         assert!(result.is_err());
@@ -271,7 +283,13 @@ mod tests {
 
     #[test]
     fn test_render_diagram_default_mermaid() {
-        let plan = PlanIR { tasks: vec![], requirements: vec![], scenarios: vec![], phases: vec![], source_map: veriplan::ir::SourceMap::default() };
+        let plan = PlanIR {
+            tasks: vec![],
+            requirements: vec![],
+            scenarios: vec![],
+            phases: vec![],
+            source_map: veriplan::ir::SourceMap::default(),
+        };
         let _constraints: Vec<veriplan::translator::TranslatedConstraint> = vec![];
         let result = render_diagram(None, &plan, &[]);
         assert!(result.is_ok());

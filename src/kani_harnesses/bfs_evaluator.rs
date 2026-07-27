@@ -3,14 +3,17 @@
 //! Uses LtlFormula/LtlCondition enums directly — no string parsing.
 //! Kani verifies by structural induction on the enum variants.
 
-use crate::ir::ltl::{LtlCondition, LtlFormula};
 use crate::checker::bfs::*;
+use crate::ir::ltl::{LtlCondition, LtlFormula};
 use crate::ir::*;
 
 fn empty_plan() -> PlanIR {
     PlanIR {
-        tasks: vec![], requirements: vec![], scenarios: vec![],
-        phases: vec![], source_map: SourceMap::default(),
+        tasks: vec![],
+        requirements: vec![],
+        scenarios: vec![],
+        phases: vec![],
+        source_map: SourceMap::default(),
     }
 }
 
@@ -93,7 +96,9 @@ fn verify_always_not() {
 #[kani::proof]
 fn verify_always_eventually() {
     let state = vec![("x".to_string(), 1u8)];
-    let formula = LtlFormula::Always(LtlCondition::Eventually(Box::new(LtlCondition::Atom("x".into()))));
+    let formula = LtlFormula::Always(LtlCondition::Eventually(Box::new(LtlCondition::Atom(
+        "x".into(),
+    ))));
     assert!(evaluate_ltl(&formula, &state, &empty_plan()));
 }
 

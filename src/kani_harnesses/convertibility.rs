@@ -19,8 +19,32 @@ use crate::ir::*;
 fn verify_check_tasks_soundness() {
     let plan = PlanIR {
         tasks: vec![
-            Task { id: "1.1".into(), description: "Setup".into(), phase: "P1".into(), checked: false, source: SourceLocation { file: "t.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 } },
-            Task { id: "1.2".into(), description: "Build".into(), phase: "P1".into(), checked: false, source: SourceLocation { file: "t.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 } },
+            Task {
+                id: "1.1".into(),
+                description: "Setup".into(),
+                phase: "P1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "t.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 1,
+                    end_line: 1,
+                },
+            },
+            Task {
+                id: "1.2".into(),
+                description: "Build".into(),
+                phase: "P1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "t.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 2,
+                    end_line: 2,
+                },
+            },
         ],
         requirements: vec![],
         scenarios: vec![],
@@ -60,7 +84,13 @@ fn verify_check_requirements_no_panic() {
                 category: ConstraintCategory::SequentialOrder,
                 ltl: None,
                 scenarios: vec![],
-                source: SourceLocation { file: "spec.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 },
+                source: SourceLocation {
+                    file: "spec.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 1,
+                    end_line: 1,
+                },
             },
             Requirement {
                 id: "R2".into(),
@@ -69,7 +99,13 @@ fn verify_check_requirements_no_panic() {
                 category: ConstraintCategory::NonFormalizable,
                 ltl: None,
                 scenarios: vec![],
-                source: SourceLocation { file: "spec.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 },
+                source: SourceLocation {
+                    file: "spec.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 2,
+                    end_line: 2,
+                },
             },
         ],
         scenarios: vec![],
@@ -79,9 +115,15 @@ fn verify_check_requirements_no_panic() {
 
     let (blockers, warnings, info) = checks::check_requirements(&plan, true);
 
-    for b in &blockers { assert_eq!(b.severity, "blocker"); }
-    for w in &warnings { assert_eq!(w.severity, "warning"); }
-    for i in &info { assert_eq!(i.severity, "info"); }
+    for b in &blockers {
+        assert_eq!(b.severity, "blocker");
+    }
+    for w in &warnings {
+        assert_eq!(w.severity, "warning");
+    }
+    for i in &info {
+        assert_eq!(i.severity, "info");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -90,20 +132,34 @@ fn verify_check_requirements_no_panic() {
 #[kani::proof]
 fn verify_check_task_references_no_false_positives() {
     let plan = PlanIR {
-        tasks: vec![
-            Task { id: "1.1".into(), description: "Setup".into(), phase: "P1".into(), checked: false, source: SourceLocation { file: "t.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 } },
-        ],
-        requirements: vec![
-            Requirement {
-                id: "R1".into(),
-                statement: "T1.1 SHALL complete".into(),
-                strength: Rfc2119Strength::Must,
-                category: ConstraintCategory::SequentialOrder,
-                ltl: None,
-                scenarios: vec![],
-                source: SourceLocation { file: "spec.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 },
+        tasks: vec![Task {
+            id: "1.1".into(),
+            description: "Setup".into(),
+            phase: "P1".into(),
+            checked: false,
+            source: SourceLocation {
+                file: "t.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 1,
+                end_line: 1,
             },
-        ],
+        }],
+        requirements: vec![Requirement {
+            id: "R1".into(),
+            statement: "T1.1 SHALL complete".into(),
+            strength: Rfc2119Strength::Must,
+            category: ConstraintCategory::SequentialOrder,
+            ltl: None,
+            scenarios: vec![],
+            source: SourceLocation {
+                file: "spec.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 1,
+                end_line: 1,
+            },
+        }],
         scenarios: vec![],
         phases: vec![],
         source_map: SourceMap::default(),
@@ -111,8 +167,10 @@ fn verify_check_task_references_no_false_positives() {
 
     let (blockers, _) = checks::check_task_references(&plan);
     for b in &blockers {
-        assert_ne!(b.check, "bad_task_reference",
-            "False positive: existing task flagged as bad reference");
+        assert_ne!(
+            b.check, "bad_task_reference",
+            "False positive: existing task flagged as bad reference"
+        );
     }
 }
 
@@ -123,17 +181,21 @@ fn verify_check_task_references_no_false_positives() {
 fn verify_check_classifiability_no_panic() {
     let plan = PlanIR {
         tasks: vec![],
-        requirements: vec![
-            Requirement {
-                id: "R1".into(),
-                statement: "T1.1 SHALL complete BEFORE T1.2".into(),
-                strength: Rfc2119Strength::Must,
-                category: ConstraintCategory::NonFormalizable,
-                ltl: None,
-                scenarios: vec![],
-                source: SourceLocation { file: "spec.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 },
+        requirements: vec![Requirement {
+            id: "R1".into(),
+            statement: "T1.1 SHALL complete BEFORE T1.2".into(),
+            strength: Rfc2119Strength::Must,
+            category: ConstraintCategory::NonFormalizable,
+            ltl: None,
+            scenarios: vec![],
+            source: SourceLocation {
+                file: "spec.md".into(),
+                start_byte: 0,
+                end_byte: 0,
+                start_line: 1,
+                end_line: 1,
             },
-        ],
+        }],
         scenarios: vec![],
         phases: vec![],
         source_map: SourceMap::default(),

@@ -71,13 +71,20 @@ fn test_scan_changes_with_valid_change() {
     store.scan_changes();
     // scan_changes loads changes that have both tasks.md and specs/
     // Our change has both, so it should be loaded
-    assert!(store.plans.contains_key("my-change") || store.file_to_change.values().any(|v| v == "my-change"));
+    assert!(
+        store.plans.contains_key("my-change")
+            || store.file_to_change.values().any(|v| v == "my-change")
+    );
 }
 
 #[test]
 fn test_resolve_by_path_walk_found() {
     let dir = tempfile::tempdir().unwrap();
-    let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+    let change_dir = dir
+        .path()
+        .join("openspec")
+        .join("changes")
+        .join("my-change");
     std::fs::create_dir_all(&change_dir).unwrap();
     // File inside specs/ subdirectory of the change dir (2 levels deep)
     let specs_dir = change_dir.join("specs");
@@ -106,13 +113,17 @@ fn test_is_valid_change_entry_valid() {
     std::fs::write(dir.path().join("tasks.md"), "").unwrap();
     std::fs::create_dir(dir.path().join("specs")).unwrap();
     // Create a DirEntry for the temp dir
-    let entry = std::fs::read_dir(dir.path().parent().unwrap()).unwrap()
+    let entry = std::fs::read_dir(dir.path().parent().unwrap())
+        .unwrap()
         .filter_map(|e| e.ok())
         .find(|e| e.path() == dir.path())
         .unwrap();
     let result = is_valid_change_entry(&entry);
     assert!(result.is_some());
-    assert_eq!(result.unwrap().0, dir.path().file_name().unwrap().to_string_lossy());
+    assert_eq!(
+        result.unwrap().0,
+        dir.path().file_name().unwrap().to_string_lossy()
+    );
 }
 
 #[test]
@@ -120,7 +131,8 @@ fn test_is_valid_change_entry_archive() {
     let dir = tempfile::tempdir().unwrap();
     let archive_dir = dir.path().join("archive");
     std::fs::create_dir(&archive_dir).unwrap();
-    let entry = std::fs::read_dir(dir.path()).unwrap()
+    let entry = std::fs::read_dir(dir.path())
+        .unwrap()
         .filter_map(|e| e.ok())
         .find(|e| e.path() == archive_dir)
         .unwrap();
@@ -131,7 +143,11 @@ fn test_is_valid_change_entry_archive() {
 #[test]
 fn test_extract_change_name_from_path_found() {
     let dir = tempfile::tempdir().unwrap();
-    let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+    let change_dir = dir
+        .path()
+        .join("openspec")
+        .join("changes")
+        .join("my-change");
     std::fs::create_dir_all(&change_dir).unwrap();
     // Pass a file path inside the change dir (not the change dir itself)
     let file_path = change_dir.join("tasks.md");

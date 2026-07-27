@@ -3,7 +3,7 @@
 use std::io::{self, Read};
 use std::path::Path;
 
-use super::{discover_changes, EmptyReason, InputSource};
+use super::{EmptyReason, InputSource, discover_changes};
 
 /// Auto-detect input source from the current working directory.
 pub fn resolve_auto(project_root: &Path) -> Result<InputSource, String> {
@@ -118,7 +118,11 @@ mod tests {
     #[test]
     fn test_find_change_dir_found() {
         let dir = tempfile::tempdir().unwrap();
-        let change_dir = dir.path().join("openspec").join("changes").join("my-change");
+        let change_dir = dir
+            .path()
+            .join("openspec")
+            .join("changes")
+            .join("my-change");
         std::fs::create_dir_all(&change_dir).unwrap();
         std::fs::write(change_dir.join("tasks.md"), "").unwrap();
         std::fs::create_dir(change_dir.join("specs")).unwrap();
@@ -145,7 +149,7 @@ mod tests {
         let result = resolve_auto(dir.path());
         assert!(result.is_ok());
         match result.unwrap() {
-            InputSource::Empty { .. } => {},
+            InputSource::Empty { .. } => {}
             _ => panic!("Expected Empty"),
         }
     }

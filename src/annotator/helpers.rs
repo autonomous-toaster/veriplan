@@ -53,9 +53,10 @@ fn extract_ltl_var(ltl: &str, prefix: &[u8]) -> Option<String> {
                 i += 1;
             }
             if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(underscore) = s.find('_') {
-                    return Some(format!("{}.{}", &s[..underscore], &s[underscore + 1..]));
-                }
+                && let Some(underscore) = s.find('_')
+            {
+                return Some(format!("{}.{}", &s[..underscore], &s[underscore + 1..]));
+            }
         } else {
             i += 1;
         }
@@ -130,14 +131,40 @@ mod tests {
     fn test_build_phase_context() {
         let plan = PlanIR {
             tasks: vec![
-                Task { id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: String::new(), start_byte: 0, end_byte: 0, start_line: 0, end_line: 0 } },
-                Task { id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: String::new(), start_byte: 0, end_byte: 0, start_line: 0, end_line: 0 } },
+                Task {
+                    id: "1.1".into(),
+                    description: "Setup".into(),
+                    phase: "Phase 1".into(),
+                    checked: false,
+                    source: SourceLocation {
+                        file: String::new(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 0,
+                        end_line: 0,
+                    },
+                },
+                Task {
+                    id: "1.2".into(),
+                    description: "Build".into(),
+                    phase: "Phase 1".into(),
+                    checked: false,
+                    source: SourceLocation {
+                        file: String::new(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 0,
+                        end_line: 0,
+                    },
+                },
             ],
             requirements: vec![],
             scenarios: vec![],
-            phases: vec![
-                Phase { name: "Phase 1".into(), task_ids: vec!["1.1".into(), "1.2".into()], mode: PhaseMode::Sequential },
-            ],
+            phases: vec![Phase {
+                name: "Phase 1".into(),
+                task_ids: vec!["1.1".into(), "1.2".into()],
+                mode: PhaseMode::Sequential,
+            }],
             source_map: SourceMap::default(),
         };
         let ctx = build_phase_context("[] ( active_t1_1 -> done_t1_2 )", &plan);
@@ -160,36 +187,44 @@ mod tests {
 
     #[test]
     fn test_category_breakdown() {
-        let violations = vec![
-            AnnotatedViolation {
-                violation: Violation { constraint_id: "R1".into(), requirement_statement: "test".into(), ltl: "".into(), category: "SequentialOrder".into(), state: "".into(), task_source: None, req_source: None, suggested_fix: None, plan: "test".into() },
+        let violations = vec![AnnotatedViolation {
+            violation: Violation {
+                constraint_id: "R1".into(),
+                requirement_statement: "test".into(),
+                ltl: "".into(),
                 category: "SequentialOrder".into(),
-                phase_context: None,
-                trigger_task: None,
-                consequent_task: None,
+                state: "".into(),
                 task_source: None,
                 req_source: None,
+                suggested_fix: None,
+                plan: "test".into(),
             },
-        ];
+            category: "SequentialOrder".into(),
+            phase_context: None,
+            trigger_task: None,
+            consequent_task: None,
+            task_source: None,
+            req_source: None,
+        }];
         let breakdown = category_breakdown(&violations);
         assert!(breakdown.contains("SequentialOrder"));
     }
 }
 
-    #[test]
-    fn test_extract_ltl_var_failed() {
-        let result = extract_ltl_var("[] ( failed_t1_1 -> <> active_t2_1 )", b"failed_t");
-        assert_eq!(result, Some("1.1".to_string()));
-    }
+#[test]
+fn test_extract_ltl_var_failed() {
+    let result = extract_ltl_var("[] ( failed_t1_1 -> <> active_t2_1 )", b"failed_t");
+    assert_eq!(result, Some("1.1".to_string()));
+}
 
-    #[test]
-    fn test_extract_ltl_var_active() {
-        let result = extract_ltl_var("[] ( failed_t1_1 -> <> active_t2_1 )", b"active_t");
-        assert_eq!(result, Some("2.1".to_string()));
-    }
+#[test]
+fn test_extract_ltl_var_active() {
+    let result = extract_ltl_var("[] ( failed_t1_1 -> <> active_t2_1 )", b"active_t");
+    assert_eq!(result, Some("2.1".to_string()));
+}
 
-    #[test]
-    fn test_extract_ltl_var_no_match() {
-        let result = extract_ltl_var("true", b"failed_t");
-        assert_eq!(result, None);
-    }
+#[test]
+fn test_extract_ltl_var_no_match() {
+    let result = extract_ltl_var("true", b"failed_t");
+    assert_eq!(result, None);
+}

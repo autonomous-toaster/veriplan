@@ -4,9 +4,9 @@
 //! and maps them to LTL formulas for SPIN/Promela model checking.
 
 use crate::ir::{
-    ltl::{LtlCondition, LtlFormula},
     ConstraintCategory::{self, *},
     PhaseMode, PlanIR, Rfc2119Strength,
+    ltl::{LtlCondition, LtlFormula},
 };
 
 /// Result of translating a requirement to LTL.
@@ -25,7 +25,10 @@ pub struct TranslatedConstraint {
 impl TranslatedConstraint {
     /// Serialize the LTL formula to string, or return empty string if None.
     pub fn ltl_string(&self) -> String {
-        self.ltl.as_ref().map(crate::ir::ltl::ltl_to_string).unwrap_or_default()
+        self.ltl
+            .as_ref()
+            .map(crate::ir::ltl::ltl_to_string)
+            .unwrap_or_default()
     }
 }
 
@@ -125,9 +128,7 @@ fn is_fixed_time(lower: &str) -> bool {
 }
 
 fn is_global(lower: &str) -> bool {
-    lower.contains("always")
-        || lower.contains("throughout")
-        || lower.contains("at all times")
+    lower.contains("always") || lower.contains("throughout") || lower.contains("at all times")
 }
 
 fn is_sequential(lower: &str) -> bool {
@@ -162,8 +163,14 @@ pub fn generate_ltl(
             // Extract which task is before which
             if let Some((before_id, after_id)) = find_sequential_pair(statement, &task_ids) {
                 Some(LtlFormula::Always(LtlCondition::Implies(
-                    Box::new(LtlCondition::Atom(format!("active_{}", normalize_id(&after_id)))),
-                    Box::new(LtlCondition::Atom(format!("done_{}", normalize_id(&before_id)))),
+                    Box::new(LtlCondition::Atom(format!(
+                        "active_{}",
+                        normalize_id(&after_id)
+                    ))),
+                    Box::new(LtlCondition::Atom(format!(
+                        "done_{}",
+                        normalize_id(&before_id)
+                    ))),
                 )))
             } else if task_ids.len() >= 2 {
                 // General case: if A and B are referenced, A before B
@@ -202,7 +209,9 @@ pub fn generate_ltl(
                 let consequent = normalize_id(&task_ids[1]);
                 Some(LtlFormula::Always(LtlCondition::Implies(
                     Box::new(LtlCondition::Atom(format!("failed_{}", trigger))),
-                    Box::new(LtlCondition::Eventually(Box::new(LtlCondition::Atom(format!("active_{}", consequent))))),
+                    Box::new(LtlCondition::Eventually(Box::new(LtlCondition::Atom(
+                        format!("active_{}", consequent),
+                    )))),
                 )))
             } else {
                 None
@@ -271,23 +280,28 @@ pub fn find_sequential_pair(statement: &str, task_ids: &[String]) -> Option<(Str
         let complete_before = format!("{} complete", id);
 
         if (lower.contains(&before_pattern) || lower.contains(&complete_before))
-            && let Some(other) = find_matching_task(id, task_ids, &lower, statement) {
-                return Some((id.clone(), other));
-            }
+            && let Some(other) = find_matching_task(id, task_ids, &lower, statement)
+        {
+            return Some((id.clone(), other));
+        }
         if lower.contains(&after_pattern)
-            && let Some(other) = find_matching_task(id, task_ids, &lower, statement) {
-                return Some((other, id.clone()));
-            }
+            && let Some(other) = find_matching_task(id, task_ids, &lower, statement)
+        {
+            return Some((other, id.clone()));
+        }
     }
     None
 }
 
 /// Find a task ID that appears in the statement, different from the given ID.
-fn find_matching_task(id: &str, task_ids: &[String], lower: &str, statement: &str) -> Option<String> {
+fn find_matching_task(
+    id: &str,
+    task_ids: &[String],
+    lower: &str,
+    statement: &str,
+) -> Option<String> {
     for other in task_ids {
-        if other != id
-            && (lower.contains(other) || statement.contains(&format!("T{}", other)))
-        {
+        if other != id && (lower.contains(other) || statement.contains(&format!("T{}", other))) {
             return Some(other.clone());
         }
     }
@@ -333,82 +347,162 @@ mod tests {
     }
 }
 
-    #[test]
-    fn test_generate_ltl_sequential() {
-        let plan = make_test_plan();
-        let ltl = generate_ltl(&ConstraintCategory::SequentialOrder, "T1.1 SHALL complete BEFORE T1.2", &plan);
-        assert!(ltl.is_some());
-        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
-        assert!(ltl_str.contains("active_t1_2"));
-        assert!(ltl_str.contains("done_t1_1"));
-    }
+#[test]
+fn test_generate_ltl_sequential() {
+    let plan = make_test_plan();
+    let ltl = generate_ltl(
+        &ConstraintCategory::SequentialOrder,
+        "T1.1 SHALL complete BEFORE T1.2",
+        &plan,
+    );
+    assert!(ltl.is_some());
+    let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+    assert!(ltl_str.contains("active_t1_2"));
+    assert!(ltl_str.contains("done_t1_1"));
+}
 
-    #[test]
-    fn test_generate_ltl_exclusive() {
-        let plan = make_test_plan();
-        let ltl = generate_ltl(&ConstraintCategory::Exclusive, "At most one of T1.1, T1.2 SHALL be active", &plan);
-        assert!(ltl.is_some());
-        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
-        assert!(ltl_str.contains("active_t1_1"));
-        assert!(ltl_str.contains("active_t1_2"));
-    }
+#[test]
+fn test_generate_ltl_exclusive() {
+    let plan = make_test_plan();
+    let ltl = generate_ltl(
+        &ConstraintCategory::Exclusive,
+        "At most one of T1.1, T1.2 SHALL be active",
+        &plan,
+    );
+    assert!(ltl.is_some());
+    let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+    assert!(ltl_str.contains("active_t1_1"));
+    assert!(ltl_str.contains("active_t1_2"));
+}
 
-    #[test]
-    fn test_generate_ltl_conditional() {
-        let plan = make_test_plan();
-        let ltl = generate_ltl(&ConstraintCategory::Conditional, "IF T1.1 fails THEN T2.1 SHALL run", &plan);
-        assert!(ltl.is_some());
-        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
-        assert!(ltl_str.contains("failed_t1_1"));
-        assert!(ltl_str.contains("active_t2_1"));
-    }
+#[test]
+fn test_generate_ltl_conditional() {
+    let plan = make_test_plan();
+    let ltl = generate_ltl(
+        &ConstraintCategory::Conditional,
+        "IF T1.1 fails THEN T2.1 SHALL run",
+        &plan,
+    );
+    assert!(ltl.is_some());
+    let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+    assert!(ltl_str.contains("failed_t1_1"));
+    assert!(ltl_str.contains("active_t2_1"));
+}
 
-    #[test]
-    fn test_generate_ltl_concurrent() {
-        let plan = make_test_plan();
-        let ltl = generate_ltl(&ConstraintCategory::ConcurrentEvents, "T3.1 and T3.2 SHALL run concurrently", &plan);
-        assert!(ltl.is_some());
-        let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
-        assert!(ltl_str.contains("<->"));
-    }
+#[test]
+fn test_generate_ltl_concurrent() {
+    let plan = make_test_plan();
+    let ltl = generate_ltl(
+        &ConstraintCategory::ConcurrentEvents,
+        "T3.1 and T3.2 SHALL run concurrently",
+        &plan,
+    );
+    assert!(ltl.is_some());
+    let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
+    assert!(ltl_str.contains("<->"));
+}
 
-    #[test]
-    fn test_generate_ltl_non_formalizable() {
-        let plan = make_test_plan();
-        let ltl = generate_ltl(&ConstraintCategory::NonFormalizable, "The system SHALL be robust", &plan);
-        assert!(ltl.is_none());
-    }
+#[test]
+fn test_generate_ltl_non_formalizable() {
+    let plan = make_test_plan();
+    let ltl = generate_ltl(
+        &ConstraintCategory::NonFormalizable,
+        "The system SHALL be robust",
+        &plan,
+    );
+    assert!(ltl.is_none());
+}
 
-    #[test]
-    fn test_extract_task_refs() {
-        let plan = make_test_plan();
-        let refs = extract_task_refs("T1.1 SHALL complete BEFORE T1.2", &plan);
-        assert_eq!(refs.len(), 2);
-        assert!(refs.contains(&"1.1".to_string()));
-        assert!(refs.contains(&"1.2".to_string()));
-    }
+#[test]
+fn test_extract_task_refs() {
+    let plan = make_test_plan();
+    let refs = extract_task_refs("T1.1 SHALL complete BEFORE T1.2", &plan);
+    assert_eq!(refs.len(), 2);
+    assert!(refs.contains(&"1.1".to_string()));
+    assert!(refs.contains(&"1.2".to_string()));
+}
 
-    #[test]
-    fn test_extract_task_refs_bare() {
-        let task_ids = vec!["1.1".to_string(), "1.2".to_string(), "2.1".to_string()];
-        let refs = extract_task_refs_bare("T1.1 SHALL complete BEFORE T1.2", &task_ids);
-        assert_eq!(refs.len(), 2);
-    }
+#[test]
+fn test_extract_task_refs_bare() {
+    let task_ids = vec!["1.1".to_string(), "1.2".to_string(), "2.1".to_string()];
+    let refs = extract_task_refs_bare("T1.1 SHALL complete BEFORE T1.2", &task_ids);
+    assert_eq!(refs.len(), 2);
+}
 
-    #[allow(dead_code)]
-    fn make_test_plan() -> crate::ir::PlanIR {
-        use crate::ir::*;
-        PlanIR {
-            tasks: vec![
-                Task { id: "1.1".into(), description: "Setup".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 1, end_line: 1 } },
-                Task { id: "1.2".into(), description: "Build".into(), phase: "Phase 1".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 2, end_line: 2 } },
-                Task { id: "2.1".into(), description: "Deploy".into(), phase: "Phase 2".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 3, end_line: 3 } },
-                Task { id: "3.1".into(), description: "Monitor".into(), phase: "Phase 3".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 4, end_line: 4 } },
-                Task { id: "3.2".into(), description: "Alert".into(), phase: "Phase 3".into(), checked: false, source: SourceLocation { file: "tasks.md".into(), start_byte: 0, end_byte: 0, start_line: 5, end_line: 5 } },
-            ],
-            requirements: vec![],
-            scenarios: vec![],
-            phases: vec![],
-            source_map: SourceMap::default(),
-        }
+#[allow(dead_code)]
+fn make_test_plan() -> crate::ir::PlanIR {
+    use crate::ir::*;
+    PlanIR {
+        tasks: vec![
+            Task {
+                id: "1.1".into(),
+                description: "Setup".into(),
+                phase: "Phase 1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 1,
+                    end_line: 1,
+                },
+            },
+            Task {
+                id: "1.2".into(),
+                description: "Build".into(),
+                phase: "Phase 1".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 2,
+                    end_line: 2,
+                },
+            },
+            Task {
+                id: "2.1".into(),
+                description: "Deploy".into(),
+                phase: "Phase 2".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 3,
+                    end_line: 3,
+                },
+            },
+            Task {
+                id: "3.1".into(),
+                description: "Monitor".into(),
+                phase: "Phase 3".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 4,
+                    end_line: 4,
+                },
+            },
+            Task {
+                id: "3.2".into(),
+                description: "Alert".into(),
+                phase: "Phase 3".into(),
+                checked: false,
+                source: SourceLocation {
+                    file: "tasks.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: 5,
+                    end_line: 5,
+                },
+            },
+        ],
+        requirements: vec![],
+        scenarios: vec![],
+        phases: vec![],
+        source_map: SourceMap::default(),
     }
+}

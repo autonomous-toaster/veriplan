@@ -1,7 +1,7 @@
+use super::promela::generate_promela;
 use crate::checker::{ConstraintSummary, VerificationResult, Violation};
 use crate::ir::*;
 use crate::translator;
-use super::promela::generate_promela;
 
 pub(crate) fn run_spin_check(
     plan: &PlanIR,

@@ -127,7 +127,9 @@ mod tests {
 
     #[test]
     fn test_truncate() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("a very long string", 10), "a very lon...");
+        assert_eq!(crate::util::truncate("short", 10), "short");
+        let t = crate::util::truncate("a very long string", 10);
+        assert!(t.len() <= 13, "truncated string too long: {}", t);
+        assert!(t.ends_with('…'));
     }
 }

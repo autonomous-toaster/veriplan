@@ -38,7 +38,8 @@ fn initialize_lsp(
 
     let store = Arc::new(RwLock::new(ChangeStore::new(&project_root)));
     let capabilities = build_server_capabilities();
-    let server_capabilities = serde_json::to_value(&capabilities).unwrap();
+    let server_capabilities =
+        serde_json::to_value(&capabilities).context("Failed to serialize server capabilities")?;
 
     let init_params = connection
         .initialize(server_capabilities)

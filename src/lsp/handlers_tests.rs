@@ -48,11 +48,7 @@ fn test_handle_document_symbols_tasks_md() {
     let change_dir = changes_dir.join("my-change");
     std::fs::create_dir(&change_dir).unwrap();
     // tasks.md with a phase and a task
-    std::fs::write(
-        change_dir.join("tasks.md"),
-        "## Phase 1\n- [ ] 1.1 Setup\n",
-    )
-    .unwrap();
+    std::fs::write(change_dir.join("tasks.md"), "## Phase 1\n- [ ] 1.1 Setup\n").unwrap();
     let specs_dir = change_dir.join("specs").join("cap");
     std::fs::create_dir_all(&specs_dir).unwrap();
     std::fs::write(specs_dir.join("spec.md"), "# Spec\n").unwrap();
@@ -61,8 +57,12 @@ fn test_handle_document_symbols_tasks_md() {
     let uri = lsp_types::Url::from_file_path(change_dir.join("tasks.md")).unwrap();
     let params = lsp_types::DocumentSymbolParams {
         text_document: lsp_types::TextDocumentIdentifier { uri },
-        work_done_progress_params: lsp_types::WorkDoneProgressParams { work_done_token: None },
-        partial_result_params: lsp_types::PartialResultParams { partial_result_token: None },
+        work_done_progress_params: lsp_types::WorkDoneProgressParams {
+            work_done_token: None,
+        },
+        partial_result_params: lsp_types::PartialResultParams {
+            partial_result_token: None,
+        },
     };
 
     let result = handle_document_symbols(&store, &params);

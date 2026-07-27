@@ -58,7 +58,9 @@ fn check_and_record_violation(
 ) {
     if let Some(ltl) = &c.ltl
         && !evaluate_ltl(ltl, state, plan)
-        && !violations.iter().any(|v: &Violation| v.constraint_id == c.requirement_id)
+        && !violations
+            .iter()
+            .any(|v: &Violation| v.constraint_id == c.requirement_id)
     {
         let ltl_str = crate::ir::ltl::ltl_to_string(ltl);
         let state_str: Vec<String> = state
@@ -161,14 +163,6 @@ pub(crate) fn find_predecessors(plan: &PlanIR, task_id: &str) -> Vec<String> {
     Vec::new()
 }
 
-pub(crate) fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max])
-    }
-}
-
 pub(crate) fn timeout_command(
     cmd: &std::path::Path,
     args: &[&str],
@@ -250,9 +244,10 @@ where
                 i += 1;
             }
             if let Ok(s) = std::str::from_utf8(&bytes[start..i])
-                && let Some(transformed) = transform(s) {
-                    ids.push(transformed);
-                }
+                && let Some(transformed) = transform(s)
+            {
+                ids.push(transformed);
+            }
         } else {
             i += 1;
         }
@@ -273,7 +268,7 @@ pub(crate) fn suggest_fix(
     } else if task_ids.len() <= 2 {
         format!(
             " tasks {} and {}",
-            task_ids.first().unwrap(),
+            &task_ids[0],
             task_ids.get(1).unwrap_or(&task_ids[0])
         )
     } else {
@@ -373,7 +368,6 @@ pub(crate) fn simple_result(
         skip_reason: Some("Model check error".into()),
     }
 }
-
 
 #[cfg(test)]
 #[path = "bfs_tests.rs"]

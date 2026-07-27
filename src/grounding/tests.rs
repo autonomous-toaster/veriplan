@@ -213,11 +213,7 @@ fn test_ungroundable_no_task_id_has_original_message() {
 fn test_multi_keyword_detected() {
     // Requirement with both BEFORE and ALWAYS keywords
     let plan = make_test_plan(
-        vec![
-            ("1.1", "Setup"),
-            ("1.2", "Build"),
-            ("2.1", "Deploy"),
-        ],
+        vec![("1.1", "Setup"), ("1.2", "Build"), ("2.1", "Deploy")],
         vec![(
             "R1",
             "T1.1 SHALL complete BEFORE T1.2. T2.1 SHALL ALWAYS be available.",
@@ -226,12 +222,33 @@ fn test_multi_keyword_detected() {
     );
     let (blockers, _warnings, _info, outcomes) = check_grounding(&plan, &StrictnessProfile::Strict);
     assert!(!blockers.is_empty(), "expected blockers for multi-keyword");
-    let has_multi = blockers.iter().any(|b| b.check == "grounding_ambiguous_multi_keyword");
-    assert!(has_multi, "expected grounding_ambiguous_multi_keyword check");
-    let msg = &blockers.iter().find(|b| b.check == "grounding_ambiguous_multi_keyword").unwrap().detail;
-    assert!(msg.contains("BEFORE"), "expected BEFORE in message: {}", msg);
-    assert!(msg.contains("ALWAYS"), "expected ALWAYS in message: {}", msg);
-    assert!(msg.contains("GROUNDING AMBIGUITY"), "expected GROUNDING AMBIGUITY in message: {}", msg);
+    let has_multi = blockers
+        .iter()
+        .any(|b| b.check == "grounding_ambiguous_multi_keyword");
+    assert!(
+        has_multi,
+        "expected grounding_ambiguous_multi_keyword check"
+    );
+    let msg = &blockers
+        .iter()
+        .find(|b| b.check == "grounding_ambiguous_multi_keyword")
+        .unwrap()
+        .detail;
+    assert!(
+        msg.contains("BEFORE"),
+        "expected BEFORE in message: {}",
+        msg
+    );
+    assert!(
+        msg.contains("ALWAYS"),
+        "expected ALWAYS in message: {}",
+        msg
+    );
+    assert!(
+        msg.contains("GROUNDING AMBIGUITY"),
+        "expected GROUNDING AMBIGUITY in message: {}",
+        msg
+    );
     assert!(outcomes.iter().any(|o| o.failed), "expected failed outcome");
 }
 
@@ -239,19 +256,18 @@ fn test_multi_keyword_detected() {
 fn test_single_keyword_no_multi_error() {
     // Requirement with only BEFORE keyword
     let plan = make_test_plan(
-        vec![
-            ("1.1", "Setup"),
-            ("1.2", "Build"),
-        ],
-        vec![(
-            "R1",
-            "T1.1 SHALL complete BEFORE T1.2 SHALL run.",
-            "seq",
-        )],
+        vec![("1.1", "Setup"), ("1.2", "Build")],
+        vec![("R1", "T1.1 SHALL complete BEFORE T1.2 SHALL run.", "seq")],
     );
-    let (blockers, _warnings, _info, _outcomes) = check_grounding(&plan, &StrictnessProfile::Strict);
-    let has_multi = blockers.iter().any(|b| b.check == "grounding_ambiguous_multi_keyword");
-    assert!(!has_multi, "expected no multi-keyword error for single keyword");
+    let (blockers, _warnings, _info, _outcomes) =
+        check_grounding(&plan, &StrictnessProfile::Strict);
+    let has_multi = blockers
+        .iter()
+        .any(|b| b.check == "grounding_ambiguous_multi_keyword");
+    assert!(
+        !has_multi,
+        "expected no multi-keyword error for single keyword"
+    );
 }
 
 #[test]
@@ -270,8 +286,14 @@ fn test_multi_keyword_with_three_predicates() {
             "seq",
         )],
     );
-    let (blockers, _warnings, _info, _outcomes) = check_grounding(&plan, &StrictnessProfile::Strict);
+    let (blockers, _warnings, _info, _outcomes) =
+        check_grounding(&plan, &StrictnessProfile::Strict);
     assert!(!blockers.is_empty(), "expected blockers for multi-keyword");
-    let has_multi = blockers.iter().any(|b| b.check == "grounding_ambiguous_multi_keyword");
-    assert!(has_multi, "expected grounding_ambiguous_multi_keyword check");
+    let has_multi = blockers
+        .iter()
+        .any(|b| b.check == "grounding_ambiguous_multi_keyword");
+    assert!(
+        has_multi,
+        "expected grounding_ambiguous_multi_keyword check"
+    );
 }
