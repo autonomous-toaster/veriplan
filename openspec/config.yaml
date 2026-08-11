@@ -1,52 +1,55 @@
 # OpenSpec configuration
 schema: spec-driven
 context: |-
-  Every artifact must be machine-parseable into a formal state machine model
-  AND clearly readable by a human. Write so that tasks, requirements, and
-  constraints translate directly to states, transitions, and invariants.
+  You are authoring an OpenSpec CHANGE. A change is a set of artifacts describing
+  one unit of work:
+  - proposal.md  — WHY the change is needed (narrative)
+  - specs/<capability>/spec.md — the CONTRACT to be implemented (machine-verified)
+  - design.md    — HOW to implement it (narrative)
+  - tasks.md     — the work breakdown, as a task list
 
-  Two rules apply across all artifacts:
-  - TASK IDS: a task '1.3' in tasks.md is referenced as 'T1.3' in a spec
-  requirement. The T prefix is REQUIRED in spec references.
-  - 'human review only': a capability/policy that is NOT a temporal constraint
-  must be marked 'human review only' in the requirement body. It is then
-  treated as informational (INFO), not a blocker.
+  WRITE ORDER matters:
+  1. tasks.md first — it defines the task IDs that specs reference.
+  2. specs/<capability>/spec.md — requirements reference those task IDs.
+  3. proposal.md and design.md — narrative; they do NOT need task references.
 
-  Per-artifact rules below. Write requirements that an objective test can verify.
-  Follow Simplified Technical English (ASD-STE100) where it makes sense: active
-  voice, one instruction per sentence, short sentences, approved vocabulary.
-  Avoid vague verbs ("be robust", "be user-friendly").
+  TASK IDs: every task has an ID in the form N.M (e.g. '1.3'), grouped under a
+  '## Phase' heading. A spec references a task by prefixing its ID with 'T'
+  (so task '1.3' is referenced as 'T1.3' in a spec).
+
+  The spec is machine-verified, so its requirement bodies must follow a strict
+  grammar (see the specs rules). proposal.md and design.md are free-form narrative
+  and are NOT machine-verified — write them naturally, in plain prose.
 rules:
   design:
-  - Each task maps to a single state variable
-  - For every requirement, note its temporal category and the task IDs involved
-  - If a constraint cannot be formalised, mark it 'human review only'
+  - Narrative prose is fine here — do NOT use temporal constraint grammar
+  - Describe how the implementation will satisfy the spec
+  - Note which tasks and requirements are affected
   proposal:
-  - State the problem as a gap a state machine model can detect
-  - List non-goals to bound the formal model
+  - State the problem as a gap that this change should close
+  - List non-goals to bound the scope
+  - Narrative prose is fine here — do NOT use temporal constraint grammar
   specs:
-  - Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)
-  - Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')
-  - 'Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE'
+  - 'Every requirement MUST use an RFC 2119 keyword: MUST, SHALL, SHOULD, MAY, MUST NOT, SHALL NOT'
+  - 'A requirement BODY must be a temporal constraint. Grammar: "<task> SHALL <action> <TEMPORAL> <task> SHALL <action>". Exactly ONE temporal keyword per requirement body.'
+  - 'Temporal keywords: BEFORE (one completes first), AFTER (one starts after another), CONCURRENTLY (run together), IF...THEN (failure triggers recovery), ALWAYS (invariant holds), AT MOST ONE (mutually exclusive)'
+  - Every SHALL MUST reference at least one real task ID from tasks.md, using the T prefix (e.g. T1.1)
   - Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed
-  - Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance.
-  - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')
-  - Avoid vague SHALLs ('be robust', 'be user-friendly')
-  - 'GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)'
-  - 'BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)'
-  - 'IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run'
-  - 'For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4'
-  - Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional
-  - 'Reference tasks by explicit ID: ''T2.1'' not ''the migration step'''
-  - 'Use parenthetical syntax for task IDs: ''the migration step (T2.1)'''
-  - 'BEFORE requires two task IDs: ''T2.1 SHALL complete BEFORE T3.1 SHALL run'''
-  - 'ALWAYS requires one task ID: ''ALWAYS T2.1 SHALL validate input'''
-  - Write requirement bodies in ACTIVE voice and name the acting task by ID (e.g. 'T2.1 SHALL resolve the path'), not passive prose like 'the path SHALL be resolved' — passive/hedged prose grounds poorly
-  - 'Follow Simplified Technical English (ASD-STE100): active voice, one instruction per sentence, short sentences, approved vocabulary — no vague or hedged wording'
-  - Keep one temporal constraint per SHALL statement — do not cram two constraints into one requirement body
-  - Keep each sentence under 30 words; split long requirement bodies into shorter sentences
+  - Do NOT cram two constraints into one requirement body. One SHALL = one temporal keyword. If you need two orderings, write two requirements.
+  - If a requirement is a capability/policy, not a temporal constraint, write the literal marker 'human review only' in the body
+  - Give each requirement a "#### Scenario:" block with **GIVEN** (optional), **WHEN**, and **THEN** steps
+  - '**WHEN** and **THEN** steps SHOULD reference a task ID (e.g. "WHEN T3.2 runs") and use an RFC 2119 keyword'
+  - 'GOOD requirement body: "T2.1 SHALL complete BEFORE T3.1 SHALL run"  (task IDs + one temporal keyword)'
+  - 'GOOD scenario: "**WHEN** T2.1 completes" then "**THEN** T3.1 SHALL run"'
+  - 'BAD: "The system SHALL auto-detect changes"  (no task ID, no temporal keyword)'
+  - 'BAD: "The migration SHALL happen"  (no task ID, no temporal keyword)'
+  - 'BAD: ''T1.1 SHALL be done quickly''  (''quickly'' is vague — define it measurably or use a temporal relation)'
+  - 'IF...THEN is for failure-recovery: "IF T1.1 fails THEN T2.1 SHALL run"'
+  - Write in ACTIVE voice and name the acting task by ID (e.g. "T2.1 SHALL resolve the path"), not passive prose like "the path SHALL be resolved"
+  - Keep sentences short (<30 words); avoid vague words (robust, clean, good, user-friendly, efficiently)
+  - Every spec file MUST open with a Task Reference table listing each task ID used, before the first requirement
   tasks:
-  - Every task MUST have an N.M identifier (e.g. '1.3')
-  - 'Group tasks under ## Phase headings'
-  - Write descriptive task descriptions — they become aliases for grounding
-  - Keep task descriptions terse and imperative (one instruction per sentence)
+  - Every task MUST have an N.M identifier (e.g. 1.3)
+  - Group tasks under "## Phase" headings
+  - Write each task as a short, imperative action (one instruction per task)
+  - Task descriptions become aliases for matching — make them descriptive but concise

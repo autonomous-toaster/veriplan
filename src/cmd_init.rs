@@ -82,76 +82,78 @@ fn merge_config(path: &std::path::Path) -> anyhow::Result<()> {
 }
 
 const VERIPLAN_CONTEXT: &str = "\
-Every artifact must be machine-parseable into a formal state machine model\n\
-AND clearly readable by a human. Write so that tasks, requirements, and\n\
-constraints translate directly to states, transitions, and invariants.\n\
+You are authoring an OpenSpec CHANGE. A change is a set of artifacts describing\n\
+one unit of work:\n\
+  - proposal.md  — WHY the change is needed (narrative)\n\
+  - specs/<capability>/spec.md — the CONTRACT to be implemented (machine-verified)\n\
+  - design.md    — HOW to implement it (narrative)\n\
+  - tasks.md     — the work breakdown, as a task list\n\
 \n\
-Two rules apply across all artifacts:\n\
-- TASK IDS: a task '1.3' in tasks.md is referenced as 'T1.3' in a spec\n\
-  requirement. The T prefix is REQUIRED in spec references.\n\
-- 'human review only': a capability/policy that is NOT a temporal constraint\n\
-  must be marked 'human review only' in the requirement body. It is then\n\
-  treated as informational (INFO), not a blocker.\n\
+WRITE ORDER matters:\n\
+1. tasks.md first — it defines the task IDs that specs reference.\n\
+2. specs/<capability>/spec.md — requirements reference those task IDs.\n\
+3. proposal.md and design.md — narrative; they do NOT need task references.\n\
 \n\
-Per-artifact rules below. Write requirements that an objective test can verify.\n\
-Follow Simplified Technical English (ASD-STE100) where it makes sense: active\n\
-voice, one instruction per sentence, short sentences, approved vocabulary.\n\
-Avoid vague verbs (\"be robust\", \"be user-friendly\").";
+TASK IDs: every task has an ID in the form N.M (e.g. '1.3'), grouped under a\n\
+'## Phase' heading. A spec references a task by prefixing its ID with 'T'\n\
+(so task '1.3' is referenced as 'T1.3' in a spec).\n\
+\n\
+The spec is machine-verified, so its requirement bodies must follow a strict\n\
+grammar (see the specs rules). proposal.md and design.md are free-form narrative\n\
+and are NOT machine-verified — write them naturally, in plain prose.";
+
 fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
     let mut rules = BTreeMap::new();
     rules.insert(
         "proposal".to_string(),
         vec![
-            "State the problem as a gap a state machine model can detect".to_string(),
-            "List non-goals to bound the formal model".to_string(),
+            "State the problem as a gap that this change should close".to_string(),
+            "List non-goals to bound the scope".to_string(),
+            "Narrative prose is fine here — do NOT use temporal constraint grammar".to_string(),
         ],
     );
     rules.insert(
         "specs".to_string(),
         vec![
-            "Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT/SHALL NOT)".to_string(),
-            "Every SHALL MUST reference at least one task by N.M ID (e.g. 'T2.1 SHALL complete before T2.3')".to_string(),
-            "Every SHALL MUST use ONE temporal keyword: BEFORE, CONCURRENTLY, AFTER, IF...THEN, ALWAYS, or AT MOST ONE".to_string(),
+            "Every requirement MUST use an RFC 2119 keyword: MUST, SHALL, SHOULD, MAY, MUST NOT, SHALL NOT".to_string(),
+            "A requirement BODY must be a temporal constraint. Grammar: \"<task> SHALL <action> <TEMPORAL> <task> SHALL <action>\". Exactly ONE temporal keyword per requirement body.".to_string(),
+            "Temporal keywords: BEFORE (one completes first), AFTER (one starts after another), CONCURRENTLY (run together), IF...THEN (failure triggers recovery), ALWAYS (invariant holds), AT MOST ONE (mutually exclusive)".to_string(),
+            "Every SHALL MUST reference at least one real task ID from tasks.md, using the T prefix (e.g. T1.1)".to_string(),
             "Put the SHALL sentence in a body paragraph AFTER the heading — the heading alone is not parsed".to_string(),
-            "Every spec file MUST open with a Task Reference section — a table listing each T N.M ID used in the file with a one-line description, placed before the first requirement heading. This helps human reviewers see which tasks are involved at a glance.".to_string(),
-            "Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs')".to_string(),
-            "Avoid vague SHALLs ('be robust', 'be user-friendly')".to_string(),
-            "GOOD: T2.1 SHALL complete BEFORE T3.1 SHALL run (references task IDs + temporal keyword)".to_string(),
-            "BAD: The system SHALL auto-detect changes (no task ID, no temporal keyword — NonFormalizable)".to_string(),
-            "IF...THEN is for failure-recovery: IF T1.1 fails THEN T2.1 SHALL run".to_string(),
-            "For branching/decision logic, use BEFORE instead: T1.5 SHALL complete BEFORE T1.4".to_string(),
-            "Every scenario MUST have WHEN + THEN with RFC 2119 keyword; GIVEN is optional".to_string(),
-            "Reference tasks by explicit ID: 'T2.1' not 'the migration step'".to_string(),
-            "Use parenthetical syntax for task IDs: 'the migration step (T2.1)'".to_string(),
-            "BEFORE requires two task IDs: 'T2.1 SHALL complete BEFORE T3.1 SHALL run'".to_string(),
-            "ALWAYS requires one task ID: 'ALWAYS T2.1 SHALL validate input'".to_string(),
-            "Write requirement bodies in ACTIVE voice and name the acting task by ID (e.g. 'T2.1 SHALL resolve the path'), not passive prose like 'the path SHALL be resolved' — passive/hedged prose grounds poorly".to_string(),
-            "Follow Simplified Technical English (ASD-STE100): active voice, one instruction per sentence, short sentences, approved vocabulary — no vague or hedged wording".to_string(),
-            "Keep one temporal constraint per SHALL statement — do not cram two constraints into one requirement body".to_string(),
-            "Keep each sentence under 30 words; split long requirement bodies into shorter sentences".to_string(),
+            "Do NOT cram two constraints into one requirement body. One SHALL = one temporal keyword. If you need two orderings, write two requirements.".to_string(),
+            "If a requirement is a capability/policy, not a temporal constraint, write the literal marker 'human review only' in the body".to_string(),
+            "Give each requirement a \"#### Scenario:\" block with **GIVEN** (optional), **WHEN**, and **THEN** steps".to_string(),
+            "**WHEN** and **THEN** steps SHOULD reference a task ID (e.g. \"WHEN T3.2 runs\") and use an RFC 2119 keyword".to_string(),
+            "GOOD requirement body: \"T2.1 SHALL complete BEFORE T3.1 SHALL run\"  (task IDs + one temporal keyword)".to_string(),
+            "GOOD scenario: \"**WHEN** T2.1 completes\" then \"**THEN** T3.1 SHALL run\"".to_string(),
+            "BAD: \"The system SHALL auto-detect changes\"  (no task ID, no temporal keyword)".to_string(),
+            "BAD: \"The migration SHALL happen\"  (no task ID, no temporal keyword)".to_string(),
+            "BAD: 'T1.1 SHALL be done quickly'  ('quickly' is vague — define it measurably or use a temporal relation)".to_string(),
+            "IF...THEN is for failure-recovery: \"IF T1.1 fails THEN T2.1 SHALL run\"".to_string(),
+            "Write in ACTIVE voice and name the acting task by ID (e.g. \"T2.1 SHALL resolve the path\"), not passive prose like \"the path SHALL be resolved\"".to_string(),
+            "Keep sentences short (<30 words); avoid vague words (robust, clean, good, user-friendly, efficiently)".to_string(),
+            "Every spec file MUST open with a Task Reference table listing each task ID used, before the first requirement".to_string(),
         ],
     );
     rules.insert(
         "design".to_string(),
         vec![
-            "Each task maps to a single state variable".to_string(),
-            "For every requirement, note its temporal category and the task IDs involved"
-                .to_string(),
-            "If a constraint cannot be formalised, mark it 'human review only'".to_string(),
+            "Narrative prose is fine here — do NOT use temporal constraint grammar".to_string(),
+            "Describe how the implementation will satisfy the spec".to_string(),
+            "Note which tasks and requirements are affected".to_string(),
         ],
     );
     rules.insert(
         "tasks".to_string(),
         vec![
-            "Every task MUST have an N.M identifier (e.g. '1.3')".to_string(),
-            "Group tasks under ## Phase headings".to_string(),
-            "Write descriptive task descriptions — they become aliases for grounding".to_string(),
-            "Keep task descriptions terse and imperative (one instruction per sentence)".to_string(),
+            "Every task MUST have an N.M identifier (e.g. 1.3)".to_string(),
+            "Group tasks under \"## Phase\" headings".to_string(),
+            "Write each task as a short, imperative action (one instruction per task)".to_string(),
+            "Task descriptions become aliases for matching — make them descriptive but concise".to_string(),
         ],
     );
     rules
 }
-
 /// Create a fresh config with schema + veriplan context and rules.
 fn create_fresh_config() -> String {
     let mut config = serde_yaml::Mapping::new();
@@ -280,23 +282,27 @@ mod tests {
         let path = dir.path().join("openspec").join("config.yaml");
         merge_config(&path).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        // Context block — lean and tool-agnostic
-        assert!(content.contains("Every artifact must be machine-parseable"));
-        assert!(content.contains("TASK IDS"));
-        assert!(content.contains("Avoid vague verbs"));
-        // Proposal rules
+        // Context block — workflow-first, tool-agnostic
+        assert!(content.contains("You are authoring an OpenSpec CHANGE"));
+        assert!(content.contains("WRITE ORDER matters"));
+        assert!(content.contains("N.M") && content.contains("T prefix"));
+        // Proposal rules — narrative
         assert!(content.contains("State the problem as a gap"));
-        assert!(content.contains("List non-goals to bound the formal model"));
-        // Specs rules
+        assert!(content.contains("List non-goals to bound the scope"));
+        assert!(content.contains("Narrative prose is fine here"));
+        // Specs rules — the machine-verified grammar
         assert!(content.contains("Every requirement MUST use an RFC 2119 keyword"));
-        assert!(content.contains("Every SHALL MUST reference at least one task"));
-        // Design rules
-        assert!(content.contains("Each task maps to a single state variable"));
+        assert!(content.contains("temporal constraint"));
+        assert!(content.contains("Temporal keywords: BEFORE"));
+        assert!(content.contains("AT MOST ONE"));
+        // Design rules — narrative
+        assert!(content.contains("Describe how the implementation will satisfy the spec"));
         // Tasks rules
         assert!(content.contains("Every task MUST have an N.M identifier"));
-        assert!(content.contains("Group tasks under ## Phase headings"));
+        assert!(content.contains("## Phase"));
         // Must not cite the tool
         assert!(!content.contains("veriplan checks"));
+        assert!(!content.contains("steve"));
     }
 
     #[test]
@@ -305,21 +311,26 @@ mod tests {
         let path = dir.path().join("openspec").join("config.yaml");
         merge_config(&path).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        // Context: lean, tool-free, no tool citations.
-        assert!(content.contains("TASK IDS"));
+        // Context: workflow-first, tool-free.
+        assert!(content.contains("WRITE ORDER"));
         assert!(content.contains("human review only"));
         assert!(!content.contains("steve"), "config must not cite tool names");
-        // Specs rules: core guidance present.
-        assert!(content.contains("one temporal constraint per SHALL statement"));
-        assert!(content.contains("sentence under 30 words"));
-        // Tasks rules present.
-        assert!(content.contains("terse and imperative"));
+        assert!(!content.contains("veriplan"), "config must not cite tool names");
+        assert!(!content.contains("NonFormalizable"), "no internal jargon");
+        // Specs rules: core grammar present.
+        assert!(content.contains("temporal constraint"));
+        assert!(content.contains("AT MOST ONE"));
+        assert!(content.contains("<30 words"));
         // The config must round-trip as valid YAML with all rules intact.
         let parsed: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
         let specs = parsed["rules"]["specs"].as_sequence().unwrap();
         assert!(
             specs.iter().any(|r| r.as_str().unwrap().contains("ACTIVE voice")),
             "specs rules must include the active-voice rule"
+        );
+        assert!(
+            specs.iter().any(|r| r.as_str().unwrap().contains("GOOD requirement body")),
+            "specs rules must include a GOOD example"
         );
     }
 
