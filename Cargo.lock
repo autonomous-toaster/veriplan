@@ -581,6 +581,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "groundcontrol"
 version = "0.1.0"
+source = "git+https://github.com/autonomous-toaster/groundcontrol?tag=v0.1.0#42adfc9d9571706175b2cf2f25c33c58e54aad53"
 dependencies = [
  "anyhow",
  "clap",
@@ -1458,6 +1459,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "steve"
 version = "0.1.0"
+source = "git+https://github.com/autonomous-toaster/steve?tag=v0.1.0#d0fe787f4a6202d79c5d9b8b49b5779aadc392cb"
 dependencies = [
  "clap",
  "english-pos-tagger",
