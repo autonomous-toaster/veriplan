@@ -239,19 +239,59 @@ pub fn check_classifiability(
 
         if cat == ConstraintCategory::NonFormalizable {
             non_formalizable_count += 1;
+            // Diagnose WHY it is non-formalizable to emit a targeted fix.
+            let diagnosis = translator::diagnose_vague(&req.statement, &task_ids);
+            let (detail, fix) = match &diagnosis {
+                Some(translator::VagueDiagnosis::BareCapability { task, .. }) => (
+                    format!(
+                        "SHALL '{}' references task {} but specifies no constraint — this is redundant with the task list",
+                        truncate(&req.statement, 80),
+                        task
+                    ),
+                    format!(
+                        "add a temporal relation to another task (e.g. '{} SHALL complete BEFORE T1.2 SHALL start'), or remove it if it merely re-states the task",
+                        task
+                    ),
+                ),
+                Some(translator::VagueDiagnosis::VagueAction { task, word }) => (
+                    format!(
+                        "SHALL '{}' references task {} but '{}' is vague and not objectively testable",
+                        truncate(&req.statement, 80),
+                        task,
+                        word
+                    ),
+                    format!(
+                        "define it measurably (e.g. 'within 200ms'), or add a temporal relation to another task (e.g. '{} SHALL complete BEFORE T1.2 SHALL start')",
+                        task
+                    ),
+                ),
+                Some(translator::VagueDiagnosis::VagueQuality { word }) => (
+                    format!(
+                        "SHALL '{}' has no task reference and '{}' is vague",
+                        truncate(&req.statement, 80),
+                        word
+                    ),
+                    format!(
+                        "reference a task with a temporal relation, or define '{}' via a measurable criterion or standard (e.g. express a safety statement as 'T1.1 SHALL fail safe IF T1.2 SHALL fail')",
+                        word
+                    ),
+                ),
+                None => (
+                    format!(
+                        "SHALL '{}' does not match any temporal category",
+                        truncate(&req.statement, 80)
+                    ),
+                    "Rewrite as: sequential, exclusive, conditional, concurrent, or global constraint"
+                        .to_string(),
+                ),
+            };
             blockers.push(CheckItem {
                 severity: "blocker".into(),
                 check: "non_formalizable".into(),
                 element: format!("Requirement '{}'", req.id),
                 location: format!("{}:{}", req.source.file, req.source.start_line),
-                detail: format!(
-                    "SHALL '{}' does not match any temporal category",
-                    truncate(&req.statement, 80)
-                ),
-                fix: Some(
-                    "Rewrite as: sequential, exclusive, conditional, concurrent, or global constraint"
-                        .into(),
-                ),
+                detail,
+                fix: Some(fix),
             });
         } else if cat == ConstraintCategory::PatternUngrounded {
             formalizable_count += 1;
