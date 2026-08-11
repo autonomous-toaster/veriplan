@@ -63,3 +63,9 @@
 - [x] 9.1 Add `split_constraint_clauses` helper in `src/grounding/mod.rs` that splits a requirement statement into individual temporal-constraint clauses at sentence boundaries followed by a task-ID reference
 - [x] 9.2 Improve the multi-keyword fix message to show the extracted clause split as a concrete "Requirement 0 / Requirement 1" template instead of a generic instruction
 - [x] 9.3 Add unit tests for `split_constraint_clauses` (multi-constraint split, single-sentence unchanged, no mid-sentence split)
+
+## 10. Grounding diagnostic transparency (groundcontrol + veriplan)
+
+- [x] 10.1 Add `diagnostic` field to groundcontrol's `GroundedAtom` explaining why a confidence was assigned (e.g. partial argument match)
+- [x] 10.2 Surface the diagnostic in veriplan's ambiguous-grounding detail message so the AI assistant sees the concrete reason
+- [x] 10.3 Add unit test for the diagnostic plumbing
