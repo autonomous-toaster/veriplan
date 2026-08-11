@@ -1,4 +1,4 @@
-# veriplan init
+# OpenSpec configuration
 schema: spec-driven
 context: |-
   Every artifact must be machine-parseable into a formal state machine model
@@ -9,8 +9,8 @@ context: |-
   - TASK IDS: a task '1.3' in tasks.md is referenced as 'T1.3' in a spec
   requirement. The T prefix is REQUIRED in spec references.
   - 'human review only': a capability/policy that is NOT a temporal constraint
-  must be marked 'human review only' in the requirement body. veriplan then
-  treats it as informational (INFO), not a blocker.
+  must be marked 'human review only' in the requirement body. It is then
+  treated as informational (INFO), not a blocker.
 
   Per-artifact rules below. Write requirements that an objective test can verify.
   Avoid vague verbs ("be robust", "be user-friendly").

@@ -76,7 +76,7 @@ fn merge_config(path: &std::path::Path) -> anyhow::Result<()> {
     let output = serde_yaml::to_string(&merged)
         .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))?;
 
-    let output = format!("# veriplan init\n{}", output);
+    let output = format!("# OpenSpec configuration\n{}", output);
     std::fs::write(path, output)?;
     Ok(())
 }
@@ -90,8 +90,8 @@ Two rules apply across all artifacts:\n\
 - TASK IDS: a task '1.3' in tasks.md is referenced as 'T1.3' in a spec\n\
   requirement. The T prefix is REQUIRED in spec references.\n\
 - 'human review only': a capability/policy that is NOT a temporal constraint\n\
-  must be marked 'human review only' in the requirement body. veriplan then\n\
-  treats it as informational (INFO), not a blocker.\n\
+  must be marked 'human review only' in the requirement body. It is then\n\
+  treated as informational (INFO), not a blocker.\n\
 \n\
 Per-artifact rules below. Write requirements that an objective test can verify.\n\
 Avoid vague verbs (\"be robust\", \"be user-friendly\").";
@@ -165,7 +165,7 @@ fn create_fresh_config() -> String {
         eprintln!("Failed to serialize config: {e}");
         String::new()
     });
-    format!("# veriplan init\n{}", output)
+    format!("# OpenSpec configuration\n{}", output)
 }
 
 /// Merge new context and rules into an existing YAML value.
@@ -233,11 +233,12 @@ mod tests {
         merge_config(&path).unwrap();
         assert!(path.exists());
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("# veriplan init"));
+        assert!(content.contains("# OpenSpec configuration"));
         assert!(content.contains("State the problem as a gap"));
         assert!(content.contains("Every task MUST have an N.M identifier"));
-        // Context must not cite the tool
-        assert!(!content.contains("veriplan checks"));
+        // Config must not cite any tool
+        assert!(!content.contains("veriplan"), "config must not name the tool");
+        assert!(!content.contains("steve"), "config must not name tools");
     }
 
     #[test]
