@@ -82,54 +82,19 @@ fn merge_config(path: &std::path::Path) -> anyhow::Result<()> {
 }
 
 const VERIPLAN_CONTEXT: &str = "\
-Every OpenSpec artifact must be machine-parseable into a formal\n\
-state machine model AND clearly readable by a human reviewer.\n\
-Write tasks, requirements, and constraints\n\
-so they translate directly to states, transitions, and invariants.\n\
+Every artifact must be machine-parseable into a formal state machine model\n\
+AND clearly readable by a human. Write so that tasks, requirements, and\n\
+constraints translate directly to states, transitions, and invariants.\n\
 \n\
-TASK IDS — the single most important rule:\n\
-- In tasks.md, each task has an ID WITHOUT a T prefix: '1.3' (N.M format).\n\
-- In spec.md requirements, you reference that task WITH a T prefix: 'T1.3'.\n\
-- So task '1.3' in tasks.md is referenced as 'T1.3' in a requirement.\n\
-- The T prefix is REQUIRED in spec.md references. '1.3' alone is NOT a valid\n\
-  reference in a requirement; 'T1.3' is.\n\
-- Every task reference in a spec MUST map to a real task ID that exists in\n\
-  tasks.md. Use the explicit ID ('T2.1'), not a description ('the migration step').\n\
-- Task descriptions in tasks.md become aliases for fuzzy matching, so write\n\
-  descriptive descriptions that capture the task's purpose.\n\
+Two rules apply across all artifacts:\n\
+- TASK IDS: a task '1.3' in tasks.md is referenced as 'T1.3' in a spec\n\
+  requirement. The T prefix is REQUIRED in spec references.\n\
+- 'human review only': a capability/policy that is NOT a temporal constraint\n\
+  must be marked 'human review only' in the requirement body. veriplan then\n\
+  treats it as informational (INFO), not a blocker.\n\
 \n\
-REQUIREMENTS — one verifiable constraint each:\n\
-- Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT).\n\
-- Every SHALL MUST reference at least one task by its T-prefixed ID\n\
-  (e.g. 'T3.2 SHALL complete before T3.9').\n\
-- Every SHALL MUST use EXACTLY ONE temporal keyword. The six are:\n\
-  BEFORE (sequential), AFTER (sequential), CONCURRENTLY (concurrent),\n\
-  IF...THEN (conditional), ALWAYS (global invariant), AT MOST ONE (exclusive).\n\
-- Put the SHALL sentence in a body paragraph — the heading alone is not parsed.\n\
-- Do NOT cram two constraints into one requirement body. One SHALL statement\n\
-  = one temporal keyword. If you need two orderings, write two requirements.\n\
-- If a requirement is a capability/policy that is NOT a temporal constraint,\n\
-  mark it 'human review only' in the body — veriplan then treats it as\n\
-  informational (INFO, not a blocker) instead of failing it.\n\
-- IMPORTANT: a temporal keyword takes priority. If the requirement body has\n\
-  a real temporal constraint (e.g. 'T1.1 SHALL ... BEFORE T1.2 SHALL ...'),\n\
-  it is VERIFIED even if 'human review only' also appears. The marker only\n\
-  applies to requirements with no temporal keyword.\n\
-\n\
-SCENARIOS — test the behavior:\n\
-- Every scenario MUST have WHEN + THEN with an RFC 2119 keyword; GIVEN is optional.\n\
-- Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs').\n\
-- Scenario steps (**GIVEN**/**WHEN**/**THEN**) are NOT checked by steve prose rules.\n\
-\n\
-PROSE — write unambiguously (steve checks this):\n\
-- Write requirements in ACTIVE voice and name the acting task by ID,\n\
-  e.g. 'T2.1 SHALL resolve the path' not 'the path SHALL be resolved'.\n\
-  Passive/hedged prose names no agent, so it grounds poorly.\n\
-- steve checks requirement body prose (spec.md), task descriptions (tasks.md),\n\
-  and design/proposal body paragraphs for: passive voice, pronoun ambiguity,\n\
-  hedging, one-instruction-per-sentence, synonym consistency, and sentence length.\n\
-- Keep requirement bodies short (<=30 words per sentence).\n\
-- No vague verbs (\"be robust\", \"be user-friendly\").";
+Per-artifact rules below. Write requirements that an objective test can verify.\n\
+Avoid vague verbs (\"be robust\", \"be user-friendly\").";
 fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
     let mut rules = BTreeMap::new();
     rules.insert(
@@ -178,7 +143,7 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
             "Every task MUST have an N.M identifier (e.g. '1.3')".to_string(),
             "Group tasks under ## Phase headings".to_string(),
             "Write descriptive task descriptions — they become aliases for grounding".to_string(),
-            "Keep task descriptions terse and imperative; steve checks them for one-instruction-per-sentence and hedging".to_string(),
+            "Keep task descriptions terse and imperative (one instruction per sentence)".to_string(),
         ],
     );
     rules
@@ -311,10 +276,10 @@ mod tests {
         let path = dir.path().join("openspec").join("config.yaml");
         merge_config(&path).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        // Context block — tool-agnostic
-        assert!(content.contains("Every OpenSpec artifact must be machine-parseable"));
+        // Context block — lean and tool-agnostic
+        assert!(content.contains("Every artifact must be machine-parseable"));
         assert!(content.contains("TASK IDS"));
-        assert!(content.contains("No vague verbs"));
+        assert!(content.contains("Avoid vague verbs"));
         // Proposal rules
         assert!(content.contains("State the problem as a gap"));
         assert!(content.contains("List non-goals to bound the formal model"));
@@ -331,28 +296,26 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_config_includes_steve_guidance() {
+    fn test_merge_config_includes_lean_guidance() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("openspec").join("config.yaml");
         merge_config(&path).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        // Context: prose-guidance paragraph present with special chars intact.
-        assert!(content.contains("PROSE"));
-        assert!(content.contains("steve checks requirement body prose"));
-        assert!(content.contains("ACTIVE voice"));
-        assert!(content.contains("**GIVEN**"));
-        assert!(content.contains("<=30"));
-        // Specs rules: steve guidance present.
+        // Context: lean, tool-free, no tool citations.
+        assert!(content.contains("TASK IDS"));
+        assert!(content.contains("human review only"));
+        assert!(!content.contains("steve"), "config must not cite tool names");
+        // Specs rules: core guidance present.
         assert!(content.contains("one temporal constraint per SHALL statement"));
         assert!(content.contains("sentence under 30 words"));
-        // Tasks rules: steve guidance present.
+        // Tasks rules present.
         assert!(content.contains("terse and imperative"));
         // The config must round-trip as valid YAML with all rules intact.
         let parsed: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
         let specs = parsed["rules"]["specs"].as_sequence().unwrap();
         assert!(
             specs.iter().any(|r| r.as_str().unwrap().contains("ACTIVE voice")),
-            "specs rules must include the active-voice steve rule"
+            "specs rules must include the active-voice rule"
         );
     }
 
