@@ -50,3 +50,10 @@
 - [x] 7.3 Confirm scenario `**THEN**`/`**WHEN**` steps (e.g. "SHALL be marked VALID" in model-check/spec.md) are NOT flagged (verified via unit test 6.2 — requirement statements exclude scenario steps)
 - [x] 7.4 Confirm real passive+ungrounded requirements (e.g. "A .md file path SHALL be resolved" in input-resolution/spec.md) ARE flagged (passive-voice findings surface as advisory; combined directive verified via unit test 6.5)
 - [x] 7.5 Confirm the same curated config runs cleanly over steve's own `openspec/` tree (29 specs, 12 tasks) via `steve/examples/openspec_prose.rs`
+
+## 8. Add steve guidance to `veriplan init` config
+
+- [x] 8.1 Add a prose-guidance paragraph to `VERIPLAN_CONTEXT` in `src/cmd_init.rs` explaining where steve applies (requirement body prose, task descriptions, design/proposal body paragraphs) and that it does NOT check scenario scaffolding or inline code
+- [x] 8.2 Add steve guidance rules to `veriplan_rules()`: specs → active voice + one temporal constraint per SHALL + sentence length; tasks → terse imperative descriptions
+- [x] 8.3 Ensure the YAML output round-trips cleanly (special chars `**GIVEN**`, `<=30`, quotes survive serde_yaml)
+- [x] 8.4 Add unit test `test_merge_config_includes_steve_guidance` verifying the new rules + YAML round-trip

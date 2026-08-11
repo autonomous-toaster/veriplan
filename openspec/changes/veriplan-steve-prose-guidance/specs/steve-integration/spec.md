@@ -2,7 +2,7 @@
 
 ### Requirement: steve accepts exclusion ranges for prose-zone scoping
 
-R1.1 SHALL expose a steve builder method that accepts a set of excluded line ranges (1-based, inclusive start/end). Findings produced for text wholly inside an excluded range SHALL NOT be emitted. A finding spanning the boundary between an excluded and an included region SHALL be attributed to the included region.
+T1.1 SHALL add steve's exclusion-range builder method BEFORE T3.4 SHALL use it for provenance-preserving scoping. The builder method SHALL accept a set of excluded line ranges (1-based, inclusive start/end). Findings produced for text wholly inside an excluded range SHALL NOT be emitted. A finding spanning the boundary between an excluded and an included region SHALL be attributed to the included region.
 
 #### Scenario: exclude scenario scaffolding lines
 
@@ -20,7 +20,7 @@ R1.1 SHALL expose a steve builder method that accepts a set of excluded line ran
 
 ### Requirement: steve supports configurable max sentence length
 
-R2.1 SHALL allow the maximum sentence length (in words) to be configured on the steve builder, independent of the fixed `TextKind` defaults (20 for Procedural, 25 for Descriptive). When set, the SentenceLength rule SHALL use the configured value.
+T1.2 SHALL add steve's configurable max-sentence-length builder method BEFORE T4.1 SHALL build a curated `Ste` per artifact. The method SHALL allow the maximum sentence length (in words) to be configured on the steve builder, independent of the fixed `TextKind` defaults (20 for Procedural, 25 for Descriptive). When set, the SentenceLength rule SHALL use the configured value.
 
 #### Scenario: configure a longer limit for OpenSpec spec prose
 

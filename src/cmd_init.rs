@@ -103,7 +103,19 @@ Structural rules:\n\
 - Every task reference in a spec MUST map to a real task ID.\n\
   Use explicit N.M IDs (e.g. 'T2.1') — not descriptions like 'the migration step'.\n\
   Task descriptions in tasks.md become aliases for fuzzy matching, so write\n\
-  descriptive descriptions that capture the task's purpose.";
+  descriptive descriptions that capture the task's purpose.
+
+Prose-guidance (unambiguity):
+- Write requirements in ACTIVE voice and name the acting task by ID, e.g.
+  'T2.1 SHALL resolve the path' not 'the path SHALL be resolved'.
+  Passive/hedged prose names no agent, so it grounds poorly.
+- steve checks requirement body prose (spec.md), task descriptions (tasks.md),
+  and design/proposal body paragraphs for: passive voice, pronoun ambiguity,
+  hedging, one-instruction-per-sentence, synonym consistency, and sentence length.
+- steve does NOT check scenario scaffolding (**GIVEN**/**WHEN**/**THEN** steps) or
+  inline code; only the prose zones above.
+- Keep requirement bodies short (<=30 words per sentence) and one temporal
+  constraint per SHALL statement.";
 
 fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
     let mut rules = BTreeMap::new();
@@ -133,6 +145,9 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
             "Use parenthetical syntax for task IDs: 'the migration step (T2.1)'".to_string(),
             "BEFORE requires two task IDs: 'T2.1 SHALL complete BEFORE T3.1 SHALL run'".to_string(),
             "ALWAYS requires one task ID: 'ALWAYS T2.1 SHALL validate input'".to_string(),
+            "Write requirement bodies in ACTIVE voice and name the acting task by ID (e.g. 'T2.1 SHALL resolve the path'), not passive prose like 'the path SHALL be resolved' — passive/hedged prose grounds poorly".to_string(),
+            "Keep one temporal constraint per SHALL statement — do not cram two constraints into one requirement body".to_string(),
+            "Keep each sentence under 30 words; split long requirement bodies into shorter sentences".to_string(),
         ],
     );
     rules.insert(
@@ -150,6 +165,7 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
             "Every task MUST have an N.M identifier (e.g. '1.3')".to_string(),
             "Group tasks under ## Phase headings".to_string(),
             "Write descriptive task descriptions — they become aliases for grounding".to_string(),
+            "Keep task descriptions terse and imperative; steve checks them for one-instruction-per-sentence and hedging".to_string(),
         ],
     );
     rules
@@ -299,6 +315,31 @@ mod tests {
         assert!(content.contains("Group tasks under ## Phase headings"));
         // Must not cite the tool
         assert!(!content.contains("veriplan checks"));
+    }
+
+    #[test]
+    fn test_merge_config_includes_steve_guidance() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("openspec").join("config.yaml");
+        merge_config(&path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        // Context: prose-guidance paragraph present with special chars intact.
+        assert!(content.contains("Prose-guidance"));
+        assert!(content.contains("ACTIVE voice"));
+        assert!(content.contains("**GIVEN**"));
+        assert!(content.contains("<=30"));
+        // Specs rules: steve guidance present.
+        assert!(content.contains("one temporal constraint per SHALL statement"));
+        assert!(content.contains("sentence under 30 words"));
+        // Tasks rules: steve guidance present.
+        assert!(content.contains("terse and imperative"));
+        // The config must round-trip as valid YAML with all rules intact.
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
+        let specs = parsed["rules"]["specs"].as_sequence().unwrap();
+        assert!(
+            specs.iter().any(|r| r.as_str().unwrap().contains("ACTIVE voice")),
+            "specs rules must include the active-voice steve rule"
+        );
     }
 
     #[test]

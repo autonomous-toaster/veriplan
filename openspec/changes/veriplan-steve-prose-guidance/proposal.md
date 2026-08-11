@@ -17,6 +17,8 @@ This change wires a **curated subset** of steve's rules into veriplan as a **sof
   - `tasks.md`: minimal set (OneInstructionPerSentence, Hedging) on task descriptions — because descriptions become grounding aliases
   - `design.md` / `proposal.md`: light set (PassiveVoice, PronounAmbiguity, Hedging)
 - **Strictness-profile mapping**: steve finding severity is driven by veriplan's existing `StrictnessProfile` (Strict/Moderate/Lax), same knob grounding already uses. In **Lax** mode, prose findings are INFO only — but they still surface.
+- **`veriplan init` config guidance**: `veriplan init` writes prose-guidance instructions into `openspec/config.yaml` (context + per-artifact rules) telling the author exactly where steve applies: active voice with named task agents in requirement bodies, one temporal constraint per SHALL, terse imperative task descriptions. It also documents that steve does NOT check scenario scaffolding or inline code.
+
 - **Grounding correlation**: when a steve style finding (passive/pronoun/hedging) and a grounding failure (ungroundable / low-confidence) occur on the *same* requirement, veriplan emits a **combined rephrase directive**: "This requirement is passive AND ungrounded — name the agent as a task ID, e.g. 'T1.2 SHALL resolve ...'". This runs in all strictness modes, including Lax (where ungrounded is only INFO and the steve hint may be the sole weak-requirement signal).
 - **steve-side changes** (in `../steve`), formalized in this change:
   - **Exclusion-range scoping**: steve accepts include/exclude line ranges so veriplan can scope prose zones (skip scenario scaffolding, inline code, predicate keywords) while preserving line/column provenance.
