@@ -60,6 +60,10 @@ pub enum ConstraintCategory {
     /// SHALL statement with a temporal pattern but no task references to ground it
     /// (e.g., "X SHALL complete before Y" where X and Y are not task IDs)
     PatternUngrounded,
+    /// A normative requirement explicitly marked as informational / human-review-only
+    /// (e.g. body contains "human review only"). Not a temporal constraint; it is
+    /// surfaced as INFO and does not block the plan.
+    Informational,
 }
 
 /// A single task/action from tasks.md.

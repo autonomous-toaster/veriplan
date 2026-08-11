@@ -69,3 +69,10 @@
 - [x] 10.1 Add `diagnostic` field to groundcontrol's `GroundedAtom` explaining why a confidence was assigned (e.g. partial argument match)
 - [x] 10.2 Surface the diagnostic in veriplan's ambiguous-grounding detail message so the AI assistant sees the concrete reason
 - [x] 10.3 Add unit test for the diagnostic plumbing
+
+## 11. Informational-requirement concept
+
+- [x] 11.1 Add `ConstraintCategory::Informational` variant and detect human-review-only / informational / not-formalizable-by-design markers in `translator::classify`
+- [x] 11.2 Skip Informational in grounding, prose-guidance, translate_all, generate_ltl, and check_diversity; surface as INFO in check_classifiability
+- [x] 11.3 Add unit test `informational_requirement_does_not_block`
+- [x] 11.4 Add spec delta `specs/informational-requirements/spec.md`; validate the change with veriplan itself (still VALID)

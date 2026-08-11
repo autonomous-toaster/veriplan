@@ -197,8 +197,11 @@ pub fn check_prose(
         Err(_) => return findings,
     };
     for req in &plan.requirements {
-        if req.strength == Rfc2119Strength::May {
-            continue; // MAY is informational; skip prose guidance.
+        if req.strength == Rfc2119Strength::May
+            || crate::translator::classify(&req.statement)
+                == crate::ir::ConstraintCategory::Informational
+        {
+            continue; // informational; skip prose guidance.
         }
         let file = req.source.file.clone();
         let element = format!("Requirement '{}'", req.id);

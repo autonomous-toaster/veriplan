@@ -206,6 +206,24 @@ pub fn check_classifiability(
         }
         let cat = translator::classify(&req.statement);
 
+        if cat == ConstraintCategory::Informational {
+            // Informational / human-review-only requirement: not a temporal
+            // constraint; surface as INFO, do not block and do not count
+            // toward non-formalizable.
+            info.push(CheckItem {
+                severity: "info".into(),
+                check: "informational_requirement".into(),
+                element: format!("Requirement '{}'", req.id),
+                location: format!("{}:{}", req.source.file, req.source.start_line),
+                detail: format!(
+                    "Informational '{}' — human review only, not verified by model checking",
+                    truncate(&req.statement, 80)
+                ),
+                fix: None,
+            });
+            continue;
+        }
+
         let cat = if cat != ConstraintCategory::NonFormalizable
             && cat != ConstraintCategory::PatternUngrounded
         {
@@ -381,6 +399,7 @@ pub fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
             ConstraintCategory::Global => "global",
             ConstraintCategory::NonFormalizable => "non_formalizable",
             ConstraintCategory::PatternUngrounded => "pattern_ungrounded",
+            ConstraintCategory::Informational => continue,
         };
         *cat_counts.entry(label).or_insert(0) += 1;
     }

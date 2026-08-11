@@ -52,7 +52,10 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
             && tasks_in_same_concurrent_phase(plan, &extract_task_refs(&req.statement, plan))
         {
             Some(LtlFormula::Always(LtlCondition::Atom("true".into()))) // structurally guaranteed — no LTL
-        } else if category != NonFormalizable && category != PatternUngrounded {
+        } else if category != NonFormalizable
+            && category != PatternUngrounded
+            && category != Informational
+        {
             generate_ltl(&category, &req.statement, plan)
         } else {
             None
@@ -75,6 +78,11 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
 pub fn classify(statement: &str) -> ConstraintCategory {
     let lower = statement.to_lowercase();
 
+    // Informational / human-review-only marker: a normative requirement that
+    // is intentionally not a temporal state-machine constraint.
+    if is_informational(&lower) {
+        return Informational;
+    }
     if is_exclusive(&lower) {
         return Exclusive;
     }
@@ -94,6 +102,14 @@ pub fn classify(statement: &str) -> ConstraintCategory {
         return SequentialOrder;
     }
     NonFormalizable
+}
+
+/// Whether the statement is explicitly marked as informational /
+/// human-review-only (not a temporal state-machine constraint).
+fn is_informational(lower: &str) -> bool {
+    // Only explicit authorial intent markers, NOT the bare word "informational"
+    // (which legitimately appears in requirements that discuss the concept).
+    lower.contains("human review only") || lower.contains("not formalizable by design")
 }
 
 fn is_exclusive(lower: &str) -> bool {
@@ -235,7 +251,7 @@ pub fn generate_ltl(
             // Just note the constraint exists — evaluated as always-true placeholder
             Some(LtlFormula::Always(LtlCondition::Atom("true".into())))
         }
-        NonFormalizable => None,
+        NonFormalizable | Informational => None,
         PatternUngrounded => None,
     }
 }

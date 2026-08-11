@@ -133,3 +133,20 @@ mod tests {
         assert!(t.ends_with('…'));
     }
 }
+
+#[test]
+fn informational_requirement_does_not_block() {
+    use crate::input::StrictnessProfile;
+    use crate::ir::*;
+    use crate::parser::extract_shall_statement;
+
+    // A requirement explicitly marked 'human review only' must be classified
+    // as Informational and must NOT produce a non_formalizable blocker.
+    let body = "This policy is human review only. The system SHALL be auditable.";
+    let stmt = extract_shall_statement(body, "spec.md");
+    assert_eq!(
+        crate::translator::classify(&stmt),
+        ConstraintCategory::Informational,
+        "classify should detect the human-review-only marker"
+    );
+}
