@@ -108,8 +108,7 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
             "BAD: \"The system SHALL auto-detect changes\" (no task ID, no temporal keyword)".to_string(),
             "BAD: \"T1.1 SHALL be done quickly\" (\"quickly\" is vague — define it measurably or use a temporal relation)".to_string(),
             "IF...THEN is for failure-recovery: \"IF T1.1 fails THEN T2.1 SHALL run\"".to_string(),
-            "Use ACTIVE voice and name the acting task by ID (e.g. \"T2.1 SHALL resolve the path\")".to_string(),
-            "Keep sentences short (<30 words); avoid vague words (robust, clean, good, user-friendly)".to_string(),
+            "Write in Simplified Technical English (ASD-STE100): active voice and name the acting task by ID (e.g. \"T2.1 SHALL resolve the path\"), short sentences (<30 words), no vague words (robust, clean, good, user-friendly)".to_string(),
             "Before the first '### Requirement:', add a 'Task Reference' section with a markdown table '| T ID | Description |' listing every task ID used in the file and its one-line description (e.g. '| T1.1 | Implement single-file input detection |')".to_string(),
         ],
     );
@@ -293,8 +292,8 @@ mod tests {
         let parsed: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
         let specs = parsed["rules"]["specs"].as_sequence().unwrap();
         assert!(
-            specs.iter().any(|r| r.as_str().unwrap().contains("ACTIVE voice")),
-            "specs rules must include the active-voice rule"
+            specs.iter().any(|r| r.as_str().unwrap().contains("ASD-STE100")),
+            "specs rules must include the Simplified Technical English rule"
         );
         assert!(
             specs.iter().any(|r| r.as_str().unwrap().contains("GOOD body")),
