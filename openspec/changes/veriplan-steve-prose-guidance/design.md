@@ -82,15 +82,27 @@ When a steve style finding (passive/pronoun/hedging) and a grounding failure (`U
 ### D5 — Advisory only, never blocking
 Prose findings never flip a plan to Blocking. Blocking remains the exclusive job of structural/semantic checks. This keeps steve a *guidance* layer, not a second gate.
 
-### D6 — steve is a path dependency
-`steve = { path = "../steve" }`. Two small additive steve changes are anticipated (both live in steve, reusable beyond veriplan):
-- **Exclusion-range scoping**: steve accepts include/exclude line ranges so prose-zone scoping preserves line/column provenance (alternative: veriplan slices substrings, losing provenance).
-- **Configurable max-sentence-length**: a spec requirement body naturally runs several clauses ("T2.1 SHALL complete BEFORE T3.2 SHALL run"); add a `TextKind` variant or builder-level config rather than the fixed 20-word procedural limit.
+### D6 — steve is a path dependency with two formalized steve-side changes
+`steve = { path = "../steve" }`. Two steve capabilities are required by this
+change (formalized in `specs/steve-integration/spec.md` and tracked in
+tasks), both additive so steve's own consumers are unaffected:
+- **Exclusion-range scoping**: steve accepts include/exclude line ranges so
+  prose-zone scoping preserves line/column provenance (preferred over
+  veriplan slicing substrings, which loses provenance).
+- **Configurable max-sentence-length**: a spec requirement body naturally
+  runs several clauses ("T2.1 SHALL complete BEFORE T3.2 SHALL run"); add
+  builder-level config rather than the fixed 20-word procedural limit.
+
+Validation tooling lives in steve as a generalized example
+(`steve/examples/openspec_prose.rs`): curated rule set + per-artifact
+scoping + strict/moderate/lax mapping, runnable over any OpenSpec tree.
+It is documented in steve's README under "Validate specification text
+(RFC 2119)" as the OpenSpec / spec-driven-doc use case.
 
 ## Validation (dogfood against veriplan's own OpenSpec corpus)
 
 We validated the curated configuration by running a dogfood example binary
-(`steve/steve/examples/veriplan_dogfood.rs`) that builds a `Ste` with exactly
+(`steve/steve/examples/openspec_prose.rs`) that builds a `Ste` with exactly
 the curated rule set + strictness mapping from D1/D3, over veriplan's own
 OpenSpec documents. Results (46 spec files, 13 tasks.md, 13 design.md,
 13 proposal.md):

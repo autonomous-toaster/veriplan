@@ -18,7 +18,9 @@ This change wires a **curated subset** of steve's rules into veriplan as a **sof
   - `design.md` / `proposal.md`: light set (PassiveVoice, PronounAmbiguity, Hedging)
 - **Strictness-profile mapping**: steve finding severity is driven by veriplan's existing `StrictnessProfile` (Strict/Moderate/Lax), same knob grounding already uses. In **Lax** mode, prose findings are INFO only — but they still surface.
 - **Grounding correlation**: when a steve style finding (passive/pronoun/hedging) and a grounding failure (ungroundable / low-confidence) occur on the *same* requirement, veriplan emits a **combined rephrase directive**: "This requirement is passive AND ungrounded — name the agent as a task ID, e.g. 'T1.2 SHALL resolve ...'". This runs in all strictness modes, including Lax (where ungrounded is only INFO and the steve hint may be the sole weak-requirement signal).
-- **Optional steve-side changes** (in `../steve`): exclusion-range scoping for prose zones, and configurable max-sentence-length for the OpenSpec spec text kind. These keep line/column provenance intact.
+- **steve-side changes** (in `../steve`), formalized in this change:
+  - **Exclusion-range scoping**: steve accepts include/exclude line ranges so veriplan can scope prose zones (skip scenario scaffolding, inline code, predicate keywords) while preserving line/column provenance.
+  - **Configurable max-sentence-length**: a spec requirement body naturally runs several clauses ("T2.1 SHALL complete BEFORE T3.2 SHALL run"); add a `TextKind` variant or builder-level config rather than the fixed 20-word procedural limit.
 
 ## Capabilities
 
@@ -34,5 +36,5 @@ This change wires a **curated subset** of steve's rules into veriplan as a **sof
 - veriplan gains a cheap, local, deterministic hint that predicts which requirements will ground badly — before or alongside the heavier grounding check.
 - No new CLI surface: the feature rides the existing `--strictness` flag and the existing rephrase-directive / report / LSP diagnostic pipeline.
 - steve findings are **advisory only** — they never block a plan. Blocking remains the sole job of veriplan's structural/semantic checks.
-- **Validated by dogfood**: the curated config was run over veriplan's own OpenSpec corpus (46 specs, 13 tasks, 13 designs, 13 proposals) via `steve/examples/veriplan_dogfood.rs`. Findings drop from ~60+ (stock steve noise) to ~4.5 per file, all from curated rules. Real passive+ungrounded requirements are caught (e.g. "A .md file path SHALL be resolved"); scenario `**THEN**` steps are only avoided once the D2 prose-zone exclusion is implemented — that exclusion is a required, load-bearing part of this change.
-- Requires `steve` to be reachable as a path dependency (`../steve`); steve changes (exclusion ranges, sentence-length config) are small and additive.
+- **Validated by dogfood**: the curated config was run over veriplan's own OpenSpec corpus (46 specs, 13 tasks, 13 designs, 13 proposals) and steve's own corpus (29 specs, 12 tasks) via the generalized `steve/examples/openspec_prose.rs` example. Findings drop from ~60+ (stock steve noise) to ~4.5 per file, all from curated rules. Real passive+ungrounded requirements are caught (e.g. "A .md file path SHALL be resolved"); scenario `**THEN**`/`**WHEN**` steps are only avoided once the D2 prose-zone exclusion is implemented — that exclusion is a required, load-bearing part of this change.
+- Requires `steve` to be reachable as a path dependency (`../steve`); steve changes (exclusion ranges, sentence-length config) are additive and do not change existing steve behavior or its own test suite.
