@@ -24,6 +24,9 @@ crossbeam-channel = "0.5"
 # Grounding
 groundcontrol = { path = "../groundcontrol" }
 
+# Prose-guidance (curated steve rules for OpenSpec unambiguity)
+steve = { path = "../steve/steve" }
+
 # Model output
 tempfile = "3"
 log = "0.4"
@@ -31,7 +34,7 @@ env_logger = "0.11"
 streaming-iterator = "0.1"
 
 # spin-rs: Rust-native Promela model checker (in-process alternative to spin binary)
-spin-rs = { git = "https://github.com/autonomous-toaster/spin-rs", rev = "d1fa273" }
+spin-rs = { path = "../spin-rs" }
 
 # Optional: Z3 SAT checking
 z3 = { version = "0.14", optional = true }

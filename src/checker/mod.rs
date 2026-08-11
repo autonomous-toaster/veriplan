@@ -295,6 +295,39 @@ pub fn verify_with_strictness(
     // Apply strictness-based severity mapping
     result = apply_strictness(result, strictness, is_openspec);
 
+    // Add prose-guidance (curated steve rules) as advisory findings and
+    // correlate with grounding. Prose findings NEVER block — they only add
+    // warnings/info and rephrase directives.
+    if let Some(report) = result.convertibility_report.as_mut() {
+        let findings = crate::prose::check_prose(plan, None, &strictness);
+        for f in &findings {
+            let item = crate::ir::CheckItem {
+                severity: f.severity.clone(),
+                check: f.rule.clone(),
+                element: f.element.clone(),
+                location: format!("{}:{}", f.file, f.line),
+                detail: f.message.clone(),
+                fix: f.suggestion.clone(),
+            };
+            if item.severity == "warning" {
+                report.warnings.push(item);
+            } else {
+                report.info.push(item);
+            }
+            if let Some(s) = &f.suggestion {
+                report
+                    .rephrase_directives
+                    .push(format!("[{}] {}: {}", f.severity.to_uppercase(), f.element, s));
+            }
+        }
+        // Correlation directives (fix style AND grounding in one step).
+        for d in crate::prose::correlate_with_grounding(&findings, plan, &strictness) {
+            report
+                .rephrase_directives
+                .push(format!("[{}] {}", d.severity.to_uppercase(), d.directive));
+        }
+    }
+
     result
 }
 

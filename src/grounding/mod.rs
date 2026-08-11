@@ -6,7 +6,9 @@
 //!   `src/checker/checks.rs`.
 
 use groundcontrol::grounders::RuleGrounder;
-use groundcontrol::types::{Grounder, GroundingStatus, Signature};
+use groundcontrol::types::{Grounder, Signature};
+
+pub use groundcontrol::types::GroundingStatus;
 
 use crate::input::StrictnessProfile;
 use crate::ir::{CheckItem, PlanIR, Rfc2119Strength};

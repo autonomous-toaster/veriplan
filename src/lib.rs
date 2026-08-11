@@ -7,6 +7,7 @@ pub mod input;
 pub mod ir;
 pub mod lsp;
 pub mod parser;
+pub mod prose;
 pub mod translator;
 pub mod util;
 pub mod visualizer;
