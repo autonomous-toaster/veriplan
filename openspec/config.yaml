@@ -13,6 +13,8 @@ context: |-
   treated as informational (INFO), not a blocker.
 
   Per-artifact rules below. Write requirements that an objective test can verify.
+  Follow Simplified Technical English (ASD-STE100) where it makes sense: active
+  voice, one instruction per sentence, short sentences, approved vocabulary.
   Avoid vague verbs ("be robust", "be user-friendly").
 rules:
   design:
@@ -40,6 +42,7 @@ rules:
   - 'BEFORE requires two task IDs: ''T2.1 SHALL complete BEFORE T3.1 SHALL run'''
   - 'ALWAYS requires one task ID: ''ALWAYS T2.1 SHALL validate input'''
   - Write requirement bodies in ACTIVE voice and name the acting task by ID (e.g. 'T2.1 SHALL resolve the path'), not passive prose like 'the path SHALL be resolved' — passive/hedged prose grounds poorly
+  - 'Follow Simplified Technical English (ASD-STE100): active voice, one instruction per sentence, short sentences, approved vocabulary — no vague or hedged wording'
   - Keep one temporal constraint per SHALL statement — do not cram two constraints into one requirement body
   - Keep each sentence under 30 words; split long requirement bodies into shorter sentences
   tasks:

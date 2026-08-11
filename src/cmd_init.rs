@@ -94,6 +94,8 @@ Two rules apply across all artifacts:\n\
   treated as informational (INFO), not a blocker.\n\
 \n\
 Per-artifact rules below. Write requirements that an objective test can verify.\n\
+Follow Simplified Technical English (ASD-STE100) where it makes sense: active\n\
+voice, one instruction per sentence, short sentences, approved vocabulary.\n\
 Avoid vague verbs (\"be robust\", \"be user-friendly\").";
 fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
     let mut rules = BTreeMap::new();
@@ -124,6 +126,7 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
             "BEFORE requires two task IDs: 'T2.1 SHALL complete BEFORE T3.1 SHALL run'".to_string(),
             "ALWAYS requires one task ID: 'ALWAYS T2.1 SHALL validate input'".to_string(),
             "Write requirement bodies in ACTIVE voice and name the acting task by ID (e.g. 'T2.1 SHALL resolve the path'), not passive prose like 'the path SHALL be resolved' — passive/hedged prose grounds poorly".to_string(),
+            "Follow Simplified Technical English (ASD-STE100): active voice, one instruction per sentence, short sentences, approved vocabulary — no vague or hedged wording".to_string(),
             "Keep one temporal constraint per SHALL statement — do not cram two constraints into one requirement body".to_string(),
             "Keep each sentence under 30 words; split long requirement bodies into shorter sentences".to_string(),
         ],
