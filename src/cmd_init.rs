@@ -87,36 +87,45 @@ state machine model AND clearly readable by a human reviewer.\n\
 Write tasks, requirements, and constraints\n\
 so they translate directly to states, transitions, and invariants.\n\
 \n\
-Structural rules:\n\
-- Every task MUST have a unique N.M ID and belong to a named phase.\n\
-- Phases execute in order. Tasks within a phase execute one at a time.\n\
-  Mark a phase heading with [concurrent] if tasks are meant to run simultaneously.\n\
-- Every requirement MUST use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY/MUST NOT).\n\
-- Every SHALL MUST reference at least one task by N.M ID (e.g. 'T3.2 SHALL complete before T3.9').\n\
-- Every SHALL MUST use ONE temporal keyword: BEFORE (sequential),\n\
-  AT MOST ONE (exclusive), IF...THEN (conditional), CONCURRENTLY (concurrent),\n\
-  or ALWAYS (global invariant).\n\
+TASK IDS — the single most important rule:\n\
+- In tasks.md, each task has an ID WITHOUT a T prefix: '1.3' (N.M format).\n\
+- In spec.md requirements, you reference that task WITH a T prefix: 'T1.3'.\n\
+- So task '1.3' in tasks.md is referenced as 'T1.3' in a requirement.\n\
+- The T prefix is REQUIRED in spec.md references. '1.3' alone is NOT a valid\n\
+  reference in a requirement; 'T1.3' is.\n\
+- Every task reference in a spec MUST map to a real task ID that exists in\n\
+  tasks.md. Use the explicit ID ('T2.1'), not a description ('the migration step').\n\
+- Task descriptions in tasks.md become aliases for fuzzy matching, so write\n\
+  descriptive descriptions that capture the task's purpose.\n\
+\n\
+REQUIREMENTS — one verifiable constraint each:\n\
+- Every requirement MUST use an RFC 2119 keyword (MUST/SHALL/SHOULD/MAY/MUST NOT).\n\
+- Every SHALL MUST reference at least one task by its T-prefixed ID\n\
+  (e.g. 'T3.2 SHALL complete before T3.9').\n\
+- Every SHALL MUST use EXACTLY ONE temporal keyword. The six are:\n\
+  BEFORE (sequential), AFTER (sequential), CONCURRENTLY (concurrent),\n\
+  IF...THEN (conditional), ALWAYS (global invariant), AT MOST ONE (exclusive).\n\
 - Put the SHALL sentence in a body paragraph — the heading alone is not parsed.\n\
+- Do NOT cram two constraints into one requirement body. One SHALL statement\n\
+  = one temporal keyword. If you need two orderings, write two requirements.\n\
+- If a requirement is a capability/policy that is NOT a temporal constraint,\n\
+  mark it 'human review only' in the body — veriplan then treats it as\n\
+  informational (INFO, not a blocker) instead of failing it.\n\
+\n\
+SCENARIOS — test the behavior:\n\
+- Every scenario MUST have WHEN + THEN with an RFC 2119 keyword; GIVEN is optional.\n\
 - Every WHEN and THEN step SHOULD reference a task ID (e.g. 'WHEN T3.2 runs').\n\
-- Every scenario MUST have WHEN + THEN with an RFC 2119 keyword.\n\
-- No vague verbs (\"be robust\", \"be user-friendly\").\n\
-- Every task reference in a spec MUST map to a real task ID.\n\
-  Use explicit N.M IDs (e.g. 'T2.1') — not descriptions like 'the migration step'.\n\
-  Task descriptions in tasks.md become aliases for fuzzy matching, so write\n\
-  descriptive descriptions that capture the task's purpose.
-
-Prose-guidance (unambiguity):
-- Write requirements in ACTIVE voice and name the acting task by ID, e.g.
-  'T2.1 SHALL resolve the path' not 'the path SHALL be resolved'.
-  Passive/hedged prose names no agent, so it grounds poorly.
-- steve checks requirement body prose (spec.md), task descriptions (tasks.md),
-  and design/proposal body paragraphs for: passive voice, pronoun ambiguity,
-  hedging, one-instruction-per-sentence, synonym consistency, and sentence length.
-- steve does NOT check scenario scaffolding (**GIVEN**/**WHEN**/**THEN** steps) or
-  inline code; only the prose zones above.
-- Keep requirement bodies short (<=30 words per sentence) and one temporal
-  constraint per SHALL statement.";
-
+- Scenario steps (**GIVEN**/**WHEN**/**THEN**) are NOT checked by steve prose rules.\n\
+\n\
+PROSE — write unambiguously (steve checks this):\n\
+- Write requirements in ACTIVE voice and name the acting task by ID,\n\
+  e.g. 'T2.1 SHALL resolve the path' not 'the path SHALL be resolved'.\n\
+  Passive/hedged prose names no agent, so it grounds poorly.\n\
+- steve checks requirement body prose (spec.md), task descriptions (tasks.md),\n\
+  and design/proposal body paragraphs for: passive voice, pronoun ambiguity,\n\
+  hedging, one-instruction-per-sentence, synonym consistency, and sentence length.\n\
+- Keep requirement bodies short (<=30 words per sentence).\n\
+- No vague verbs (\"be robust\", \"be user-friendly\").";
 fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
     let mut rules = BTreeMap::new();
     rules.insert(
@@ -300,7 +309,7 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         // Context block — tool-agnostic
         assert!(content.contains("Every OpenSpec artifact must be machine-parseable"));
-        assert!(content.contains("Every task MUST have a unique N.M ID"));
+        assert!(content.contains("TASK IDS"));
         assert!(content.contains("No vague verbs"));
         // Proposal rules
         assert!(content.contains("State the problem as a gap"));
@@ -324,7 +333,8 @@ mod tests {
         merge_config(&path).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         // Context: prose-guidance paragraph present with special chars intact.
-        assert!(content.contains("Prose-guidance"));
+        assert!(content.contains("PROSE"));
+        assert!(content.contains("steve checks requirement body prose"));
         assert!(content.contains("ACTIVE voice"));
         assert!(content.contains("**GIVEN**"));
         assert!(content.contains("<=30"));

@@ -76,3 +76,11 @@
 - [x] 11.2 Skip Informational in grounding, prose-guidance, translate_all, generate_ltl, and check_diversity; surface as INFO in check_classifiability
 - [x] 11.3 Add unit test `informational_requirement_does_not_block`
 - [x] 11.4 Add spec delta `specs/informational-requirements/spec.md`; validate the change with veriplan itself (still VALID)
+
+## 12. Make `veriplan init` instructions crystal clear
+
+- [x] 12.1 Rewrite `VERIPLAN_CONTEXT` with a dedicated "TASK IDS" section explaining the N.M (tasks.md) vs TN.M (spec.md) relationship explicitly, including that the T prefix is REQUIRED in spec references
+- [x] 12.2 Make the temporal-keyword list complete and consistent (all 6: BEFORE, AFTER, CONCURRENTLY, IF...THEN, ALWAYS, AT MOST ONE) in the context
+- [x] 12.3 Document the 'human review only' marker and its effect (informational, not a blocker) in the context
+- [x] 12.4 Add "one constraint per requirement body" guidance and scenario-scaffolding-not-checked note
+- [x] 12.5 Update cmd_init tests for the new context; verify YAML round-trips and the change still passes veriplan
