@@ -373,10 +373,17 @@ pub fn check_grounding(
                     .first()
                     .map(|c| c.confidence)
                     .unwrap_or(0.0);
+                let diagnostic = result
+                    .candidates
+                    .first()
+                    .map(|c| c.diagnostic.as_str())
+                    .unwrap_or("");
                 let detail = format!(
-                    "Ambiguous grounding for '{}' — low confidence ({:.2})",
+                    "Ambiguous grounding for '{}' — low confidence ({:.2}){}{}",
                     truncate(&req.statement, 80),
                     best_confidence,
+                    if diagnostic.is_empty() { "" } else { ": " },
+                    diagnostic,
                 );
                 let fix =
                     "Add explicit task ID references (e.g., 'T2.1') to the requirement statement"
