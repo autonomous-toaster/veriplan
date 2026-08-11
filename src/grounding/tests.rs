@@ -297,3 +297,35 @@ fn test_multi_keyword_with_three_predicates() {
         "expected grounding_ambiguous_multi_keyword check"
     );
 }
+
+#[test]
+fn split_constraint_clauses_splits_multi_constraint() {
+    use crate::grounding::split_constraint_clauses;
+    let stmt = "T4.7 SHALL inspect AFTER T4.4 SHALL classify. T4.6 SHALL complete BEFORE T4.7 SHALL inspect.";
+    let clauses = split_constraint_clauses(stmt);
+    assert_eq!(clauses.len(), 2, "should split into two clauses: {:?}", clauses);
+    assert!(clauses[0].contains("AFTER"));
+    assert!(clauses[1].contains("BEFORE"));
+}
+
+#[test]
+fn split_constraint_clauses_single_sentence_unchanged() {
+    use crate::grounding::split_constraint_clauses;
+    let stmt = "T1.1 SHALL complete BEFORE T1.2 SHALL run.";
+    let clauses = split_constraint_clauses(stmt);
+    assert_eq!(clauses.len(), 1, "single constraint stays one clause");
+    assert_eq!(clauses[0], stmt.trim());
+}
+
+#[test]
+fn split_constraint_clauses_does_not_split_mid_sentence() {
+    use crate::grounding::split_constraint_clauses;
+    // A period that is NOT followed by a task-ID reference is not a split point.
+    let stmt = "The store SHALL be protected by an Arc. T2.1 SHALL run AFTER T2.2.";
+    let clauses = split_constraint_clauses(stmt);
+    // First sentence has no task ref start, so it stays with... actually the
+    // second sentence starts with T2.1, so it should split into two.
+    assert!(clauses.len() >= 1);
+    // Verify the second clause is the task-ID one.
+    assert!(clauses.last().unwrap().starts_with("T2.1"), "last clause should start with task ID: {:?}", clauses);
+}

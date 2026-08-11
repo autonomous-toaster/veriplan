@@ -157,6 +157,73 @@ pub struct GroundingOutcome {
     pub status: GroundingStatus,
 }
 
+/// Split a requirement statement into its individual temporal-constraint
+/// clauses. A clause is a sentence that contains a task-ID reference; we split
+/// on sentence boundaries (`.` + space) where the following text begins a new
+/// task-ID reference (e.g. "T4.7 SHALL inspect AFTER T4.4 ... T4.6 SHALL ...").
+///
+/// Returns the clauses in order, falling back to the whole statement if it
+/// cannot be split (e.g. a single sentence).
+fn split_constraint_clauses(statement: &str) -> Vec<&str> {
+    let mut clauses = Vec::new();
+    let mut start = 0usize;
+    let bytes = statement.as_bytes();
+    // Heuristic: a new clause begins where a task-ID reference (T<N>.<N>) is
+    // preceded by a sentence boundary (. or newline).
+    let mut i = 0usize;
+    while i + 1 < bytes.len() {
+        // Look for ". " boundary.
+        if bytes[i] == b'.' && i + 2 < bytes.len() && bytes[i + 1] == b' ' {
+            let rest = &statement[i + 2..];
+            // A task-ID reference begins the next clause.
+            if looks_like_task_id(rest) {
+                let clause = statement[start..=i].trim();
+                if !clause.is_empty() {
+                    clauses.push(clause);
+                }
+                start = i + 2;
+                i += 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if start == 0 {
+        // No split found; single clause.
+        return vec![statement.trim()];
+    }
+    let last = statement[start..].trim();
+    if !last.is_empty() {
+        clauses.push(last);
+    }
+    if clauses.is_empty() {
+        vec![statement.trim()]
+    } else {
+        clauses
+    }
+}
+
+/// Whether `s` (the start of a sentence) begins with a task-ID reference,
+/// e.g. "T4.7 SHALL" or "T1.2 SHALL complete".
+fn looks_like_task_id(s: &str) -> bool {
+    let s = s.trim_start();
+    let mut chars = s.chars();
+    if chars.next() != Some('T') {
+        return false;
+    }
+    let mut digit1 = false;
+    for c in chars.by_ref() {
+        if c.is_ascii_digit() {
+            digit1 = true;
+        } else if c == '.' {
+            break;
+        } else {
+            return false;
+        }
+    }
+    digit1
+}
+
 /// Run the grounding check on a plan.
 ///
 /// For each requirement, builds a Signature from PlanIR and calls
@@ -225,15 +292,29 @@ pub fn check_grounding(
 
         if matched_predicates.len() > 1 {
             let keywords = matched_predicates.join(" and ");
+            let clauses = split_constraint_clauses(&req.statement);
+            let clause_list: Vec<String> = clauses
+                .iter()
+                .enumerate()
+                .map(|(idx, c)| format!("  Requirement {idx}: {}", crate::util::truncate(c, 90)))
+                .collect();
             let detail = format!(
                 "GROUNDING AMBIGUITY: statement matches multiple temporal keywords ({}). \
                  Split into separate requirements, one temporal keyword per requirement.",
                 keywords,
             );
-            let fix = format!(
-                "Split the requirement into separate statements, each using only one of: {}",
-                keywords,
-            );
+            let fix = if clauses.len() > 1 {
+                format!(
+                    "Split into one requirement per temporal constraint. Suggested split:\n{}\nEach must use exactly one of: {}",
+                    clause_list.join("\n"),
+                    keywords,
+                )
+            } else {
+                format!(
+                    "Split the requirement into separate statements, each using only one of: {}",
+                    keywords,
+                )
+            };
 
             match strictness {
                 StrictnessProfile::Strict => blockers.push(CheckItem {

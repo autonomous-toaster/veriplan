@@ -57,3 +57,9 @@
 - [x] 8.2 Add steve guidance rules to `veriplan_rules()`: specs → active voice + one temporal constraint per SHALL + sentence length; tasks → terse imperative descriptions
 - [x] 8.3 Ensure the YAML output round-trips cleanly (special chars `**GIVEN**`, `<=30`, quotes survive serde_yaml)
 - [x] 8.4 Add unit test `test_merge_config_includes_steve_guidance` verifying the new rules + YAML round-trip
+
+## 9. Smarter multi-constraint fix feedback
+
+- [x] 9.1 Add `split_constraint_clauses` helper in `src/grounding/mod.rs` that splits a requirement statement into individual temporal-constraint clauses at sentence boundaries followed by a task-ID reference
+- [x] 9.2 Improve the multi-keyword fix message to show the extracted clause split as a concrete "Requirement 0 / Requirement 1" template instead of a generic instruction
+- [x] 9.3 Add unit tests for `split_constraint_clauses` (multi-constraint split, single-sentence unchanged, no mid-sentence split)
