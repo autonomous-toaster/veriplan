@@ -110,7 +110,7 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
             "IF...THEN is for failure-recovery: \"IF T1.1 fails THEN T2.1 SHALL run\"".to_string(),
             "Use ACTIVE voice and name the acting task by ID (e.g. \"T2.1 SHALL resolve the path\")".to_string(),
             "Keep sentences short (<30 words); avoid vague words (robust, clean, good, user-friendly)".to_string(),
-            "Open the file with a Task Reference table listing the task IDs used, before the first requirement".to_string(),
+            "Before the first '### Requirement:', add a 'Task Reference' section with a markdown table '| T ID | Description |' listing every task ID used in the file and its one-line description (e.g. '| T1.1 | Implement single-file input detection |')".to_string(),
         ],
     );
     rules.insert(

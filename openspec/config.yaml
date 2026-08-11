@@ -25,7 +25,7 @@ rules:
   - 'IF...THEN is for failure-recovery: "IF T1.1 fails THEN T2.1 SHALL run"'
   - Use ACTIVE voice and name the acting task by ID (e.g. "T2.1 SHALL resolve the path")
   - Keep sentences short (<30 words); avoid vague words (robust, clean, good, user-friendly)
-  - Open the file with a Task Reference table listing the task IDs used, before the first requirement
+  - Before the first '### Requirement:', add a 'Task Reference' section with a markdown table '| T ID | Description |' listing every task ID used in the file and its one-line description (e.g. '| T1.1 | Implement single-file input detection |')
   tasks:
   - Give every task an N.M identifier (e.g. 1.3)
   - Write each task as a short, imperative action (one instruction per task)
