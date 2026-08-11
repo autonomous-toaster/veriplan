@@ -150,3 +150,33 @@ fn informational_requirement_does_not_block() {
         "classify should detect the human-review-only marker"
     );
 }
+
+#[test]
+fn temporal_constraint_beats_human_review_marker() {
+    use crate::ir::ConstraintCategory;
+    // A temporal constraint + a trailing human-review note must still be
+    // classified as a temporal category (verifiable), NOT informational.
+    let stmt = "T1.1 SHALL produce an audit log BEFORE T1.2 SHALL deploy it. The audit log is human review only.";
+    let cat = crate::translator::classify(stmt);
+    assert_ne!(
+        cat, ConstraintCategory::Informational,
+        "temporal keyword must take priority over the human-review marker"
+    );
+    assert_ne!(
+        cat, ConstraintCategory::NonFormalizable,
+        "temporal keyword must make the requirement verifiable"
+    );
+}
+
+#[test]
+fn non_temporal_with_marker_is_informational() {
+    use crate::ir::ConstraintCategory;
+    // A capability/policy with the marker and NO temporal keyword is
+    // informational, not NonFormalizable.
+    let stmt = "This policy is human review only. It SHALL follow the security standard.";
+    assert_eq!(
+        crate::translator::classify(stmt),
+        ConstraintCategory::Informational,
+        "non-temporal requirement with marker should be Informational"
+    );
+}

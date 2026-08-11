@@ -78,11 +78,9 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
 pub fn classify(statement: &str) -> ConstraintCategory {
     let lower = statement.to_lowercase();
 
-    // Informational / human-review-only marker: a normative requirement that
-    // is intentionally not a temporal state-machine constraint.
-    if is_informational(&lower) {
-        return Informational;
-    }
+    // Temporal categories take PRIORITY. A requirement that is a verifiable
+    // temporal constraint is always classified as that category, even if the
+    // body also happens to mention "human review only".
     if is_exclusive(&lower) {
         return Exclusive;
     }
@@ -100,6 +98,12 @@ pub fn classify(statement: &str) -> ConstraintCategory {
     }
     if is_sequential(&lower) {
         return SequentialOrder;
+    }
+    // Only if the requirement is NOT a temporal constraint do we honor the
+    // human-review-only marker — otherwise it would accidentally exempt
+    // verifiable requirements.
+    if is_informational(&lower) {
+        return Informational;
     }
     NonFormalizable
 }

@@ -84,3 +84,10 @@
 - [x] 12.3 Document the 'human review only' marker and its effect (informational, not a blocker) in the context
 - [x] 12.4 Add "one constraint per requirement body" guidance and scenario-scaffolding-not-checked note
 - [x] 12.5 Update cmd_init tests for the new context; verify YAML round-trips and the change still passes veriplan
+
+## 13. Make the human-review-only marker precise
+
+- [x] 13.1 Invert `classify()` priority: temporal categories are checked BEFORE the human-review marker, so a verifiable constraint is never accidentally exempted
+- [x] 13.2 The marker only applies to requirements with NO temporal keyword (genuinely non-formal), not to temporal constraints that mention it as a note
+- [x] 13.3 Add unit tests: temporal+marker → verifiable; non-temporal+marker → Informational
+- [x] 13.4 Document the priority behavior in `veriplan init` context

@@ -111,6 +111,10 @@ REQUIREMENTS — one verifiable constraint each:\n\
 - If a requirement is a capability/policy that is NOT a temporal constraint,\n\
   mark it 'human review only' in the body — veriplan then treats it as\n\
   informational (INFO, not a blocker) instead of failing it.\n\
+- IMPORTANT: a temporal keyword takes priority. If the requirement body has\n\
+  a real temporal constraint (e.g. 'T1.1 SHALL ... BEFORE T1.2 SHALL ...'),\n\
+  it is VERIFIED even if 'human review only' also appears. The marker only\n\
+  applies to requirements with no temporal keyword.\n\
 \n\
 SCENARIOS — test the behavior:\n\
 - Every scenario MUST have WHEN + THEN with an RFC 2119 keyword; GIVEN is optional.\n\
