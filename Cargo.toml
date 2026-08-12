@@ -25,7 +25,7 @@ crossbeam-channel = "0.5"
 groundcontrol = { git = "https://github.com/autonomous-toaster/groundcontrol", tag = "v0.1.0" }
 
 # Prose-guidance (curated steve rules for OpenSpec unambiguity)
-steve = { git = "https://github.com/autonomous-toaster/steve", tag = "v0.1.0" }
+steve = { git = "https://github.com/autonomous-toaster/steve", tag = "v0.2.0" }
 
 # Model output
 tempfile = "3"

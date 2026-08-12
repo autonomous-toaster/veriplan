@@ -1459,7 +1459,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "steve"
 version = "0.1.0"
-source = "git+https://github.com/autonomous-toaster/steve?tag=v0.1.0#d0fe787f4a6202d79c5d9b8b49b5779aadc392cb"
+source = "git+https://github.com/autonomous-toaster/steve?tag=v0.2.0#6ce4693a236041f9b52dc69b648a979d853dbc0b"
 dependencies = [
  "clap",
  "english-pos-tagger",
