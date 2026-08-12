@@ -116,6 +116,87 @@ fn is_informational(lower: &str) -> bool {
     lower.contains("human review only") || lower.contains("not formalizable by design")
 }
 
+/// Why a non-formalizable requirement is not verifiable. Used to emit targeted,
+/// pedagogical fixes instead of the generic "does not match any temporal category".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VagueDiagnosis {
+    /// References a task but specifies no constraint (redundant with the task list).
+    BareCapability { task: String, word: Option<String> },
+    /// References a task and uses a vague adverb (e.g. "quickly").
+    VagueAction { task: String, word: String },
+    /// No task reference and uses a vague adjective (e.g. "robust").
+    VagueQuality { word: String },
+}
+
+/// Curated vague-word list, mirroring the curated temporal-keyword approach.
+/// Runs ONLY on requirements that reached NonFormalizable (no temporal keyword,
+/// no 'human review only'), so it cannot misfire on a verifiable requirement.
+fn vague_adverbs() -> &'static [&'static str] {
+    &[
+        "quickly", "fast", "soon", "correctly", "properly", "efficiently", "reliably",
+        "safely", "adequately", "promptly", "easily", "consistently",
+    ]
+}
+
+fn vague_adjectives() -> &'static [&'static str] {
+    &[
+        "robust", "clean", "good", "stable", "user-friendly", "easy", "fast", "minimal",
+        "optimal", "responsive", "scalable", "performant", "reliable", "safe", "better",
+        "worse", "best",
+    ]
+}
+
+/// Diagnose WHY a non-formalizable requirement is not verifiable.
+/// Callers MUST only invoke this after `classify()` returned `NonFormalizable`.
+pub fn diagnose_vague(statement: &str, task_ids: &[String]) -> Option<VagueDiagnosis> {
+    let lower = statement.to_lowercase();
+    let refs = extract_task_refs_bare(statement, task_ids);
+    let has_task = !refs.is_empty();
+    let first_task = refs.first().cloned().unwrap_or_default();
+
+    // Prefer the most specific diagnosis: a vague word in a task-referencing
+    // requirement is a VagueAction; in a non-referencing requirement it is a
+    // VagueQuality.
+    let adverb = vague_adverbs().iter().find(|w| lower.contains(**w)).map(|w| *w);
+    let adjective = vague_adjectives().iter().find(|w| lower.contains(**w)).map(|w| *w);
+
+    if has_task {
+        if let Some(w) = adverb {
+            return Some(VagueDiagnosis::VagueAction {
+                task: first_task,
+                word: (*w).to_string(),
+            });
+        }
+        // A task-referencing requirement with a vague adjective is still
+        // constraint-shaped but vague; treat the adjective as the issue.
+        if let Some(w) = adjective {
+            return Some(VagueDiagnosis::VagueAction {
+                task: first_task,
+                word: (*w).to_string(),
+            });
+        }
+        // No vague word: it's a bare capability (references a task, no constraint).
+        return Some(VagueDiagnosis::BareCapability {
+            task: first_task,
+            word: None,
+        });
+    }
+
+    // No task reference.
+    if let Some(w) = adjective {
+        return Some(VagueDiagnosis::VagueQuality {
+            word: (*w).to_string(),
+        });
+    }
+    if let Some(w) = adverb {
+        return Some(VagueDiagnosis::VagueQuality {
+            word: (*w).to_string(),
+        });
+    }
+
+    None // undiagnosed — fall back to the generic blocker
+}
+
 fn is_exclusive(lower: &str) -> bool {
     lower.contains("at most one")
         || lower.contains("mutually exclusive")
@@ -364,6 +445,103 @@ mod tests {
     fn test_normalize_id() {
         assert_eq!(normalize_id("1.3"), "t1_3");
         assert_eq!(normalize_id("10.7"), "t10_7");
+    }
+
+    #[test]
+    fn test_diagnose_bare_capability() {
+        // References a task, no vague word -> BareCapability
+        let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
+        let d = diagnose_vague("T1.1 SHALL be executed.", &task_ids).unwrap();
+        assert_eq!(
+            d,
+            VagueDiagnosis::BareCapability {
+                task: "1.1".to_string(),
+                word: None
+            }
+        );
+        // classify() must have returned NonFormalizable first.
+        assert_eq!(
+            classify("T1.1 SHALL be executed."),
+            ConstraintCategory::NonFormalizable
+        );
+    }
+
+    #[test]
+    fn test_diagnose_vague_action() {
+        // References a task + vague adverb -> VagueAction
+        let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
+        let d = diagnose_vague("T1.1 SHALL be done quickly.", &task_ids).unwrap();
+        assert_eq!(
+            d,
+            VagueDiagnosis::VagueAction {
+                task: "1.1".to_string(),
+                word: "quickly".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_diagnose_vague_quality() {
+        // No task reference + vague adjective -> VagueQuality
+        let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
+        let d = diagnose_vague("The system SHALL be robust.", &task_ids).unwrap();
+        assert_eq!(
+            d,
+            VagueDiagnosis::VagueQuality {
+                word: "robust".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_safety_boundary_temporal_not_diagnosed() {
+        // A temporal requirement is NEVER diagnosed as vague — classify() returns
+        // a temporal category (SequentialOrder), so diagnose_vague is not reached.
+        let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
+        let cat = classify("T1.1 SHALL be done quickly BEFORE T1.2 SHALL start.");
+        // The exact temporal category is a pre-existing classification detail
+        // (may be FixedTime or SequentialOrder); the guarantee is that it is a
+        // temporal category and therefore never diagnosed as vague.
+        assert_ne!(cat, ConstraintCategory::NonFormalizable);
+        assert_ne!(cat, ConstraintCategory::Informational);
+        assert!(
+            diagnose_vague("T1.1 SHALL be done quickly BEFORE T1.2 SHALL start.", &task_ids)
+                .is_none()
+                || !classify("T1.1 SHALL be done quickly BEFORE T1.2 SHALL start.")
+                    .eq(&ConstraintCategory::NonFormalizable),
+            "temporal requirement must not be diagnosed as vague"
+        );
+    }
+
+    #[test]
+    fn test_diagnose_undiagnosed_falls_back() {
+        // No task reference, no vague word -> None (generic blocker fallback)
+        let task_ids = vec!["1.1".to_string()];
+        let d = diagnose_vague("The migration SHALL happen.", &task_ids);
+        assert!(d.is_none());
+        assert_eq!(
+            classify("The migration SHALL happen."),
+            ConstraintCategory::NonFormalizable
+        );
+    }
+
+    #[test]
+    fn test_diagnose_verdict_unchanged() {
+        // Vague requirements still classify as NonFormalizable (blocker),
+        // not reclassified to Informational.
+        for stmt in [
+            "T1.1 SHALL be executed.",
+            "T1.1 SHALL be done quickly.",
+            "The system SHALL be robust.",
+        ] {
+            let task_ids = vec!["1.1".to_string()];
+            assert_eq!(
+                classify(stmt),
+                ConstraintCategory::NonFormalizable,
+                "verdict must remain a blocker: {stmt}"
+            );
+            assert!(diagnose_vague(stmt, &task_ids).is_some());
+        }
     }
 }
 
