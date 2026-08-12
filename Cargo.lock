@@ -1436,6 +1436,7 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 [[package]]
 name = "spin-rs"
 version = "0.1.0"
+source = "git+https://github.com/autonomous-toaster/spin-rs?tag=v0.1.0#0ee4afcc530d2653b2bed3347cf30dd57167fb73"
 dependencies = [
  "anyhow",
  "clap",
