@@ -95,6 +95,67 @@ Each requirement is checked against the plan's task signature:
 This catches requirements that talk about tasks that don't exist,
 or use vague language that can't be formally checked.
 
+### 3.5 Prose-guidance and ambiguity detection
+
+A spec that is *formally* valid can still be *ambiguous* — and an
+ambiguous spec is a liability. veriplan runs a prose-guidance pass
+(backed by the [steve](https://github.com/autonomous-toaster/steve)
+ASD-STE100 engine) over the human-readable parts of the plan to catch
+wording that a reader (or an implementer) could interpret in more than
+one way.
+
+**Why ambiguity matters.** The whole point of a spec is to be a
+single, unambiguous contract between intent and implementation. When a
+requirement or scenario is vague:
+
+- **Two implementers build different things.** "The system SHALL respond
+  appropriately" means nothing concrete — one engineer ships a 200ms
+  response, another ships a 2s one. The spec fails its job.
+- **Verification is impossible.** If the expected behavior isn't pinned
+down, there is no objective test that can say "implemented" or "not
+implemented". The scenario is the executable contract; a vague scenario
+is a contract that can't be enforced.
+- **Change is dangerous.** A later change to an ambiguous requirement
+can silently alter behavior nobody intended, because the original intent
+was never captured precisely.
+
+**What is checked.** The prose pass applies a curated set of STE rules
+to four zones:
+
+| Zone | Rules | Why |
+|------|-------|-----|
+| Requirement bodies (spec.md) | full curated set | the core contract |
+| Task descriptions (tasks.md) | minimal (one-instruction, hedging) | grounding aliases |
+| Design / proposal bodies | light (passive, pronoun, hedging) | narrative, human-oriented |
+| **Scenario steps** | **PronounAmbiguity + SentenceLength** | the executable contract |
+
+**Scenario steps are the executable contract.** A scenario's
+`**GIVEN**`/`**WHEN**`/`**THEN**`/`**AND**` steps pin down the concrete
+behavior an implementation must satisfy. veriplan strips the scaffolding
+and code spans, then checks the remaining prose with a **safe subset** of
+STE rules:
+
+- **PronounAmbiguity** — "the valve and the pump are connected, and *it*
+is faulty" is genuinely ambiguous: which one is faulty? A pronoun with
+two plausible antecedents makes the expected behavior unclear.
+- **SentenceLength** — an over-long step is hard to verify.
+
+PassiveVoice and OneInstructionPerSentence are deliberately **excluded**
+from scenario steps: a legitimate state assertion like "**THEN** the
+plan SHALL be marked VALID" is passive by nature, and a step with two
+assertions is often intentional. Flagging those would be noise.
+
+**Advisory, never blocking.** Prose findings are surfaced as warnings
+and rephrase directives — they never block the pipeline. The structural
+and semantic checks (convertibility, grounding, model check) are what
+gate a plan. Prose guidance is a nudge toward clarity, not a gate.
+
+**Ambiguity detection is a two-layer defense.** The grounding check
+catches *semantic* ambiguity (a requirement that can't be mapped to real
+tasks). The prose pass catches *stylistic* ambiguity (wording that a
+reader could interpret multiple ways). Together they make a spec both
+machine-checkable and human-unambiguous.
+
 ### 4. Translate to LTL (temporal logic)
 
 Once the plan passes convertibility and grounding, each SHALL
