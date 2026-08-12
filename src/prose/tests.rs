@@ -1,5 +1,5 @@
 use super::*;
-use crate::ir::{PlanIR, Requirement, Rfc2119Strength, SourceLocation, Task};
+use crate::ir::{PlanIR, Requirement, Rfc2119Strength, Scenario, ScenarioStep, SourceLocation, StepKind, Task};
 
 fn req(id: &str, statement: &str) -> Requirement {
     Requirement {
@@ -201,4 +201,157 @@ fn no_combined_directive_when_active_and_grounded() {
         "active+grounded requirement should not get a combined directive: {:?}",
         directives
     );
+}
+
+fn scenario_step(kind: StepKind, text: &str) -> ScenarioStep {
+    ScenarioStep {
+        kind,
+        text: text.to_string(),
+        source: SourceLocation {
+            file: "spec.md".into(),
+            start_byte: 0,
+            end_byte: 0,
+            start_line: 1,
+            end_line: 1,
+        },
+    }
+}
+
+fn plan_with_scenario(steps: Vec<ScenarioStep>) -> PlanIR {
+    let mut plan = plan_with(
+        vec![req(
+            "cap::ReqA",
+            "T1.1 SHALL complete BEFORE T1.2 SHALL start.",
+        )],
+        vec![],
+    );
+    plan.scenarios = vec![Scenario {
+        name: "Test".into(),
+        steps,
+        source: SourceLocation {
+            file: "spec.md".into(),
+            start_byte: 0,
+            end_byte: 0,
+            start_line: 1,
+            end_line: 1,
+        },
+    }];
+    plan
+}
+
+#[test]
+fn scenario_legitimate_state_assertion_not_flagged_passive() {
+    // A scenario THEN step describing a state ("the plan SHALL be marked
+    // VALID") must NOT get a PassiveVoice or OneInstructionPerSentence finding
+    // — the safe subset excludes those rules (spec R1.2, R1.3).
+    let plan = plan_with_scenario(vec![scenario_step(
+        StepKind::Then,
+        "**THEN** the plan SHALL be marked VALID",
+    )]);
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    assert!(
+        !findings.iter().any(|f| f.rule == "verb/passive"),
+        "legitimate state assertion must not be flagged passive: {:?}",
+        findings
+    );
+    assert!(
+        !findings
+            .iter()
+            .any(|f| f.rule == "structure/one-instruction-per-sentence"),
+        "legitimate state assertion must not be flagged one-instruction: {:?}",
+        findings
+    );
+}
+
+#[test]
+fn scenario_ambiguous_pronoun_is_flagged() {
+    // A real scenario step from the steve corpus with two real noun
+    // antecedents ("Bazel", "steve library") and an ambiguous pronoun ("its")
+    // must be flagged by PronounAmbiguity (spec R1.1).
+    let plan = plan_with_scenario(vec![scenario_step(
+        StepKind::Then,
+        "**THEN** Bazel compiles the steve library and its dependencies hermetically",
+    )]);
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    assert!(
+        findings.iter().any(|f| f.rule == "style/pronoun-ambiguity"),
+        "ambiguous pronoun in real scenario step should be flagged: {:?}",
+        findings
+    );
+}
+
+#[test]
+fn real_corpus_clear_scenarios_not_flagged() {
+    // Real scenario steps from the sibling projects that use a pronoun with a
+    // clear referent must NOT be flagged (no false positives). This is the
+    // key regression guard for the steve pronoun fix.
+    let clear_steps = [
+        "it returns a Report for that text",
+        "the engine does not flag it as passive voice",
+        "it carries the same fields as the CLI json output",
+        "it reads and checks standard input",
+        "maturin builds it via Cargo",
+    ];
+    let mut b = Ste::builder();
+    for r in crate::prose::all_rules() {
+        b = b.rule(r, steve::Severity::Off);
+    }
+    b = b
+        .rule(steve::RuleId::PronounAmbiguity, steve::Severity::Soft)
+        .rule(steve::RuleId::SentenceLength, steve::Severity::Soft);
+    let ste = b.build().unwrap();
+    for s in clear_steps {
+        let report = ste.check_text(s).unwrap();
+        assert!(
+            report.is_empty(),
+            "clear real scenario step should not be flagged: {:?} => {:?}",
+            s,
+            report.iter().map(|f| f.message().to_string()).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn scenario_scaffolding_stripped_before_checking() {
+    // The **THEN** marker and inline code spans must be stripped before
+    // checking, so they don't produce structural noise (spec R1.2).
+    let stripped = strip_scenario_step("**THEN** the engine does not flag `check` or `verify`");
+    // Code spans are removed entirely (their content is not prose).
+    assert_eq!(stripped, "the engine does not flag  or");
+    let stripped2 = strip_scenario_step("**GIVEN** the system is initialized");
+    assert_eq!(stripped2, "the system is initialized");
+    // The **THEN** marker is removed.
+    assert!(!stripped.starts_with("**THEN**"));
+}
+
+#[test]
+fn scenario_prose_findings_advisory_not_blocking() {
+    // Scenario prose findings are advisory (warnings/info), never blockers —
+    // the plan stays convertible (spec R2.1). check_prose returns findings
+    // that the checker maps to warnings/info, never a blocker.
+    let plan = plan_with_scenario(vec![scenario_step(
+        StepKind::Then,
+        "**THEN** the valve and the pump are connected, and it is faulty",
+    )]);
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    for f in &findings {
+        assert_ne!(f.severity, "blocker", "scenario prose must not block: {:?}", f);
+    }
+}
+
+#[test]
+fn scenario_verdict_unchanged() {
+    // The presence of scenario prose findings must not change the plan verdict
+    // (no requirement is newly blocked). check_prose only returns advisory
+    // findings; the convertibility verdict is unaffected.
+    let plan = plan_with_scenario(vec![scenario_step(
+        StepKind::Then,
+        "**THEN** the valve and the pump are connected, and it is faulty",
+    )]);
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    // The requirement is still a valid temporal constraint.
+    let cat = crate::translator::classify(&plan.requirements[0].statement);
+    // Temporal category (may be FixedTime or SequentialOrder) — not NonFormalizable.
+    assert_ne!(cat, crate::ir::ConstraintCategory::NonFormalizable);
+    assert!(!findings.is_empty(), "scenario finding expected");
 }

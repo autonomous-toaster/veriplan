@@ -64,8 +64,15 @@ fn parse_one_scenario(
 
     while i < lines.len() {
         let step_line = lines[i].trim();
-        if step_line.starts_with('#') || step_line.is_empty() {
+        // A new heading (e.g. "### Requirement:" or the next "#### Scenario:")
+        // ends this scenario. Blank lines are skipped so a scenario whose
+        // heading is followed by a blank line still parses its steps.
+        if step_line.starts_with('#') {
             break;
+        }
+        if step_line.is_empty() {
+            i += 1;
+            continue;
         }
 
         if let Some(step) = parse_step(step_line, file, i + 1) {

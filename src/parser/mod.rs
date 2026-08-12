@@ -318,7 +318,19 @@ pub fn parse_spec(
 
         let mut sibling = node.next_sibling();
         while let Some(sib) = sibling {
-            if sib.kind() == "paragraph" {
+            if sib.kind() == "paragraph" || sib.kind() == "list" {
+                // Capture paragraphs and list items (scenario steps) as body
+                // so scenarios can be extracted from the requirement body.
+                if let Ok(text) = helpers::node_text(&sib, bytes) {
+                    if !body.is_empty() {
+                        body.push('\n');
+                    }
+                    body.push_str(text);
+                    end_line = helpers::find_line_for_byte(source, sib.byte_range().end);
+                }
+            } else if sib.kind() == "section" {
+                // A `section` wraps a level-4 "#### Scenario:" heading and its
+                // step list. Capture its text so extract_scenarios can parse it.
                 if let Ok(text) = helpers::node_text(&sib, bytes) {
                     if !body.is_empty() {
                         body.push('\n');
@@ -327,7 +339,25 @@ pub fn parse_spec(
                     end_line = helpers::find_line_for_byte(source, sib.byte_range().end);
                 }
             } else if sib.kind() == "atx_heading" {
-                break;
+                // Stop at the next level-3 heading (a new requirement). A
+                // level-4 "#### Scenario:" heading is part of THIS requirement;
+                // capture its text so extract_scenarios can parse it.
+                let sib_level = sib
+                    .child(0)
+                    .map(|n| n.kind())
+                    .filter(|k| k.starts_with("atx_h"))
+                    .map(|k| k.chars().filter(|c| c.is_ascii_digit()).collect::<String>())
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0);
+                if sib_level <= 3 {
+                    break;
+                }
+                if let Ok(text) = helpers::node_text(&sib, bytes) {
+                    if !body.is_empty() {
+                        body.push('\n');
+                    }
+                    body.push_str(text);
+                }
             }
             sibling = sib.next_sibling();
         }

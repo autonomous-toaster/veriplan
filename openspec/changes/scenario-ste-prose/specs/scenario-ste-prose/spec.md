@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Apply a safe subset of STE prose rules (PronounAmbiguity, SynonymConsistency, SentenceLength) to scenario step content, stripping the GIVEN/WHEN/THEN/AND scaffolding and code spans first, so ambiguous scenario assertions are flagged without false positives on legitimate structured steps.
+Apply a safe subset of STE prose rules (PronounAmbiguity, SentenceLength) to scenario step content, stripping the GIVEN/WHEN/THEN/AND scaffolding and code spans first, so ambiguous scenario assertions are flagged without false positives on legitimate structured steps.
 
 ## ADDED Requirements
 
@@ -12,7 +12,7 @@ T1.1 SHALL check scenario step content with the safe STE subset BEFORE T2.1 SHAL
 
 #### Scenario: Safe subset applied to scenario steps
 
-- **GIVEN** a requirement with a scenario step "**THEN** the system SHALL respond appropriately"
+- **GIVEN** a requirement with a scenario step "**THEN** the valve and the pump are connected, and it is faulty"
 - **WHEN** T1.1 checks the step content
 - **THEN** T1.1 SHALL report a PronounAmbiguity finding for "it"
 - **AND** T2.1 SHALL emit it as a rephrase directive

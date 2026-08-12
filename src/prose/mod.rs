@@ -141,6 +141,53 @@ fn curated_ste(mode: &StrictnessProfile, artifact: &str) -> Result<Ste, steve::C
     b.build()
 }
 
+/// The safe STE subset applied to scenario step content (spec R1.3).
+///
+/// Only PronounAmbiguity and SentenceLength. PassiveVoice and
+/// OneInstructionPerSentence are excluded because they false-positive on
+/// legitimate state assertions ("**THEN** the plan SHALL be marked VALID").
+/// SynonymConsistency is a document-level rule that does not fit the per-step
+/// model and fires on meta-scenarios that cite multiple words.
+fn scenario_rules() -> Vec<RuleId> {
+    vec![RuleId::PronounAmbiguity, RuleId::SentenceLength]
+}
+
+/// Build the `Ste` for scenario step content with the safe subset.
+fn scenario_ste(mode: &StrictnessProfile) -> Result<Ste, steve::ConfigError> {
+    let mut b: SteBuilder = Ste::builder();
+    for r in all_rules() {
+        b = b.rule(r, Severity::Off);
+    }
+    for r in scenario_rules() {
+        b = b.rule(r, severity(mode, r));
+    }
+    // Scenario steps are typically one assertion; use the 30-word cap so a
+    // longer but valid step is not spuriously flagged.
+    b = b.max_sentence_words(30);
+    b.build()
+}
+
+/// Strip `**GIVEN**`/`**WHEN**`/`**THEN**`/`**AND**` markers and inline code
+/// spans from a scenario step before prose checking (spec R1.2).
+fn strip_scenario_step(text: &str) -> String {
+    let mut s = text.trim().to_string();
+    for m in ["**GIVEN**", "**WHEN**", "**THEN**", "**AND**"] {
+        s = s.replace(m, "");
+    }
+    let mut out = String::new();
+    let mut in_code = false;
+    for c in s.chars() {
+        if c == '`' {
+            in_code = !in_code;
+            continue;
+        }
+        if !in_code {
+            out.push(c);
+        }
+    }
+    out.trim().to_string()
+}
+
 /// Convert a steve severity to a veriplan CheckItem severity, downgrading to
 /// "info" in Lax mode (design D3 / D5: advisory only, never blocking).
 fn veriplan_severity(sev: &steve::Severity, mode: &StrictnessProfile) -> &'static str {
@@ -206,6 +253,29 @@ pub fn check_prose(
         let file = req.source.file.clone();
         let element = format!("Requirement '{}'", req.id);
         findings.extend(check_snippet(&ste_spec, &req.statement, &file, &element, mode));
+    }
+
+    // spec.md: scenario step content (safe subset). Scenarios are parsed and
+    // available at the plan level as standalone scenarios (spec R1.1, R3.1).
+    let ste_scenario = match scenario_ste(mode) {
+        Ok(s) => s,
+        Err(_) => return findings,
+    };
+    for scenario in &plan.scenarios {
+        for step in &scenario.steps {
+            let stripped = strip_scenario_step(&step.text);
+            if stripped.is_empty() {
+                continue;
+            }
+            let element = format!("Scenario '{}' ({:?} step)", scenario.name, step.kind);
+            findings.extend(check_snippet(
+                &ste_scenario,
+                &stripped,
+                &scenario.source.file,
+                &element,
+                mode,
+            ));
+        }
     }
 
     // tasks.md: task descriptions (minimal set).
