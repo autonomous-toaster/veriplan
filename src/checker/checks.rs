@@ -2,9 +2,65 @@
 
 use std::collections::HashMap;
 
-use crate::ir::{CheckItem, ConstraintCategory, PlanIR, Rfc2119Strength, StepKind, Task};
+use crate::ir::{CheckItem, ConstraintCategory, Fixability, Op, PlanIR, Rfc2119Strength, StepKind, Task};
 use crate::translator;
 use crate::util::truncate;
+
+/// Build a `CheckItem` with `kind`/`op`/`fixability` derived from the check
+/// value (design D2/D3). `op` and `fixability` default conservatively and are
+/// refined per-check where a deterministic edit exists.
+pub(crate) fn make_item(
+    severity: &str,
+    check: &str,
+    element: String,
+    location: String,
+    detail: String,
+    fix: Option<String>,
+) -> CheckItem {
+    let kind = crate::ir::kind_of(check);
+    // Default: no remedy, needs judgment. Refined below for machine-applicable
+    // checks (only `duplicate_task_id` is `Local` per design D3).
+    let (op, fixability) = match check {
+        "duplicate_task_id" => (Op::RenameTask, Fixability::Local),
+        "bad_task_reference" => (Op::FixReference, Fixability::Structural),
+        "no_tasks" => (Op::AddTaskReference, Fixability::Structural),
+        "no_requirements" => (Op::ReplaceBody, Fixability::Structural),
+        "no_phase_grouping" => (Op::AddTaskReference, Fixability::Structural),
+        "no_rfc2119_keyword" | "no_rfc2119_any" => (Op::AddTemporalKeyword, Fixability::Structural),
+        "bare_capability" | "vague_action" | "vague_quality" | "unknown_non_formalizable" => {
+            (Op::ReplaceBody, Fixability::Structural)
+        }
+        "pattern_ungrounded" => (Op::AddTaskReference, Fixability::Structural),
+        "no_formalizable" => (Op::ReplaceBody, Fixability::Structural),
+        "grounding_ambiguous_multi_keyword" | "grounding_multi_keyword" => {
+            (Op::SplitRequirement, Fixability::Structural)
+        }
+        "grounding_ambiguous" | "grounding_ungroundable" => {
+            (Op::AddTemporalKeyword, Fixability::Structural)
+        }
+        "scenario_no_when" | "scenario_no_then" => (Op::AddScenarioStep, Fixability::Structural),
+        "then_no_shall" => (Op::AddTemporalKeyword, Fixability::Structural),
+        "task_not_covered" => (Op::AddTaskReference, Fixability::Structural),
+        "may_requirement" | "informational_requirement" => {
+            (Op::InformationalOnly, Fixability::Structural)
+        }
+        _ => (Op::None, Fixability::Structural),
+    };
+    CheckItem {
+        severity: severity.into(),
+        check: check.into(),
+        element,
+        location,
+        detail,
+        fix,
+        kind,
+        op,
+        fixability,
+        start: 0,
+        end: 0,
+        replacement: None,
+    }
+}
 
 #[cfg(test)]
 mod checks_tests;
@@ -20,14 +76,14 @@ pub fn check_tasks(
 
     if plan.tasks.is_empty() {
         let severity = if is_openspec { "blocker" } else { "info" };
-        let item = CheckItem {
-            severity: severity.into(),
-            check: "no_tasks".into(),
-            element: "Plan".into(),
-            location: "tasks.md".into(),
-            detail: "No tasks found in plan".into(),
-            fix: Some("Add at least one task with N.M ID to tasks.md".into()),
-        };
+        let item = make_item(
+            severity,
+            "no_tasks",
+            "Plan".into(),
+            "tasks.md".into(),
+            "No tasks found in plan".into(),
+            Some("Add at least one task with N.M ID to tasks.md".into()),
+        );
         if severity == "blocker" {
             blockers.push(item);
             return (blockers.pop(), Vec::new(), Vec::new());
@@ -39,17 +95,17 @@ pub fn check_tasks(
     let mut seen_ids: HashMap<&str, &Task> = HashMap::new();
     for task in &plan.tasks {
         if let Some(existing) = seen_ids.get(task.id.as_str()) {
-            blockers.push(CheckItem {
-                severity: "blocker".into(),
-                check: "duplicate_task_id".into(),
-                element: format!("Task {}", task.id),
-                location: format!("{}:{}", task.source.file, task.source.start_line),
-                detail: format!(
+            blockers.push(make_item(
+                "blocker",
+                "duplicate_task_id",
+                format!("Task {}", task.id),
+                format!("{}:{}", task.source.file, task.source.start_line),
+                format!(
                     "Duplicate task ID '{}' also at {}:{}",
                     task.id, existing.source.file, existing.source.start_line
                 ),
-                fix: Some(format!("Rename one of the tasks with ID '{}'", task.id)),
-            });
+                Some(format!("Rename one of the tasks with ID '{}'", task.id)),
+            ));
         } else {
             seen_ids.insert(&task.id, task);
         }
@@ -57,28 +113,28 @@ pub fn check_tasks(
 
     // Check for isolated tasks (no ordering context)
     if plan.phases.is_empty() && plan.tasks.len() > 1 {
-        warnings.push(CheckItem {
-            severity: "warning".into(),
-            check: "no_phase_grouping".into(),
-            element: "Plan".into(),
-            location: "tasks.md".into(),
-            detail: "No phase groupings found — tasks may lack ordering context".into(),
-            fix: Some("Add ## Phase section headings to group tasks".into()),
-        });
+        warnings.push(make_item(
+            "warning",
+            "no_phase_grouping",
+            "Plan".into(),
+            "tasks.md".into(),
+            "No phase groupings found — tasks may lack ordering context".into(),
+            Some("Add ## Phase section headings to group tasks".into()),
+        ));
     }
 
-    info.push(CheckItem {
-        severity: "info".into(),
-        check: "task_count".into(),
-        element: "Plan".into(),
-        location: "tasks.md".into(),
-        detail: format!(
+    info.push(make_item(
+        "info",
+        "task_count",
+        "Plan".into(),
+        "tasks.md".into(),
+        format!(
             "Found {} tasks across {} phases",
             plan.tasks.len(),
             plan.phases.len()
         ),
-        fix: None,
-    });
+        None,
+    ));
 
     (None, warnings, info)
 }
@@ -93,16 +149,16 @@ pub fn check_requirements(
 
     if plan.requirements.is_empty() {
         let severity = if is_openspec { "blocker" } else { "info" };
-        let item = CheckItem {
-            severity: severity.into(),
-            check: "no_requirements".into(),
-            element: "Plan".into(),
-            location: "specs/".into(),
-            detail: "No requirements found in any spec file".into(),
-            fix: Some(
+        let item = make_item(
+            severity,
+            "no_requirements",
+            "Plan".into(),
+            "specs/".into(),
+            "No requirements found in any spec file".into(),
+            Some(
                 "Add ### Requirement: sections with SHALL/MUST paragraphs to spec files".into(),
             ),
-        };
+        );
         if severity == "blocker" {
             blockers.push(item);
         } else {
@@ -114,33 +170,33 @@ pub fn check_requirements(
     let mut has_rfc2119 = false;
     for req in &plan.requirements {
         if req.strength == Rfc2119Strength::None {
-            warnings.push(CheckItem {
-                severity: "warning".into(),
-                check: "no_rfc2119_keyword".into(),
-                element: format!("Requirement '{}'", req.id),
-                location: format!("{}:{}", req.source.file, req.source.start_line),
-                detail: format!("No RFC 2119 keyword found: '{}'", req.statement),
-                fix: Some(
+            warnings.push(make_item(
+                "warning",
+                "no_rfc2119_keyword",
+                format!("Requirement '{}'", req.id),
+                format!("{}:{}", req.source.file, req.source.start_line),
+                format!("No RFC 2119 keyword found: '{}'", req.statement),
+                Some(
                     "Use SHALL/MUST (hard), SHOULD (soft), or MAY (optional) in the requirement"
                         .into(),
                 ),
-            });
+            ));
         } else {
             has_rfc2119 = true;
         }
     }
 
     if !has_rfc2119 {
-        warnings.push(CheckItem {
-            severity: "warning".into(),
-            check: "no_rfc2119_any".into(),
-            element: "Plan".into(),
-            location: "specs/".into(),
-            detail: "No requirements use RFC 2119 keywords (SHALL/MUST/SHOULD/MAY)".into(),
-            fix: Some(
+        warnings.push(make_item(
+            "warning",
+            "no_rfc2119_any",
+            "Plan".into(),
+            "specs/".into(),
+            "No requirements use RFC 2119 keywords (SHALL/MUST/SHOULD/MAY)".into(),
+            Some(
                 "Add SHALL/MUST/SHOULD/MAY constraints to make requirements verifiable".into(),
             ),
-        });
+        ));
     }
 
     (blockers, warnings, Vec::new())
@@ -157,18 +213,18 @@ pub fn check_task_references(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) 
         let refs = translator::extract_task_refs_bare(&req.statement, &task_ids);
         for ref_id in refs {
             if !task_ids.contains(&ref_id) {
-                blockers.push(CheckItem {
-                    severity: "blocker".into(),
-                    check: "bad_task_reference".into(),
-                    element: format!("Requirement '{}'", req.id),
-                    location: format!("{}:{}", req.source.file, req.source.start_line),
-                    detail: format!("References task '{}' but no such task exists", ref_id),
-                    fix: Some(format!(
+                blockers.push(make_item(
+                    "blocker",
+                    "bad_task_reference",
+                    format!("Requirement '{}'", req.id),
+                    format!("{}:{}", req.source.file, req.source.start_line),
+                    format!("References task '{}' but no such task exists", ref_id),
+                    Some(format!(
                         "Change '{}' to a valid task ID: {:?}",
                         ref_id,
                         task_ids.iter().take(5).collect::<Vec<_>>()
                     )),
-                });
+                ));
             }
         }
     }
@@ -191,17 +247,17 @@ pub fn check_classifiability(
 
     for req in &plan.requirements {
         if req.strength == crate::ir::Rfc2119Strength::May {
-            info.push(CheckItem {
-                severity: "info".into(),
-                check: "may_requirement".into(),
-                element: format!("Requirement '{}'", req.id),
-                location: format!("{}:{}", req.source.file, req.source.start_line),
-                detail: format!(
+            info.push(make_item(
+                "info",
+                "may_requirement",
+                format!("Requirement '{}'", req.id),
+                format!("{}:{}", req.source.file, req.source.start_line),
+                format!(
                     "MAY '{}' is informational — not verified by model checking",
                     truncate(&req.statement, 80)
                 ),
-                fix: None,
-            });
+                None,
+            ));
             continue;
         }
         let cat = translator::classify(&req.statement);
@@ -210,17 +266,17 @@ pub fn check_classifiability(
             // Informational / human-review-only requirement: not a temporal
             // constraint; surface as INFO, do not block and do not count
             // toward non-formalizable.
-            info.push(CheckItem {
-                severity: "info".into(),
-                check: "informational_requirement".into(),
-                element: format!("Requirement '{}'", req.id),
-                location: format!("{}:{}", req.source.file, req.source.start_line),
-                detail: format!(
+            info.push(make_item(
+                "info",
+                "informational_requirement",
+                format!("Requirement '{}'", req.id),
+                format!("{}:{}", req.source.file, req.source.start_line),
+                format!(
                     "Informational '{}' — human review only, not verified by model checking",
                     truncate(&req.statement, 80)
                 ),
-                fix: None,
-            });
+                None,
+            ));
             continue;
         }
 
@@ -241,7 +297,7 @@ pub fn check_classifiability(
             non_formalizable_count += 1;
             // Diagnose WHY it is non-formalizable to emit a targeted fix.
             let diagnosis = translator::diagnose_vague(&req.statement, &task_ids);
-            let (detail, fix) = match &diagnosis {
+            let (detail, fix, check) = match &diagnosis {
                 Some(translator::VagueDiagnosis::BareCapability { task, .. }) => (
                     format!(
                         "SHALL '{}' references task {} but specifies no constraint — this is redundant with the task list",
@@ -252,6 +308,7 @@ pub fn check_classifiability(
                         "add a temporal relation to another task (e.g. '{} SHALL complete BEFORE T1.2 SHALL start'), or remove it if it merely re-states the task",
                         task
                     ),
+                    "bare_capability",
                 ),
                 Some(translator::VagueDiagnosis::VagueAction { task, word }) => (
                     format!(
@@ -264,6 +321,7 @@ pub fn check_classifiability(
                         "define it measurably (e.g. 'within 200ms'), or add a temporal relation to another task (e.g. '{} SHALL complete BEFORE T1.2 SHALL start')",
                         task
                     ),
+                    "vague_action",
                 ),
                 Some(translator::VagueDiagnosis::VagueQuality { word }) => (
                     format!(
@@ -275,6 +333,7 @@ pub fn check_classifiability(
                         "reference a task with a temporal relation, or define '{}' via a measurable criterion or standard (e.g. express a safety statement as 'T1.1 SHALL fail safe IF T1.2 SHALL fail')",
                         word
                     ),
+                    "vague_quality",
                 ),
                 None => (
                     format!(
@@ -283,58 +342,59 @@ pub fn check_classifiability(
                     ),
                     "Rewrite as: sequential, exclusive, conditional, concurrent, or global constraint"
                         .to_string(),
+                    "unknown_non_formalizable",
                 ),
             };
-            blockers.push(CheckItem {
-                severity: "blocker".into(),
-                check: "non_formalizable".into(),
-                element: format!("Requirement '{}'", req.id),
-                location: format!("{}:{}", req.source.file, req.source.start_line),
+            blockers.push(make_item(
+                "blocker",
+                check,
+                format!("Requirement '{}'", req.id),
+                format!("{}:{}", req.source.file, req.source.start_line),
                 detail,
-                fix: Some(fix),
-            });
+                Some(fix),
+            ));
         } else if cat == ConstraintCategory::PatternUngrounded {
             formalizable_count += 1;
-            blockers.push(CheckItem {
-                severity: "blocker".into(),
-                check: "pattern_ungrounded".into(),
-                element: format!("Requirement '{}'", req.id),
-                location: format!("{}:{}", req.source.file, req.source.start_line),
-                detail: format!(
+            blockers.push(make_item(
+                "blocker",
+                "pattern_ungrounded",
+                format!("Requirement '{}'", req.id),
+                format!("{}:{}", req.source.file, req.source.start_line),
+                format!(
                     "SHALL '{}' has a temporal pattern but no task references — add task IDs for model verification",
                     truncate(&req.statement, 80)
                 ),
-                fix: Some(
+                Some(
                     "Add task ID references (e.g., T1.2) to enable model verification".into(),
                 ),
-            });
+            ));
         } else {
             formalizable_count += 1;
         }
     }
 
     if formalizable_count == 0 && non_formalizable_count > 0 {
-        blockers.push(CheckItem {
-            severity: "blocker".into(),
-            check: "no_formalizable".into(),
-            element: "Plan".into(),
-            location: "specs/".into(),
-            detail: "No requirements are classifiable into a temporal category".into(),
-            fix: Some("Rewrite all requirements using temporal constraint patterns".into()),
-        });
+        blockers.push(make_item(
+            "blocker",
+            "no_formalizable",
+            "Plan".into(),
+            "specs/".into(),
+            "No requirements are classifiable into a temporal category".into(),
+            Some("Rewrite all requirements using temporal constraint patterns".into()),
+        ));
     }
 
-    info.push(CheckItem {
-        severity: "info".into(),
-        check: "classification_summary".into(),
-        element: "Plan".into(),
-        location: "specs/".into(),
-        detail: format!(
+    info.push(make_item(
+        "info",
+        "classification_summary",
+        "Plan".into(),
+        "specs/".into(),
+        format!(
             "{} formalizable, {} non-formalizable requirements",
             formalizable_count, non_formalizable_count
         ),
-        fix: None,
-    });
+        None,
+    ));
 
     (blockers, warnings, info)
 }
@@ -372,17 +432,17 @@ pub fn check_scenarios(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
         }
     }
 
-    info.push(CheckItem {
-        severity: "info".into(),
-        check: "scenario_count".into(),
-        element: "Plan".into(),
-        location: "specs/".into(),
-        detail: format!(
+    info.push(make_item(
+        "info",
+        "scenario_count",
+        "Plan".into(),
+        "specs/".into(),
+        format!(
             "Found {} scenarios across all spec files",
             plan.scenarios.len()
         ),
-        fix: None,
-    });
+        None,
+    ));
 
     (warnings, info)
 }
@@ -395,14 +455,14 @@ fn make_scenario_warning(
     detail: &str,
     fix: &str,
 ) -> CheckItem {
-    CheckItem {
-        severity: "warning".into(),
-        check: check.into(),
-        element: format!("Scenario '{}'", name),
-        location: format!("{}:{}", source.file, source.start_line),
-        detail: detail.into(),
-        fix: Some(fix.into()),
-    }
+    make_item(
+        "warning",
+        check,
+        format!("Scenario '{}'", name),
+        format!("{}:{}", source.file, source.start_line),
+        detail.into(),
+        Some(fix.into()),
+    )
 }
 
 /// Check THEN/AND steps for RFC 2119 keywords.
@@ -412,14 +472,14 @@ fn check_then_steps_rfc2119(sc: &crate::ir::Scenario) -> Vec<CheckItem> {
         if step.kind == StepKind::Then || step.kind == StepKind::And {
             let strength = crate::parser::detect_rfc2119(&step.text);
             if strength == Rfc2119Strength::None {
-                warnings.push(CheckItem {
-                    severity: "warning".into(),
-                    check: "then_no_shall".into(),
-                    element: format!("Scenario '{}'", sc.name),
-                    location: format!("{}:{}", sc.source.file, step.source.start_line),
-                    detail: format!("{:?} step has no RFC 2119 keyword", step.kind),
-                    fix: Some("Add SHALL/MUST/SHOULD to the step".into()),
-                });
+                warnings.push(make_item(
+                    "warning",
+                    "then_no_shall",
+                    format!("Scenario '{}'", sc.name),
+                    format!("{}:{}", sc.source.file, step.source.start_line),
+                    format!("{:?} step has no RFC 2119 keyword", step.kind),
+                    Some("Add SHALL/MUST/SHOULD to the step".into()),
+                ));
             }
         }
     }
@@ -468,27 +528,27 @@ pub fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
         .count();
 
     if categories_used <= 1 && formalizable_count >= 3 {
-        info.push(CheckItem {
-            severity: "info".into(),
-            check: "low_diversity".into(),
-            element: "Plan".into(),
-            location: "specs/".into(),
-            detail: format!(
+        info.push(make_item(
+            "info",
+            "low_diversity",
+            "Plan".into(),
+            "specs/".into(),
+            format!(
                 "Constraint distribution: {}. Consider adding other constraint types for stronger verification",
                 summary.join(", ")
             ),
-            fix: Some("Add exclusive (mutex), conditional (if-then), or concurrent constraints".into()),
-        });
+            Some("Add exclusive (mutex), conditional (if-then), or concurrent constraints".into()),
+        ));
     }
 
-    info.push(CheckItem {
-        severity: "info".into(),
-        check: "constraint_diversity".into(),
-        element: "Plan".into(),
-        location: "specs/".into(),
-        detail: format!("Constraint distribution: {}", summary.join(", ")),
-        fix: None,
-    });
+    info.push(make_item(
+        "info",
+        "constraint_diversity",
+        "Plan".into(),
+        "specs/".into(),
+        format!("Constraint distribution: {}", summary.join(", ")),
+        None,
+    ));
 
     info
 }
@@ -513,20 +573,20 @@ pub fn check_task_coverage(plan: &PlanIR, is_openspec: bool) -> (Vec<CheckItem>,
         if !referenced.contains(&task.id) {
             uncovered += 1;
             let severity = if is_openspec { "warning" } else { "info" };
-            let item = CheckItem {
-                severity: severity.into(),
-                check: "task_not_covered".into(),
-                element: format!("T{} ({})", task.id, task.description),
-                location: format!("{}:{}", task.source.file, task.source.start_line),
-                detail: format!(
+            let item = make_item(
+                severity,
+                "task_not_covered",
+                format!("T{} ({})", task.id, task.description),
+                format!("{}:{}", task.source.file, task.source.start_line),
+                format!(
                     "Task T{} is not referenced by any SHALL requirement — its behavior is unchecked.",
                     task.id
                 ),
-                fix: Some(format!(
+                Some(format!(
                     "Add a SHALL in specs/ that references T{} with a temporal keyword.",
                     task.id
                 )),
-            };
+            );
             if severity == "warning" {
                 warnings.push(item);
             } else {
@@ -535,18 +595,18 @@ pub fn check_task_coverage(plan: &PlanIR, is_openspec: bool) -> (Vec<CheckItem>,
         }
     }
 
-    info.push(CheckItem {
-        severity: "info".into(),
-        check: "task_coverage".into(),
-        element: "Plan".into(),
-        location: "tasks.md".into(),
-        detail: format!(
+    info.push(make_item(
+        "info",
+        "task_coverage",
+        "Plan".into(),
+        "tasks.md".into(),
+        format!(
             "{}/{} tasks are covered by SHALL requirements",
             plan.tasks.len() - uncovered,
             plan.tasks.len()
         ),
-        fix: None,
-    });
+        None,
+    ));
 
     (warnings, info)
 }

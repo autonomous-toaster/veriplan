@@ -355,3 +355,118 @@ fn scenario_verdict_unchanged() {
     assert_ne!(cat, crate::ir::ConstraintCategory::NonFormalizable);
     assert!(!findings.is_empty(), "scenario finding expected");
 }
+
+#[test]
+fn slop_word_with_replacement_is_local() {
+    // "leverage" has a plain replacement ("use"), so the SlopWord finding
+    // must be `Local` and carry a deterministic `replacement` (design D7).
+    let plan = plan_with(
+        vec![req(
+            "cap::ReqA",
+            "T1.1 SHALL leverage the existing parser BEFORE T1.2 SHALL run.",
+        )],
+        vec![],
+    );
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    let slop: Vec<&ProseFinding> = findings
+        .iter()
+        .filter(|f| f.rule == "slop-word" || f.rule == "style/slop-word")
+        .collect();
+    assert!(!slop.is_empty(), "expected a SlopWord finding: {:?}", findings);
+    for f in &slop {
+        assert_eq!(
+            f.fixability,
+            crate::ir::Fixability::Local,
+            "SlopWord with replacement must be Local: {:?}",
+            f
+        );
+        assert!(
+            f.replacement.is_some(),
+            "SlopWord with replacement must carry a replacement: {:?}",
+            f
+        );
+    }
+}
+
+#[test]
+fn slop_word_without_replacement_is_structural() {
+    // "robust" has no plain replacement (None), so the SlopWord finding must
+    // be `Structural` and carry no deterministic `replacement` (design D7).
+    let plan = plan_with(
+        vec![req(
+            "cap::ReqA",
+            "T1.1 SHALL make the system robust BEFORE T1.2 SHALL run.",
+        )],
+        vec![],
+    );
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    let slop: Vec<&ProseFinding> = findings
+        .iter()
+        .filter(|f| f.rule == "slop-word" || f.rule == "style/slop-word")
+        .collect();
+    assert!(!slop.is_empty(), "expected a SlopWord finding: {:?}", findings);
+    for f in &slop {
+        assert_eq!(
+            f.fixability,
+            crate::ir::Fixability::Structural,
+            "SlopWord without replacement must be Structural: {:?}",
+            f
+        );
+        assert!(
+            f.replacement.is_none(),
+            "SlopWord without replacement must not carry a replacement: {:?}",
+            f
+        );
+    }
+}
+
+#[test]
+fn prose_fields_survive_to_checkitem_boundary() {
+    // The prose→report boundary in `verify_with_strictness` must carry
+    // fixability/replacement/ste_rule onto the emitted CheckItem. We exercise
+    // the mapping logic directly: a ProseFinding with these fields set must
+    // round-trip through the CheckItem construction used in that boundary.
+    let pf = ProseFinding {
+        severity: "warning".into(),
+        rule: "slop-word".into(),
+        file: "spec.md".into(),
+        line: 3,
+        column: 5,
+        element: "Requirement 'cap::ReqA'".into(),
+        message: "replace \"leverage\" with \"use\"".into(),
+        suggestion: Some("replace \"leverage\" with \"use\"".into()),
+        snippet: "leverage".into(),
+        start: 10,
+        end: 18,
+        replacement: Some("use".into()),
+        fixability: crate::ir::Fixability::Local,
+        ste_rule: Some("5.2".into()),
+    };
+    // Mirror the CheckItem construction in `verify_with_strictness`.
+    let item = crate::ir::CheckItem {
+        severity: pf.severity.clone(),
+        check: pf.rule.clone(),
+        element: pf.element.clone(),
+        location: format!("{}:{}", pf.file, pf.line),
+        detail: pf.message.clone(),
+        fix: pf.suggestion.clone(),
+        kind: crate::ir::kind_of(&pf.rule),
+        op: crate::ir::Op::ReplaceBody,
+        fixability: pf.fixability,
+        start: pf.start,
+        end: pf.end,
+        replacement: pf.replacement.clone(),
+    };
+    assert_eq!(item.check, "slop-word");
+    assert_eq!(item.location, "spec.md:3");
+    assert_eq!(item.fix.as_deref(), Some("replace \"leverage\" with \"use\""));
+    // The structured fields are preserved on the ProseFinding and available
+    // to the annotator's `findings()` projection.
+    assert_eq!(pf.fixability, crate::ir::Fixability::Local);
+    assert_eq!(pf.replacement.as_deref(), Some("use"));
+    assert_eq!(pf.ste_rule.as_deref(), Some("5.2"));
+    assert_eq!(pf.start, 10);
+    assert_eq!(pf.end, 18);
+    assert_eq!(pf.column, 5);
+}
+

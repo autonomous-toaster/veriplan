@@ -31,6 +31,10 @@ pub struct Violation {
     pub suggested_fix: Option<String>,
     /// The plan/change this violation belongs to (used for multi-change output).
     pub plan: String,
+    /// The curated problem kind (violation_*), stable across strictness.
+    pub kind: crate::ir::Kind,
+    /// The remedy this violation prescribes (drives `--fix`).
+    pub op: crate::ir::Op,
 }
 
 /// Summary of one checked constraint with pass/fail status.
@@ -301,6 +305,9 @@ pub fn verify_with_strictness(
     if let Some(report) = result.convertibility_report.as_mut() {
         let findings = crate::prose::check_prose(plan, None, &strictness);
         for f in &findings {
+            // Carry steve's structured fields (fixability/replacement/ste_rule)
+            // onto the emitted CheckItem and tag prose findings advisory
+            // (design D7 / task 4.4). Prose findings never block.
             let item = crate::ir::CheckItem {
                 severity: f.severity.clone(),
                 check: f.rule.clone(),
@@ -308,6 +315,16 @@ pub fn verify_with_strictness(
                 location: format!("{}:{}", f.file, f.line),
                 detail: f.message.clone(),
                 fix: f.suggestion.clone(),
+                kind: crate::ir::kind_of(&f.rule),
+                op: if f.fixability == crate::ir::Fixability::Local {
+                    crate::ir::Op::ReplaceBody
+                } else {
+                    crate::ir::Op::None
+                },
+                fixability: f.fixability,
+                start: f.start,
+                end: f.end,
+                replacement: f.replacement.clone(),
             };
             if item.severity == "warning" {
                 report.warnings.push(item);
@@ -450,6 +467,8 @@ mod tests {
                     req_source: None,
                     suggested_fix: None,
                     plan: plan_name.into(),
+                    kind: crate::ir::Kind::ProseOther,
+                    op: crate::ir::Op::None,
                 })
                 .collect(),
             total_constraints: 10,
@@ -511,6 +530,12 @@ mod tests {
                 detail: "d1".into(),
                 severity: "blocker".into(),
                 fix: None,
+                kind: crate::ir::Kind::ProseOther,
+                op: crate::ir::Op::None,
+                fixability: crate::ir::Fixability::Structural,
+                start: 0,
+                end: 0,
+                replacement: None,
             },
             CheckItem {
                 check: "test".into(),
@@ -519,6 +544,12 @@ mod tests {
                 detail: "d2".into(),
                 severity: "warning".into(),
                 fix: None,
+                kind: crate::ir::Kind::ProseOther,
+                op: crate::ir::Op::None,
+                fixability: crate::ir::Fixability::Structural,
+                start: 0,
+                end: 0,
+                replacement: None,
             },
             CheckItem {
                 check: "test".into(),
@@ -527,6 +558,12 @@ mod tests {
                 detail: "d3".into(),
                 severity: "info".into(),
                 fix: None,
+                kind: crate::ir::Kind::ProseOther,
+                op: crate::ir::Op::None,
+                fixability: crate::ir::Fixability::Structural,
+                start: 0,
+                end: 0,
+                replacement: None,
             },
         ];
         let mut blockers = Vec::new();

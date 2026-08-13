@@ -80,6 +80,9 @@ enum Commands {
         /// Run both backends and compare results
         #[arg(long)]
         compare: bool,
+        /// Apply machine-applicable (`local`) findings automatically
+        #[arg(long)]
+        fix: bool,
     },
     /// Init openspec/config.yaml with formal-verification-friendly rules
     Init {
@@ -129,6 +132,7 @@ fn main() -> anyhow::Result<()> {
             lax,
             checker,
             compare,
+            fix,
         } => run_check(
             change.or(change_alias),
             phase.as_deref(),
@@ -141,6 +145,7 @@ fn main() -> anyhow::Result<()> {
             lax,
             checker,
             compare,
+            fix,
         ),
         Commands::Init { project_root } => cmd_init::run_init(project_root.as_deref()),
         Commands::Visualize {
@@ -171,6 +176,7 @@ fn run_check(
     lax: bool,
     checker: Option<String>,
     compare: bool,
+    fix: bool,
 ) -> anyhow::Result<()> {
     // Validate plan format if provided
     let format_val = format.unwrap_or("human");
@@ -279,6 +285,67 @@ fn run_check(
         backend,
     );
     let annotated = annotator::annotate(&result, &[(label.clone(), plan.clone())]);
+
+    // `--fix`: apply machine-applicable (`local`) findings, then revalidate
+    // (design D3, task 6.3). Structural/judgment findings are left as
+    // suggestions.
+    if fix {
+        let all_findings = annotator::findings(&result, &annotated);
+        // Resolve the change directory for relative file paths.
+        let base_dir = match &source {
+            veriplan::input::InputSource::OpenSpec { change_dir, .. } => change_dir.clone(),
+            veriplan::input::InputSource::Directory { path, .. } => path.clone(),
+            veriplan::input::InputSource::SingleFile { path } => path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+            _ => std::env::current_dir().unwrap_or_default(),
+        };
+        let fix_report = veriplan::fix::fix_plan(&plan, &all_findings, &base_dir);
+        if !fix_report.applied.is_empty() {
+            println!("Applied {} machine-applicable fix(es):", fix_report.applied.len());
+            for e in &fix_report.applied {
+                println!("  - [{}] {}", e.kind, e.description);
+            }
+            // Revalidate the plan after applying edits.
+            let reloaded = veriplan::input::load_plan(&source)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            let re_result = checker::verify_with_strictness(
+                &reloaded,
+                &label,
+                no_model,
+                pre_commit,
+                strictness,
+                is_openspec,
+                backend,
+            );
+            let re_annotated = annotator::annotate(&re_result, &[(label.clone(), reloaded.clone())]);
+            match format.unwrap_or("human") {
+                "json" => println!(
+                    "{}",
+                    annotator::format_json(&re_result, &re_annotated, &[(label, reloaded)], verbose)
+                ),
+                _ => print!(
+                    "{}",
+                    annotator::format_human(&re_result, &re_annotated, &[(label, reloaded.clone())], verbose)
+                ),
+            }
+            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
+            if !re_result.convertible {
+                cli::flush_exit(2);
+            } else if re_result.valid == Some(false) {
+                cli::flush_exit(1);
+            }
+            return Ok(());
+        }
+        if !fix_report.left_as_suggestions.is_empty() {
+            println!(
+                "{} finding(s) left as suggestions (structural/judgment):",
+                fix_report.left_as_suggestions.len()
+            );
+        }
+    }
 
     match format.unwrap_or("human") {
         "json" => println!(

@@ -198,6 +198,8 @@ mod tests {
                 req_source: None,
                 suggested_fix: None,
                 plan: "test".into(),
+                kind: crate::ir::Kind::ViolationSequential,
+                op: crate::ir::Op::ReplaceBody,
             },
             category: "SequentialOrder".into(),
             phase_context: None,

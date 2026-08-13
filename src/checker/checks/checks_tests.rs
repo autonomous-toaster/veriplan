@@ -132,6 +132,67 @@ mod tests {
         assert!(t.len() <= 13, "truncated string too long: {}", t);
         assert!(t.ends_with('…'));
     }
+
+    #[test]
+    fn test_non_formalizable_subtypes_map_to_distinct_checks() {
+        // Three non-formalizable requirements with distinct diagnoses must
+        // map to distinct `check` values (bare_capability / vague_action /
+        // vague_quality), not all collapse to `non_formalizable`.
+        let cases = [
+            ("T1.1 SHALL be executed.", "bare_capability"),
+            ("T1.1 SHALL be done quickly.", "vague_action"),
+            ("The system SHALL be robust.", "vague_quality"),
+        ];
+        for (statement, expected_check) in cases {
+            let plan = PlanIR {
+                tasks: vec![Task {
+                    id: "1.1".into(),
+                    description: "Setup".into(),
+                    phase: "Phase 1".into(),
+                    checked: false,
+                    source: SourceLocation {
+                        file: "tasks.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                }],
+                requirements: vec![Requirement {
+                    id: "R1".into(),
+                    statement: statement.into(),
+                    strength: Rfc2119Strength::Must,
+                    category: ConstraintCategory::NonFormalizable,
+                    ltl: None,
+                    scenarios: vec![],
+                    source: SourceLocation {
+                        file: "spec.md".into(),
+                        start_byte: 0,
+                        end_byte: 0,
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                }],
+                scenarios: vec![],
+                phases: vec![],
+                source_map: SourceMap::default(),
+            };
+            let (blockers, _, _) = check_classifiability(&plan, true);
+            assert!(
+                blockers.iter().any(|b| b.check == expected_check),
+                "expected check '{}' for statement '{}', got {:?}",
+                expected_check,
+                statement,
+                blockers.iter().map(|b| b.check.as_str()).collect::<Vec<_>>()
+            );
+            // The subtype must NOT collapse to the old generic value.
+            assert!(
+                !blockers.iter().any(|b| b.check == "non_formalizable"),
+                "subtype check collapsed to generic 'non_formalizable' for '{}'",
+                statement
+            );
+        }
+    }
 }
 
 #[test]

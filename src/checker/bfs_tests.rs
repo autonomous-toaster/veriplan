@@ -132,7 +132,20 @@ mod suggest_tests {
             "R1",
             "T1.1 SHALL ALWAYS be available",
         );
-        assert!(fix.is_none());
+        assert!(fix.is_some());
+        assert!(fix.unwrap().contains("global invariant"));
+    }
+
+    #[test]
+    fn test_suggest_fix_fixed_time() {
+        let fix = suggest_fix(
+            &ConstraintCategory::FixedTime,
+            "true",
+            "R1",
+            "T1.1 SHALL complete within the 2-4 AM window",
+        );
+        assert!(fix.is_some());
+        assert!(fix.unwrap().contains("fixed-time"));
     }
 
     fn make_state() -> Vec<(String, u8)> {

@@ -14,6 +14,8 @@ use crate::input::StrictnessProfile;
 use crate::ir::{CheckItem, PlanIR, Rfc2119Strength};
 use crate::util::truncate;
 
+use crate::checker::checks::make_item;
+
 /// Build a groundcontrol Signature from a PlanIR.
 ///
 /// Maps each PlanIR Task to a ConstantDef (name = "T{id}", aliases from description),
@@ -245,14 +247,14 @@ pub fn check_grounding(
     let mut outcomes = Vec::new();
 
     if plan.requirements.is_empty() || plan.tasks.is_empty() {
-        info.push(CheckItem {
-            severity: "info".into(),
-            check: "grounding_skipped".into(),
-            element: "Plan".into(),
-            location: String::new(),
-            detail: "Grounding check skipped: no requirements or no tasks".into(),
-            fix: None,
-        });
+        info.push(make_item(
+            "info",
+            "grounding_skipped",
+            "Plan".into(),
+            String::new(),
+            "Grounding check skipped: no requirements or no tasks".into(),
+            None,
+        ));
         return (blockers, warnings, info, outcomes);
     }
 
@@ -265,17 +267,17 @@ pub fn check_grounding(
         if req.strength == Rfc2119Strength::May
             || crate::translator::classify(&req.statement) == crate::ir::ConstraintCategory::Informational
         {
-            info.push(CheckItem {
-                severity: "info".into(),
-                check: "grounding_may_skipped".into(),
-                element: format!("Requirement '{}'", req.id),
-                location: format!("{}:{}", req.source.file, req.source.start_line),
-                detail: format!(
+            info.push(make_item(
+                "info",
+                "grounding_may_skipped",
+                format!("Requirement '{}'", req.id),
+                format!("{}:{}", req.source.file, req.source.start_line),
+                format!(
                     "MAY requirement '{}' skipped — informational, not grounded",
                     truncate(&req.statement, 80),
                 ),
-                fix: None,
-            });
+                None,
+            ));
             // Don't push to outcomes — skipped requirements don't affect PatternUngrounded
             continue;
         }
@@ -320,30 +322,30 @@ pub fn check_grounding(
             };
 
             match strictness {
-                StrictnessProfile::Strict => blockers.push(CheckItem {
-                    severity: "blocker".into(),
-                    check: "grounding_ambiguous_multi_keyword".into(),
-                    element: format!("Requirement '{}'", req.id),
-                    location: format!("{}:{}", req.source.file, req.source.start_line),
+                StrictnessProfile::Strict => blockers.push(make_item(
+                    "blocker",
+                    "grounding_ambiguous_multi_keyword",
+                    format!("Requirement '{}'", req.id),
+                    format!("{}:{}", req.source.file, req.source.start_line),
                     detail,
-                    fix: Some(fix),
-                }),
-                StrictnessProfile::Moderate => warnings.push(CheckItem {
-                    severity: "warning".into(),
-                    check: "grounding_ambiguous_multi_keyword".into(),
-                    element: format!("Requirement '{}'", req.id),
-                    location: format!("{}:{}", req.source.file, req.source.start_line),
+                    Some(fix),
+                )),
+                StrictnessProfile::Moderate => warnings.push(make_item(
+                    "warning",
+                    "grounding_ambiguous_multi_keyword",
+                    format!("Requirement '{}'", req.id),
+                    format!("{}:{}", req.source.file, req.source.start_line),
                     detail,
-                    fix: Some(fix),
-                }),
-                StrictnessProfile::Lax => info.push(CheckItem {
-                    severity: "info".into(),
-                    check: "grounding_ambiguous_multi_keyword".into(),
-                    element: format!("Requirement '{}'", req.id),
-                    location: format!("{}:{}", req.source.file, req.source.start_line),
+                    Some(fix),
+                )),
+                StrictnessProfile::Lax => info.push(make_item(
+                    "info",
+                    "grounding_ambiguous_multi_keyword",
+                    format!("Requirement '{}'", req.id),
+                    format!("{}:{}", req.source.file, req.source.start_line),
                     detail,
-                    fix: Some(fix),
-                }),
+                    Some(fix),
+                )),
             }
 
             // Still record the outcome for downstream use
@@ -393,30 +395,30 @@ pub fn check_grounding(
                         .to_string();
 
                 match strictness {
-                    StrictnessProfile::Strict => blockers.push(CheckItem {
-                        severity: "blocker".into(),
-                        check: "grounding_ambiguous".into(),
-                        element: format!("Requirement '{}'", req.id),
-                        location: format!("{}:{}", req.source.file, req.source.start_line),
+                    StrictnessProfile::Strict => blockers.push(make_item(
+                        "blocker",
+                        "grounding_ambiguous",
+                        format!("Requirement '{}'", req.id),
+                        format!("{}:{}", req.source.file, req.source.start_line),
                         detail,
-                        fix: Some(fix),
-                    }),
-                    StrictnessProfile::Moderate => warnings.push(CheckItem {
-                        severity: "warning".into(),
-                        check: "grounding_ambiguous".into(),
-                        element: format!("Requirement '{}'", req.id),
-                        location: format!("{}:{}", req.source.file, req.source.start_line),
+                        Some(fix),
+                    )),
+                    StrictnessProfile::Moderate => warnings.push(make_item(
+                        "warning",
+                        "grounding_ambiguous",
+                        format!("Requirement '{}'", req.id),
+                        format!("{}:{}", req.source.file, req.source.start_line),
                         detail,
-                        fix: Some(fix),
-                    }),
-                    StrictnessProfile::Lax => info.push(CheckItem {
-                        severity: "info".into(),
-                        check: "grounding_ambiguous".into(),
-                        element: format!("Requirement '{}'", req.id),
-                        location: format!("{}:{}", req.source.file, req.source.start_line),
+                        Some(fix),
+                    )),
+                    StrictnessProfile::Lax => info.push(make_item(
+                        "info",
+                        "grounding_ambiguous",
+                        format!("Requirement '{}'", req.id),
+                        format!("{}:{}", req.source.file, req.source.start_line),
                         detail,
-                        fix: Some(fix),
-                    }),
+                        Some(fix),
+                    )),
                 }
             }
             GroundingStatus::Ungroundable => {
@@ -452,39 +454,39 @@ pub fn check_grounding(
 
                 match strictness {
                     StrictnessProfile::Strict | StrictnessProfile::Moderate => {
-                        blockers.push(CheckItem {
-                            severity: "blocker".into(),
-                            check: "grounding_ungroundable".into(),
-                            element: format!("Requirement '{}'", req.id),
-                            location: format!("{}:{}", req.source.file, req.source.start_line),
+                        blockers.push(make_item(
+                            "blocker",
+                            "grounding_ungroundable",
+                            format!("Requirement '{}'", req.id),
+                            format!("{}:{}", req.source.file, req.source.start_line),
                             detail,
-                            fix: Some(fix),
-                        })
+                            Some(fix),
+                        ))
                     }
-                    StrictnessProfile::Lax => warnings.push(CheckItem {
-                        severity: "warning".into(),
-                        check: "grounding_ungroundable".into(),
-                        element: format!("Requirement '{}'", req.id),
-                        location: format!("{}:{}", req.source.file, req.source.start_line),
+                    StrictnessProfile::Lax => warnings.push(make_item(
+                        "warning",
+                        "grounding_ungroundable",
+                        format!("Requirement '{}'", req.id),
+                        format!("{}:{}", req.source.file, req.source.start_line),
                         detail,
-                        fix: Some(fix),
-                    }),
+                        Some(fix),
+                    )),
                 }
             }
         }
     }
 
-    info.push(CheckItem {
-        severity: "info".into(),
-        check: "grounding_summary".into(),
-        element: "Plan".into(),
-        location: String::new(),
-        detail: format!(
+    info.push(make_item(
+        "info",
+        "grounding_summary",
+        "Plan".into(),
+        String::new(),
+        format!(
             "Grounding check complete: {} requirements checked",
             plan.requirements.len()
         ),
-        fix: None,
-    });
+        None,
+    ));
 
     (blockers, warnings, info, outcomes)
 }

@@ -2,6 +2,7 @@
 
 pub mod annotator;
 pub mod checker;
+pub mod fix;
 pub mod grounding;
 pub mod input;
 pub mod ir;

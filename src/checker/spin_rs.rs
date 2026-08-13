@@ -64,11 +64,12 @@ pub(crate) fn run_spin_rs_check(
                 .iter()
                 .find(|v| parse_property_index(&v.property_name) == Some(i));
 
+            let category = format!("{:?}", c.category);
             violations.push(Violation {
                 constraint_id: c.requirement_id.clone(),
                 requirement_statement: c.statement.clone(),
                 ltl: c.ltl_string(),
-                category: format!("{:?}", c.category),
+                category: category.clone(),
                 state: spin_violation
                     .map(|v| v.description.clone())
                     .unwrap_or_else(|| format!("(violated in property p{})", i)),
@@ -81,6 +82,8 @@ pub(crate) fn run_spin_rs_check(
                     &c.statement,
                 ),
                 plan: plan_name.to_string(),
+                kind: crate::ir::kind_of(&category),
+                op: crate::ir::Op::ReplaceBody,
             });
         } else {
             satisfied += 1;

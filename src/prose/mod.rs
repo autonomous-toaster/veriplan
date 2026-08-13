@@ -34,6 +34,8 @@ pub struct ProseFinding {
     pub file: String,
     /// 1-based line within the checked snippet (requirement body / task desc).
     pub line: usize,
+    /// 1-based column (byte offset within the line).
+    pub column: usize,
     /// The requirement or task this prose belongs to, if any.
     pub element: String,
     /// Human-readable finding message.
@@ -42,6 +44,18 @@ pub struct ProseFinding {
     pub suggestion: Option<String>,
     /// The offending snippet text.
     pub snippet: String,
+    /// Byte offset of the start of the offending text.
+    pub start: usize,
+    /// Byte offset of the end of the offending text.
+    pub end: usize,
+    /// A structured replacement for the offending span, when a deterministic
+    /// fix exists (`Local` findings). `None` for `Structural` findings.
+    pub replacement: Option<String>,
+    /// Whether this finding is safely auto-appliable (`Local`) or needs
+    /// judgment (`Structural`).
+    pub fixability: crate::ir::Fixability,
+    /// The official ASD-STE100 (Issue 9) rule number(s), if any.
+    pub ste_rule: Option<String>,
 }
 
 /// A combined rephrase directive that fixes both style and grounding.
@@ -95,6 +109,10 @@ fn curated_rules() -> Vec<RuleId> {
         RuleId::OneInstructionPerSentence,
         RuleId::SynonymConsistency,
         RuleId::SentenceLength,
+        // SlopWord is a steve-`Local` rule: it replaces AI-slop ("leverage" →
+        // "use") deterministically, so prose can produce machine-applicable
+        // findings for `--fix` (design D7 / F2).
+        RuleId::SlopWord,
     ]
 }
 
@@ -218,10 +236,28 @@ fn check_snippet(
             rule: f.rule().as_str().to_string(),
             file: file.to_string(),
             line: f.line(),
+            column: f.column(),
             element: element.to_string(),
             message: f.message().to_string(),
             suggestion: f.suggestion().map(|s| s.to_string()),
             snippet: f.snippet().to_string(),
+            start: f.start(),
+            end: f.end(),
+            replacement: f.replacement().map(|r| r.to_string()),
+            // steve derives `fixability` from the rule, so `SlopWord` is
+            // `Structural` even when it carries a plain replacement. The
+            // design (D7) requires SlopWord-with-replacement to be `Local`
+            // (machine-applicable), so we override it here: a deterministic
+            // replacement makes the edit byte-recoverable.
+            fixability: if f.rule() == steve::RuleId::SlopWord && f.replacement().is_some() {
+                crate::ir::Fixability::Local
+            } else {
+                match f.fixability() {
+                    steve::Fixability::Local => crate::ir::Fixability::Local,
+                    steve::Fixability::Structural => crate::ir::Fixability::Structural,
+                }
+            },
+            ste_rule: f.ste_rule().map(|s| s.to_string()),
         })
         .collect()
 }

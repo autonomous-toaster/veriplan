@@ -3,11 +3,117 @@
 mod helpers;
 
 use crate::checker::Violation;
-use crate::ir::PlanIR;
+use crate::ir::{CheckItem, Finding, Fixability, PlanIR};
 
 pub use helpers::{
     build_phase_context, category_breakdown, parse_conditional_ltl, task_ids_from_ltl,
 };
+
+/// Flatten convertibility blockers/warnings/info and model-check violations
+/// into one canonical `Vec<Finding>` (design D1/D5).
+///
+/// This is the unified output contract: every finding is always present in
+/// both default JSON and human output, regardless of `--verbose`.
+pub fn findings(
+    result: &crate::checker::VerificationResult,
+    annotated: &[AnnotatedViolation],
+) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    if let Some(report) = &result.convertibility_report {
+        for item in report.blockers.iter().chain(report.warnings.iter()).chain(report.info.iter()) {
+            out.push(check_item_to_finding(item));
+        }
+    }
+
+    for v in annotated {
+        out.push(violation_to_finding(v));
+    }
+
+    out
+}
+
+/// Convert a `CheckItem` (convertibility blocker/warning/info) to a `Finding`.
+fn check_item_to_finding(item: &CheckItem) -> Finding {
+    let (file, line) = parse_location(&item.location);
+    Finding {
+        kind: item.kind.as_str().to_string(),
+        severity: item.severity.clone(),
+        file,
+        line,
+        column: 0,
+        start: item.start,
+        end: item.end,
+        message: item.detail.clone(),
+        suggestion: item.fix.clone(),
+        replacement: item.replacement.clone(),
+        fixability: item.fixability,
+        op: item.op,
+        requirement_id: extract_requirement_id(&item.element),
+        advisory: item.severity == "info" || item.kind == crate::ir::Kind::ProseOther,
+    }
+}
+
+/// Convert an annotated model-check violation to a `Finding`.
+fn violation_to_finding(v: &AnnotatedViolation) -> Finding {
+    let (file, line) = v
+        .req_source
+        .as_deref()
+        .or(v.task_source.as_deref())
+        .map(parse_location)
+        .unwrap_or_else(|| (String::new(), 0));
+    Finding {
+        kind: v.violation.kind.as_str().to_string(),
+        severity: "blocker".into(),
+        file,
+        line,
+        column: 0,
+        start: 0,
+        end: 0,
+        message: format!(
+            "{}: {}",
+            v.violation.constraint_id, v.violation.requirement_statement
+        ),
+        suggestion: v.violation.suggested_fix.clone(),
+        replacement: None,
+        fixability: Fixability::Structural,
+        op: v.violation.op,
+        requirement_id: Some(v.violation.constraint_id.clone()),
+        advisory: false,
+    }
+}
+
+/// Parse a "file:line" location string into (file, line).
+fn parse_location(loc: &str) -> (String, usize) {
+    if let Some((file, line)) = loc.rsplit_once(':') {
+        if let Ok(line) = line.parse::<usize>() {
+            return (file.to_string(), line);
+        }
+    }
+    (loc.to_string(), 0)
+}
+
+/// Extract a requirement ID from an element string like "Requirement 'R1'".
+fn extract_requirement_id(element: &str) -> Option<String> {
+    element
+        .strip_prefix("Requirement '")
+        .and_then(|s| s.strip_suffix('\''))
+        .map(|s| s.to_string())
+}
+
+/// Group identical findings by `kind` for compact human output (design D6).
+/// Returns a list of (count, representative finding).
+pub fn group_by_kind(findings: &[Finding]) -> Vec<(usize, &Finding)> {
+    let mut groups: Vec<(usize, &Finding)> = Vec::new();
+    for f in findings {
+        if let Some((count, _)) = groups.iter_mut().find(|(_, g)| g.kind == f.kind) {
+            *count += 1;
+        } else {
+            groups.push((1, f));
+        }
+    }
+    groups
+}
 
 /// Annotated violation with additional context.
 #[derive(Debug, Clone)]
@@ -66,6 +172,10 @@ pub fn annotate(
 }
 
 /// Format verification result as human-readable text.
+///
+/// Always shows findings at default verbosity (design D5). Identical findings
+/// are grouped by `kind` ("N× <kind>: <rephrase>") with one representative
+/// location; `--verbose` expands grouped findings (design D6).
 pub fn format_human(
     result: &crate::checker::VerificationResult,
     annotated: &[AnnotatedViolation],
@@ -81,12 +191,9 @@ pub fn format_human(
         output.push_str(&format!("\n  Model check skipped: {}\n", reason));
     }
 
-    if let Some(report) = &result.convertibility_report {
-        format_report_items(&mut output, report, verbose);
-    }
-
-    if !result.violations.is_empty() {
-        format_violations(&mut output, result, annotated, verbose);
+    let all_findings = findings(result, annotated);
+    if !all_findings.is_empty() {
+        format_findings(&mut output, &all_findings, verbose);
     } else if result.convertible && result.valid == Some(true) {
         output.push_str("  All constraints satisfied.\n");
         output.push_str(&format!(
@@ -102,6 +209,38 @@ pub fn format_human(
     output
 }
 
+/// Render findings, grouping identical ones by `kind` at default verbosity and
+/// expanding them under `--verbose` (design D6).
+fn format_findings(output: &mut String, all_findings: &[Finding], verbose: bool) {
+    if verbose {
+        // Expand every finding individually.
+        for f in all_findings {
+            output.push_str(&format!(
+                "  [{}] {} at {}:{} — {}\n",
+                f.severity.to_uppercase(),
+                f.kind,
+                f.file,
+                f.line,
+                f.message
+            ));
+            if let Some(s) = &f.suggestion {
+                output.push_str(&format!("        Fix: {}\n", s));
+            }
+        }
+        return;
+    }
+
+    // Default: group identical findings by `kind` ("N× <kind>: <rephrase>").
+    let groups = group_by_kind(all_findings);
+    for (count, f) in groups {
+        let rephrase = f.suggestion.as_deref().unwrap_or(&f.message);
+        output.push_str(&format!(
+            "  {}× {}: {} (e.g. {}:{})\n",
+            count, f.kind, rephrase, f.file, f.line
+        ));
+    }
+}
+
 fn status_label(result: &crate::checker::VerificationResult) -> &'static str {
     if result.convertible && result.valid == Some(true) {
         "✓ VALID"
@@ -114,143 +253,27 @@ fn status_label(result: &crate::checker::VerificationResult) -> &'static str {
     }
 }
 
-fn format_report_items(
-    output: &mut String,
-    report: &crate::ir::ConvertibilityReport,
-    verbose: bool,
-) {
-    if !report.blockers.is_empty() {
-        output.push_str(&format!("  {} blocker(s):\n", report.blockers.len()));
-        for item in &report.blockers {
-            output.push_str(&format!(
-                "    [BLOCKER] {} at {}\n              {}\n",
-                item.element, item.location, item.detail
-            ));
-            if let Some(fix) = &item.fix {
-                output.push_str(&format!("              Fix: {}\n", fix));
-            }
-        }
-    }
-
-    if !report.warnings.is_empty() && verbose {
-        output.push_str(&format!("  {} warning(s):\n", report.warnings.len()));
-        for item in &report.warnings {
-            output.push_str(&format!(
-                "    [WARNING] {} at {}\n              {}\n",
-                item.element, item.location, item.detail
-            ));
-        }
-    }
-
-    if !report.info.is_empty() && verbose {
-        output.push_str(&format!("  {} info(s):\n", report.info.len()));
-        for item in &report.info {
-            output.push_str(&format!(
-                "    [INFO] {} at {}\n              {}\n",
-                item.element, item.location, item.detail
-            ));
-        }
-    }
-}
-
-fn format_violations(
-    output: &mut String,
-    result: &crate::checker::VerificationResult,
-    annotated: &[AnnotatedViolation],
-    verbose: bool,
-) {
-    let satisfied = result.satisfied_constraints;
-    let violated = result.violations.len();
-    let total = result.total_constraints;
-
-    output.push_str(&format!(
-        "\n  Satisfied: {} | Violated: {} | Total: {}\n",
-        satisfied, violated, total
-    ));
-
-    if verbose {
-        output.push_str(&format!("\n{}\n", helpers::category_breakdown(annotated)));
-    }
-
-    for (i, v) in annotated.iter().enumerate() {
-        output.push_str(&format!("\n  Violation {}:\n", i + 1));
-        output.push_str(&format!("    Requirement: {}\n", v.violation.constraint_id));
-        output.push_str(&format!(
-            "    Statement: {}\n",
-            v.violation.requirement_statement
-        ));
-        output.push_str(&format!("    Category: {}\n", v.category));
-
-        if let Some(phase) = &v.phase_context {
-            output.push_str(&format!("    Phase: {}\n", phase));
-        }
-
-        if v.category.contains("Conditional") {
-            if let Some(trigger) = &v.trigger_task {
-                output.push_str(&format!("    Trigger: {}\n", trigger));
-            }
-            if let Some(consequent) = &v.consequent_task {
-                output.push_str(&format!("    Consequent: {}\n", consequent));
-            }
-        }
-
-        if let Some(source) = &v.task_source {
-            output.push_str(&format!("    Task source: {}\n", source));
-        }
-        if let Some(source) = &v.req_source {
-            output.push_str(&format!("    Requirement source: {}\n", source));
-        }
-
-        if let Some(fix) = &v.violation.suggested_fix {
-            output.push_str(&format!(
-                "\n    Suggested fix:\n    {}\n",
-                fix.replace('\n', "\n    ")
-            ));
-        }
-    }
-}
-
 /// Format verification result as JSON.
+///
+/// Always emits a top-level `findings[]` array (regardless of `--verbose`),
+/// per design D5. `--verbose` adds only supplementary lists (rephrase
+/// directives, constraint summaries) and never changes which core findings
+/// are present. **BREAKING**: the old top-level `convertibility_report` and
+/// `violations` keys are dropped in favor of `findings[]`.
 pub fn format_json(
     result: &crate::checker::VerificationResult,
     annotated: &[AnnotatedViolation],
     _plans: &[(String, PlanIR)],
     verbose: bool,
 ) -> String {
-    let mut violations_json = Vec::new();
-
-    for v in annotated {
-        let mut obj = serde_json::json!({
-            "constraint_id": v.violation.constraint_id,
-            "requirement_statement": v.violation.requirement_statement,
-            "ltl": v.violation.ltl,
-            "category": v.category,
-            "state": v.violation.state,
-            "plan": v.violation.plan,
-        });
-
-        if let Some(source) = &v.task_source {
-            obj["task_source"] = serde_json::json!(source);
-        }
-        if let Some(source) = &v.req_source {
-            obj["req_source"] = serde_json::json!(source);
-        }
-        if let Some(phase) = &v.phase_context {
-            obj["phase_context"] = serde_json::json!(phase);
-        }
-        if let Some(fix) = &v.violation.suggested_fix {
-            obj["suggested_fix"] = serde_json::json!(fix);
-        }
-
-        violations_json.push(obj);
-    }
+    let all_findings = findings(result, annotated);
 
     let mut output = serde_json::json!({
         "plan_name": result.plan_name,
         "phase": result.phase,
         "convertible": result.convertible,
         "valid": result.valid,
-        "violations": violations_json,
+        "findings": all_findings,
         "total_constraints": result.total_constraints,
         "satisfied_constraints": result.satisfied_constraints,
     });
@@ -259,8 +282,17 @@ pub fn format_json(
         output["skip_reason"] = serde_json::json!(reason);
     }
 
-    if verbose && let Some(report) = &result.convertibility_report {
-        output["convertibility_report"] = serde_json::json!(report);
+    // `--verbose` adds supplementary info only; it never changes which core
+    // findings are present (design D5).
+    if verbose {
+        if let Some(report) = &result.convertibility_report {
+            if !report.rephrase_directives.is_empty() {
+                output["rephrase_directives"] = serde_json::json!(report.rephrase_directives);
+            }
+        }
+        if !result.constraints_summary.is_empty() {
+            output["constraints_summary"] = serde_json::json!(result.constraints_summary);
+        }
     }
 
     serde_json::to_string_pretty(&output).unwrap_or_default()
@@ -344,6 +376,8 @@ mod tests {
                 req_source: None,
                 suggested_fix: Some("Add before-task".into()),
                 plan: "test".into(),
+                kind: crate::ir::Kind::ViolationSequential,
+                op: crate::ir::Op::ReplaceBody,
             }],
             total_constraints: 5,
             satisfied_constraints: 4,
@@ -357,36 +391,41 @@ mod tests {
     }
 
     #[test]
-    fn test_format_violations_contains_requirement() {
+    fn test_format_human_contains_requirement() {
         let result = make_result();
         let plans = make_plans();
         let annotated = annotate(&result, &plans);
-        let mut output = String::new();
-        format_violations(&mut output, &result, &annotated, false);
-        assert!(output.contains("R1"));
-        assert!(output.contains("SequentialOrder"));
+        let output = format_human(&result, &annotated, &plans, false);
+        // Grouped human output shows the kind and the suggestion.
+        assert!(output.contains("violation_sequential"));
+        assert!(output.contains("Add before-task"));
     }
 
     #[test]
-    fn test_format_violations_satisfied_count() {
+    fn test_findings_projection_flattens_violations() {
         let result = make_result();
         let plans = make_plans();
         let annotated = annotate(&result, &plans);
-        let mut output = String::new();
-        format_violations(&mut output, &result, &annotated, false);
-        assert!(output.contains("Satisfied: 4"));
-        assert!(output.contains("Violated: 1"));
+        let all = findings(&result, &annotated);
+        assert!(!all.is_empty(), "expected at least one finding");
+        assert!(
+            all.iter().any(|f| f.kind == "violation_sequential"),
+            "expected a violation_sequential finding: {:?}",
+            all
+        );
     }
 
     #[test]
-    fn test_format_json_contains_fields() {
+    fn test_format_json_contains_findings() {
         let result = make_result();
         let plans = make_plans();
         let annotated = annotate(&result, &plans);
         let json = format_json(&result, &annotated, &plans, false);
-        assert!(json.contains("\"constraint_id\""));
+        assert!(json.contains("\"findings\""));
         assert!(json.contains("\"R1\""));
-        assert!(json.contains("\"suggested_fix\""));
+        assert!(json.contains("\"suggestion\""));
+        // The old top-level `violations` key is dropped (BREAKING).
+        assert!(!json.contains("\"violations\""));
     }
 
     #[test]
@@ -399,23 +438,25 @@ mod tests {
     }
 
     #[test]
-    fn test_format_json_verbose_includes_report() {
+    fn test_format_json_verbose_adds_supplementary_only() {
         let mut result = make_result();
         result.convertibility_report = Some(ConvertibilityReport {
             status: crate::ir::ConvertibilityStatus::Convertible,
             blockers: vec![],
             warnings: vec![],
             info: vec![],
-            rephrase_directives: vec![],
+            rephrase_directives: vec!["rephrase me".into()],
         });
         let plans = make_plans();
         let annotated = annotate(&result, &plans);
         let json = format_json(&result, &annotated, &plans, true);
-        assert!(json.contains("convertibility_report"));
+        // `--verbose` adds rephrase_directives but never the old report key.
+        assert!(json.contains("rephrase_directives"));
+        assert!(!json.contains("convertibility_report"));
     }
 
     #[test]
-    fn test_format_json_not_verbose_excludes_report() {
+    fn test_format_json_not_verbose_still_has_findings() {
         let mut result = make_result();
         result.convertibility_report = Some(ConvertibilityReport {
             status: crate::ir::ConvertibilityStatus::Convertible,
@@ -427,6 +468,50 @@ mod tests {
         let plans = make_plans();
         let annotated = annotate(&result, &plans);
         let json = format_json(&result, &annotated, &plans, false);
+        // Findings are always present at default verbosity (design D5).
+        assert!(json.contains("\"findings\""));
         assert!(!json.contains("convertibility_report"));
+    }
+
+    #[test]
+    fn test_group_by_kind_groups_identical() {
+        let result = make_result();
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let all = findings(&result, &annotated);
+        let groups = group_by_kind(&all);
+        // All findings here share one kind, so they collapse to one group.
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, all.len());
+    }
+
+    #[test]
+    fn test_json_and_human_describe_same_findings() {
+        // Default JSON and default human output must describe the same set of
+        // `Finding`s (design D5, task 8.3). The human output groups by kind,
+        // so we compare the set of kinds + severities.
+        let result = make_result();
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+
+        let all = findings(&result, &annotated);
+        let json = format_json(&result, &annotated, &plans, false);
+        let human = format_human(&result, &annotated, &plans, false);
+
+        // Every finding kind appears in both formats.
+        for f in &all {
+            assert!(
+                json.contains(&format!("\"kind\": \"{}\"", f.kind)),
+                "JSON missing kind {}: {}",
+                f.kind,
+                json
+            );
+            assert!(
+                human.contains(&f.kind),
+                "human output missing kind {}: {}",
+                f.kind,
+                human
+            );
+        }
     }
 }

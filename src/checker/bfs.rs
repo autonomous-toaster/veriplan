@@ -68,16 +68,19 @@ fn check_and_record_violation(
             .filter(|(_, v)| *v == 1)
             .map(|(k, _)| k.clone())
             .collect();
+        let category = format!("{:?}", c.category);
         violations.push(Violation {
             constraint_id: c.requirement_id.clone(),
             requirement_statement: c.statement.clone(),
             ltl: ltl_str,
-            category: format!("{:?}", c.category),
+            category: category.clone(),
             state: state_str.join(", "),
             task_source: None,
             req_source: None,
             suggested_fix: None,
             plan: plan_name.to_string(),
+            kind: crate::ir::kind_of(&category),
+            op: crate::ir::Op::ReplaceBody,
         });
     }
 }
@@ -343,6 +346,18 @@ pub(crate) fn suggest_fix(
         crate::ir::ConstraintCategory::SequentialOrder => {
             Some(
                 "The before-task does not always complete before the after-task starts in the model.\n  Either ensure the before-task is in an earlier phase, or mark this constraint\n  as aspirational by removing BEFORE / AFTER."
+                    .into(),
+            )
+        }
+        crate::ir::ConstraintCategory::Global => {
+            Some(
+                "A global invariant is violated: the model reaches a state where the invariant\n  does not hold.\n  Either strengthen the invariant's preconditions (e.g. 'T1.1 SHALL complete BEFORE\n  T2.1 SHALL start'), or relax the invariant to a conditional/sequential constraint\n  that the model can satisfy."
+                    .into(),
+            )
+        }
+        crate::ir::ConstraintCategory::FixedTime => {
+            Some(
+                "A fixed-time constraint is violated: the model does not keep the required\n  timing window.\n  Either add an explicit ordering that keeps the tasks within the window (e.g.\n  'T1.1 SHALL complete BEFORE T2.1 SHALL start'), or relax the fixed-time\n  constraint to a sequential/global constraint the model can satisfy."
                     .into(),
             )
         }

@@ -237,8 +237,8 @@ fn test_grounding_failure_skips_bfs() {
 
     // Should report a blocker (multi-keyword grounding error), not a BFS violation
     assert!(
-        combined.contains("GROUNDING AMBIGUITY"),
-        "Expected GROUNDING AMBIGUITY message, got: {}",
+        combined.contains("grounding_multi_keyword"),
+        "Expected grounding_multi_keyword finding, got: {}",
         combined
     );
     assert!(

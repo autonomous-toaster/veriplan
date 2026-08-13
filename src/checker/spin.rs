@@ -102,16 +102,19 @@ pub(crate) fn run_spin_check(
                 &c.requirement_id,
                 &c.statement,
             );
+            let category = format!("{:?}", c.category);
             violations.push(Violation {
                 constraint_id: c.requirement_id.clone(),
                 requirement_statement: c.statement.clone(),
                 ltl: c.ltl_string(),
-                category: format!("{:?}", c.category),
+                category: category.clone(),
                 state: format!("(violated in property {})", label),
                 task_source: None,
                 req_source: None,
                 suggested_fix: fix,
                 plan: plan_name.to_string(),
+                kind: crate::ir::kind_of(&category),
+                op: crate::ir::Op::ReplaceBody,
             });
         } else {
             satisfied += 1;
