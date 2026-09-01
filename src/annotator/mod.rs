@@ -327,6 +327,7 @@ fn verbose_section(
         output.push_str(&format!("\n=== Plan: {} ===\n", name));
         output.push_str(&format!("Tasks: {}\n", plan.tasks.len()));
         output.push_str(&format!("Requirements: {}\n", plan.requirements.len()));
+        output.push_str(&format!("Scenarios: {}\n", plan.scenarios.len()));
         output.push_str(&format!("Phases: {}\n", plan.phases.len()));
     }
 }

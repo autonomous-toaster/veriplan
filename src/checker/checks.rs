@@ -73,7 +73,7 @@ pub fn check_tasks(
 ) -> (Option<CheckItem>, Vec<CheckItem>, Vec<CheckItem>) {
     let mut blockers = Vec::new();
     let mut warnings = Vec::new();
-    let mut info = Vec::new();
+    let info = Vec::new();
 
     if plan.tasks.is_empty() {
         let severity = if is_openspec { "blocker" } else { "info" };
@@ -123,19 +123,6 @@ pub fn check_tasks(
             Some("Add ## Phase section headings to group tasks".into()),
         ));
     }
-
-    info.push(make_item(
-        "info",
-        "task_count",
-        "Plan".into(),
-        "tasks.md".into(),
-        format!(
-            "Found {} tasks across {} phases",
-            plan.tasks.len(),
-            plan.phases.len()
-        ),
-        None,
-    ));
 
     (None, warnings, info)
 }
@@ -233,7 +220,7 @@ mod classifiability;
 pub use classifiability::check_classifiability;
 pub fn check_scenarios(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
     let mut warnings = Vec::new();
-    let mut info = Vec::new();
+    let info = Vec::new();
 
     for sc in &plan.scenarios {
         let has_when = sc.steps.iter().any(|s| s.kind == StepKind::When);
@@ -262,18 +249,6 @@ pub fn check_scenarios(plan: &PlanIR) -> (Vec<CheckItem>, Vec<CheckItem>) {
             warnings.extend(check_then_steps_rfc2119(sc));
         }
     }
-
-    info.push(make_item(
-        "info",
-        "scenario_count",
-        "Plan".into(),
-        "specs/".into(),
-        format!(
-            "Found {} scenarios across all spec files",
-            plan.scenarios.len()
-        ),
-        None,
-    ));
 
     (warnings, info)
 }
@@ -371,15 +346,6 @@ pub fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
             Some("Add exclusive (mutex), conditional (if-then), or concurrent constraints".into()),
         ));
     }
-
-    info.push(make_item(
-        "info",
-        "constraint_diversity",
-        "Plan".into(),
-        "specs/".into(),
-        format!("Constraint distribution: {}", summary.join(", ")),
-        None,
-    ));
 
     info
 }

@@ -477,18 +477,6 @@ pub fn check_grounding(
         }
     }
 
-    info.push(make_item(
-        "info",
-        "grounding_summary",
-        "Plan".into(),
-        String::new(),
-        format!(
-            "Grounding check complete: {} requirements checked",
-            plan.requirements.len()
-        ),
-        None,
-    ));
-
     (blockers, warnings, info, outcomes)
 }
 

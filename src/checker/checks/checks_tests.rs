@@ -63,7 +63,48 @@ mod tests {
         let (blocker, warnings, info) = check_tasks(&plan, true);
         assert!(blocker.is_none());
         assert!(warnings.is_empty());
-        assert!(info.iter().any(|i| i.check == "task_count"));
+        assert!(
+            info.iter().all(|i| i.check != "task_count"),
+            "task_count aggregate must not be emitted: {:?}",
+            info
+        );
+    }
+
+    #[test]
+    fn no_aggregate_summary_findings_emitted() {
+        // The five plan-level aggregate diagnostics (task_count, scenario_count,
+        // classification_summary, constraint_diversity, grounding_summary) must
+        // not surface as findings — they were the `5× prose_other` noise.
+        use crate::grounding;
+        use crate::input::StrictnessProfile;
+        let plan = make_test_plan();
+        let aggregate = [
+            "task_count",
+            "scenario_count",
+            "classification_summary",
+            "constraint_diversity",
+            "grounding_summary",
+        ];
+
+        let mut info_checks = Vec::new();
+        if let (None, _, info) = check_tasks(&plan, true) {
+            info_checks.extend(info.into_iter().map(|i| i.check));
+        }
+        let (_, info) = check_scenarios(&plan);
+        info_checks.extend(info.into_iter().map(|i| i.check));
+        info_checks.extend(check_diversity(&plan).into_iter().map(|i| i.check));
+        let (_, _, info) = check_classifiability(&plan, true);
+        info_checks.extend(info.into_iter().map(|i| i.check));
+        let (_, _, info, _) = grounding::check_grounding(&plan, &StrictnessProfile::Strict);
+        info_checks.extend(info.into_iter().map(|i| i.check));
+
+        for name in aggregate {
+            assert!(
+                !info_checks.iter().any(|c| c == name),
+                "aggregate diagnostic '{}' must not be emitted as a finding",
+                name
+            );
+        }
     }
 
     #[test]
@@ -115,7 +156,14 @@ mod tests {
     fn test_check_diversity() {
         let plan = make_test_plan();
         let info = check_diversity(&plan);
-        assert!(!info.is_empty());
+        // The `constraint_diversity` aggregate summary is no longer emitted.
+        // (`low_diversity` only fires when it has a suggestion; this plan is
+        // below the threshold, so info is expected empty.)
+        assert!(
+            info.iter().all(|i| i.check != "constraint_diversity"),
+            "constraint_diversity aggregate must not be emitted: {:?}",
+            info
+        );
     }
 
     #[test]

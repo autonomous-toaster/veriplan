@@ -43,7 +43,7 @@ T1.1 SHALL define the shared `Finding` shape BEFORE T4.1 SHALL attach it to conv
 
 ### Requirement: Findings always appear in default output
 
-T5.2 SHALL emit the `findings[]` array in default JSON AFTER T5.1 SHALL project all findings into one array.
+T5.2 SHALL emit the `findings[]` array in default JSON AFTER T5.1 SHALL project all findings into one array. Plan-level aggregate diagnostics (task/phase count, scenario count, classification summary, constraint distribution, grounding summary) SHALL NOT be part of the `findings[]` set.
 
 #### Scenario: Blockers present in default JSON
 
@@ -56,6 +56,12 @@ T5.2 SHALL emit the `findings[]` array in default JSON AFTER T5.1 SHALL project 
 - **GIVEN** a plan with blockers and violations
 - **WHEN** T5.2 and T5.3 emit both formats at default verbosity
 - **THEN** the set of `Finding`s described SHALL be identical between the two formats
+
+#### Scenario: Aggregate diagnostics are not findings
+
+- **GIVEN** a plan that passes convertibility
+- **WHEN** T5.2 emits `findings[]` in default JSON
+- **THEN** the array SHALL NOT contain `task_count`, `scenario_count`, `classification_summary`, `constraint_diversity`, or `grounding_summary` items
 
 ### Requirement: kind and op are curated enums
 

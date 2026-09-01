@@ -160,17 +160,5 @@ pub fn check_classifiability(
         ));
     }
 
-    info.push(make_item(
-        "info",
-        "classification_summary",
-        "Plan".into(),
-        "specs/".into(),
-        format!(
-            "{} formalizable, {} non-formalizable requirements",
-            formalizable_count, non_formalizable_count
-        ),
-        None,
-    ));
-
     (blockers, warnings, info)
 }
