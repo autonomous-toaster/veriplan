@@ -1,70 +1,85 @@
 ---
 name: veriplan-spec
-description: Write OpenSpec requirements that pass veriplan model checking on the first try. Use when creating or editing spec.md files in an OpenSpec change.
+description: Write OpenSpec changes that pass `veriplan check` on the first run. Concise, complete rules for tasks.md and spec.md so a change validates. Use when creating or editing the specs of an OpenSpec change.
 ---
 
-Write veriplan-compliant OpenSpec requirements.
+# Veriplan-compliant OpenSpec
 
-veriplan checks that every SHALL requirement can be translated into a temporal constraint on tasks and verified by model checking. Requirements that describe code properties ("the function SHALL return correct results") will be rejected — they must describe task ordering.
+A change validates when veriplan can turn every requirement into a temporal
+constraint on **real tasks** and model-check it. Requirements describe **task
+ordering, never code behavior**.
 
-## Rules (violating any = veriplan blocker)
+## Non-negotiable core
 
-1. **Every SHALL MUST reference at least one task by N.M ID**
-   - GOOD: `T2.1 SHALL complete BEFORE T3.1`
-   - BAD: `The system SHALL be robust` (no task ID)
+Every requirement is exactly one temporal ordering between two tasks that exist
+in tasks.md:
 
-2. **Every SHALL MUST use exactly ONE temporal keyword**
-   - Keywords: `BEFORE`, `AFTER`, `CONCURRENTLY`, `IF...THEN`, `ALWAYS`, `AT MOST ONE`
-   - GOOD: `T2.1 SHALL complete BEFORE T2.4`
-   - BAD: `T2.1 SHALL complete` (no temporal keyword)
-
-3. **Task IDs in spec MUST match task IDs in tasks.md**
-   - Read tasks.md first. Use the exact IDs from there.
-   - If tasks.md has `1.1`, `2.1`, `2.2` — use `T1.1`, `T2.1`, `T2.2` in the spec.
-
-4. **`[concurrent]` MUST be in a `## Phase` heading**
-   - GOOD: `## Phase 2: Harnesses [concurrent]`
-   - BAD: `## 2. Harnesses [concurrent]` (doesn't start with "Phase")
-
-5. **Every scenario MUST have WHEN + THEN with RFC 2119 keyword**
-   - GOOD: `- **WHEN** T2.1 runs\n- **THEN** the harness SHALL pass`
-   - BAD: Missing WHEN or THEN, or THEN without SHALL/MUST
-
-6. **Requirements MUST describe task ordering, not code properties**
-   - GOOD: `T2.1 SHALL complete BEFORE T2.4` (task A before task B)
-   - BAD: `collect_atoms() SHALL find all atoms` (code property, not task ordering)
-
-7. **Avoid comma-separated task lists in SHALL statements**
-   - The grounder has low confidence with `T2.1, T2.2, and T2.3 SHALL run CONCURRENTLY`
-   - Instead, ensure tasks are in a `[concurrent]` phase and reference one task:
-   - GOOD: `T2.1 SHALL run CONCURRENTLY with T2.2`
-
-## Template
-
-```markdown
-## Task Reference
-
-| Task ID | Description |
-|---------|-------------|
-| T<phase>.<seq> | <description from tasks.md> |
-
-## ADDED Requirements
-
-### Requirement: <name describing the ordering constraint>
-
-T<id> SHALL <action> <TEMPORAL_KEYWORD> T<id> SHALL <action>.
-
-#### Scenario: <scenario name>
-
-- **WHEN** <condition referencing a task>
-- **THEN** <expected outcome with SHALL/MUST>
+```
+T2.1 SHALL complete BEFORE T3.1.
 ```
 
-## Workflow
+## Write order
 
-1. Read `tasks.md` first — get the exact task IDs and phase structure
-2. For each requirement, pick ONE temporal keyword from the list
-3. Write the SHALL statement referencing task IDs
-4. Add at least one scenario with WHEN + THEN
-5. Run `veriplan check` to validate
-6. If it fails, fix the blockers (they tell you exactly what's wrong)
+1. Write `tasks.md` first — the tasks and their IDs.
+2. Write `spec.md` requirements and scenarios referencing those IDs.
+3. Run `veriplan check <change>` (defaults to Strict); fix every finding; repeat
+   until it reads `✓ VALID`.
+
+## tasks.md rules
+
+- Unique `N.M` IDs (`1.1`, `2.3`) under `## N. Group` headings.
+- `[concurrent]` belongs on a **`## Phase N: Name [concurrent]`** heading (must
+  start with "Phase").
+- Description = **one instruction per sentence, no ambiguous pronouns.** Both
+  are **blockers in Strict (the default)**.
+  - BAD: `Install the engine and wire it` (two instructions, "it" unresolved)
+  - GOOD: `Install the engine` / `Wire the drive` (split into separate tasks)
+
+## spec.md requirement rules
+
+- Pattern: `T<id> SHALL <predicate> <KEYWORD> T<id> SHALL <predicate>.`
+- Exactly **ONE** temporal keyword per requirement:
+  `BEFORE`, `AFTER`, `CONCURRENTLY`, `IF…THEN`, `ALWAYS`, `AT MOST ONE`.
+- One keyword, one relation, per requirement. A requirement with two temporal
+  clauses is a `grounding_multi_keyword` blocker — **split into one requirement
+  per clause.**
+  - BAD (one requirement, two relations): `T1.1 SHALL run BEFORE T2.1. T3.1 SHALL run AFTER T2.1.`
+  - GOOD (split): requirement A `T1.1 SHALL run BEFORE T2.1.` + requirement B `T3.1 SHALL run AFTER T2.1.`
+- Reference real IDs verbatim (`T1.2` for task `1.2`); referenced tasks must
+  exist.
+- No comma-separated task lists. For concurrency, put tasks in a `[concurrent]`
+  phase and state a two-task relation.
+- MUST NOT describe behavior/properties (`the function SHALL find all atoms`).
+  Rewrite as a task ordering.
+
+## Scenario rules (spec.md)
+
+- `#### Scenario:` — exactly **4** `#`.
+- Steps: `- **WHEN** <condition>` then `- **THEN** <outcome carrying SHALL/MUST>`.
+  Optional `- **AND**`.
+- THEN must contain SHALL/MUST.
+- Avoid ambiguous pronouns in steps (Strict blocker).
+
+## Coverage
+
+- At least one `SHALL`/`MUST` requirement (else `no_requirements` blocker).
+- Every task referenced by ≥1 requirement (else `task_not_covered` warning —
+  still fix it to pass cleanly).
+- **`skip_specs: true` does not exempt a change.** veriplan still requires
+  convertible requirements that cover the tasks — write a spec even for
+  tooling/refactor changes.
+
+## Checklist
+
+- [ ] tasks: unique `N.M` IDs; one-instruction descriptions; no pronouns; `[concurrent]` on `## Phase`
+- [ ] each requirement: one task-pair, one temporal keyword, existing IDs
+- [ ] no requirement mixes two temporal clauses
+- [ ] every task referenced by ≥1 requirement
+- [ ] every scenario: `#### Scenario:` header, `- **WHEN**`, `- **THEN**` with SHALL/MUST
+- [ ] `veriplan check <change>` reports `✓ VALID`
+
+## Workflow reminder
+
+Fix findings in order (they name the exact issue and location), then re-run
+`veriplan check`. A clean change also keeps its own spec advisory-clean
+(no passive voice fights OpenSpec grammar; leave `SHALL be …` untouched).
