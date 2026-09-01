@@ -8,7 +8,6 @@ use crate::ir::{
     PhaseMode, PlanIR, Rfc2119Strength,
     ltl::{LtlCondition, LtlFormula},
 };
-
 /// Result of translating a requirement to LTL.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TranslatedConstraint {
@@ -31,7 +30,6 @@ impl TranslatedConstraint {
             .unwrap_or_default()
     }
 }
-
 /// Check if all referenced task IDs are in the same concurrent phase.
 fn tasks_in_same_concurrent_phase(plan: &PlanIR, task_ids: &[String]) -> bool {
     if task_ids.len() < 2 {
@@ -41,7 +39,6 @@ fn tasks_in_same_concurrent_phase(plan: &PlanIR, task_ids: &[String]) -> bool {
         p.mode == PhaseMode::Concurrent && task_ids.iter().all(|id| p.task_ids.contains(id))
     })
 }
-
 /// Translate all formalizable requirements in a PlanIR to LTL constraints.
 pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
     let mut constraints = Vec::new();
@@ -73,11 +70,9 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
 
     constraints
 }
-
 /// Classify a SHALL statement into a VeriPlan temporal category.
 pub fn classify(statement: &str) -> ConstraintCategory {
     let lower = statement.to_lowercase();
-
     // Temporal categories take PRIORITY. A requirement that is a verifiable
     // temporal constraint is always classified as that category, even if the
     // body also happens to mention "human review only".
@@ -107,7 +102,6 @@ pub fn classify(statement: &str) -> ConstraintCategory {
     }
     NonFormalizable
 }
-
 /// Whether the statement is explicitly marked as informational /
 /// human-review-only (not a temporal state-machine constraint).
 fn is_informational(lower: &str) -> bool {
@@ -115,7 +109,6 @@ fn is_informational(lower: &str) -> bool {
     // (which legitimately appears in requirements that discuss the concept).
     lower.contains("human review only") || lower.contains("not formalizable by design")
 }
-
 /// Why a non-formalizable requirement is not verifiable. Used to emit targeted,
 /// pedagogical fixes instead of the generic "does not match any temporal category".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,22 +120,44 @@ pub enum VagueDiagnosis {
     /// No task reference and uses a vague adjective (e.g. "robust").
     VagueQuality { word: String },
 }
-
 /// Curated vague-word list, mirroring the curated temporal-keyword approach.
 /// Runs ONLY on requirements that reached NonFormalizable (no temporal keyword,
 /// no 'human review only'), so it cannot misfire on a verifiable requirement.
 fn vague_adverbs() -> &'static [&'static str] {
     &[
-        "quickly", "fast", "soon", "correctly", "properly", "efficiently", "reliably",
-        "safely", "adequately", "promptly", "easily", "consistently",
+        "quickly",
+        "fast",
+        "soon",
+        "correctly",
+        "properly",
+        "efficiently",
+        "reliably",
+        "safely",
+        "adequately",
+        "promptly",
+        "easily",
+        "consistently",
     ]
 }
-
 fn vague_adjectives() -> &'static [&'static str] {
     &[
-        "robust", "clean", "good", "stable", "user-friendly", "easy", "fast", "minimal",
-        "optimal", "responsive", "scalable", "performant", "reliable", "safe", "better",
-        "worse", "best",
+        "robust",
+        "clean",
+        "good",
+        "stable",
+        "user-friendly",
+        "easy",
+        "fast",
+        "minimal",
+        "optimal",
+        "responsive",
+        "scalable",
+        "performant",
+        "reliable",
+        "safe",
+        "better",
+        "worse",
+        "best",
     ]
 }
 
@@ -157,8 +172,14 @@ pub fn diagnose_vague(statement: &str, task_ids: &[String]) -> Option<VagueDiagn
     // Prefer the most specific diagnosis: a vague word in a task-referencing
     // requirement is a VagueAction; in a non-referencing requirement it is a
     // VagueQuality.
-    let adverb = vague_adverbs().iter().find(|w| lower.contains(**w)).map(|w| *w);
-    let adjective = vague_adjectives().iter().find(|w| lower.contains(**w)).map(|w| *w);
+    let adverb = vague_adverbs()
+        .iter()
+        .find(|w| lower.contains(**w))
+        .copied();
+    let adjective = vague_adjectives()
+        .iter()
+        .find(|w| lower.contains(**w))
+        .copied();
 
     if has_task {
         if let Some(w) = adverb {
@@ -196,7 +217,6 @@ pub fn diagnose_vague(statement: &str, task_ids: &[String]) -> Option<VagueDiagn
 
     None // undiagnosed — fall back to the generic blocker
 }
-
 fn is_exclusive(lower: &str) -> bool {
     lower.contains("at most one")
         || lower.contains("mutually exclusive")
@@ -204,7 +224,6 @@ fn is_exclusive(lower: &str) -> bool {
         || lower.contains("not together")
         || lower.contains("only one")
 }
-
 fn is_conditional(lower: &str) -> bool {
     let has_if = lower.starts_with("if ") || lower.contains(" if ");
     let has_when_then = lower.contains("when") && lower.contains("then");
@@ -212,14 +231,12 @@ fn is_conditional(lower: &str) -> bool {
     let has_fail_then = lower.contains("fail") && lower.contains("then");
     has_if || has_when_then || has_unless || has_fail_then
 }
-
 fn is_concurrent(lower: &str) -> bool {
     lower.contains("concurrently")
         || lower.contains("in parallel")
         || lower.contains("simultaneously")
         || lower.contains("at the same time")
 }
-
 fn is_fixed_time(lower: &str) -> bool {
     lower.contains("within")
         || lower.contains("between") && lower.contains("and")
@@ -227,11 +244,9 @@ fn is_fixed_time(lower: &str) -> bool {
         || (lower.contains("after") && is_time_ref(lower))
         || lower.contains("window")
 }
-
 fn is_global(lower: &str) -> bool {
     lower.contains("always") || lower.contains("throughout") || lower.contains("at all times")
 }
-
 fn is_sequential(lower: &str) -> bool {
     lower.contains(" before ")
         || lower.contains(" after ")
@@ -251,173 +266,14 @@ fn is_time_ref(text: &str) -> bool {
         || text.chars().any(|c| c.is_ascii_digit())
 }
 
-/// Generate an LTL formula for a classified constraint.
-pub fn generate_ltl(
-    category: &ConstraintCategory,
-    statement: &str,
-    plan: &PlanIR,
-) -> Option<LtlFormula> {
-    let task_ids = extract_task_refs(statement, plan);
-
-    match category {
-        SequentialOrder => {
-            // Extract which task is before which
-            if let Some((before_id, after_id)) = find_sequential_pair(statement, &task_ids) {
-                Some(LtlFormula::Always(LtlCondition::Implies(
-                    Box::new(LtlCondition::Atom(format!(
-                        "active_{}",
-                        normalize_id(&after_id)
-                    ))),
-                    Box::new(LtlCondition::Atom(format!(
-                        "done_{}",
-                        normalize_id(&before_id)
-                    ))),
-                )))
-            } else if task_ids.len() >= 2 {
-                // General case: if A and B are referenced, A before B
-                let a = normalize_id(&task_ids[0]);
-                let b = normalize_id(&task_ids[1]);
-                Some(LtlFormula::Always(LtlCondition::Implies(
-                    Box::new(LtlCondition::Atom(format!("active_{}", b))),
-                    Box::new(LtlCondition::Atom(format!("done_{}", a))),
-                )))
-            } else {
-                None
-            }
-        }
-        Exclusive => {
-            // Generate pairwise exclusions for all referenced task pairs
-            if task_ids.len() < 2 {
-                return None;
-            }
-            let pairs: Vec<LtlCondition> = (0..task_ids.len())
-                .flat_map(|i| (i + 1..task_ids.len()).map(move |j| (i, j)))
-                .map(|(i, j)| {
-                    let a = normalize_id(&task_ids[i]);
-                    let b = normalize_id(&task_ids[j]);
-                    LtlCondition::Not(Box::new(LtlCondition::And(vec![
-                        LtlCondition::Atom(format!("active_{}", a)),
-                        LtlCondition::Atom(format!("active_{}", b)),
-                    ])))
-                })
-                .collect();
-            Some(LtlFormula::Always(LtlCondition::And(pairs)))
-        }
-        Conditional => {
-            // Find the trigger task and the consequent task
-            if task_ids.len() >= 2 {
-                let trigger = normalize_id(&task_ids[0]);
-                let consequent = normalize_id(&task_ids[1]);
-                Some(LtlFormula::Always(LtlCondition::Implies(
-                    Box::new(LtlCondition::Atom(format!("failed_{}", trigger))),
-                    Box::new(LtlCondition::Eventually(Box::new(LtlCondition::Atom(
-                        format!("active_{}", consequent),
-                    )))),
-                )))
-            } else {
-                None
-            }
-        }
-        ConcurrentEvents => {
-            // Generate bidirectional equivalence
-            if task_ids.len() >= 2 {
-                let a = normalize_id(&task_ids[0]);
-                let b = normalize_id(&task_ids[1]);
-                Some(LtlFormula::Always(LtlCondition::Iff(
-                    Box::new(LtlCondition::Atom(format!("active_{}", a))),
-                    Box::new(LtlCondition::Atom(format!("active_{}", b))),
-                )))
-            } else {
-                None
-            }
-        }
-        FixedTime | Global => {
-            // Global invariants and fixed-time constraints without reliable durations
-            // Just note the constraint exists — evaluated as always-true placeholder
-            Some(LtlFormula::Always(LtlCondition::Atom("true".into())))
-        }
-        NonFormalizable | Informational => None,
-        PatternUngrounded => None,
-    }
-}
-
-/// Extract task ID references from a statement using a PlanIR.
-pub fn extract_task_refs(statement: &str, plan: &PlanIR) -> Vec<String> {
-    // Find all referenced task IDs and sort by their position in the statement
-    let mut refs_with_pos: Vec<(usize, String)> = Vec::new();
-    for task in &plan.tasks {
-        let id_pattern = format!("T{}", task.id);
-        let alt_pattern = format!("t{}", task.id);
-        if let Some(pos) = statement.find(&id_pattern) {
-            refs_with_pos.push((pos, task.id.clone()));
-        } else if let Some(pos) = statement.find(&alt_pattern) {
-            refs_with_pos.push((pos, task.id.clone()));
-        }
-    }
-    refs_with_pos.sort_by_key(|(pos, _)| *pos);
-    refs_with_pos.into_iter().map(|(_, id)| id).collect()
-}
-
-/// Extract task ID references from a statement given a list of known IDs.
-pub fn extract_task_refs_bare(statement: &str, task_ids: &[String]) -> Vec<String> {
-    let mut refs = Vec::new();
-    for id in task_ids {
-        let id_pattern = format!("T{}", id);
-        let alt_pattern = format!("t{}", id);
-        if statement.contains(&id_pattern) || statement.contains(&alt_pattern) {
-            refs.push(id.clone());
-        }
-    }
-    refs
-}
-
-/// Find which task is before which in a sequential constraint.
-pub fn find_sequential_pair(statement: &str, task_ids: &[String]) -> Option<(String, String)> {
-    let lower = statement.to_lowercase();
-
-    for id in task_ids {
-        let before_pattern = format!("{} before", id);
-        let after_pattern = format!("after {}", id);
-        let complete_before = format!("{} complete", id);
-
-        if (lower.contains(&before_pattern) || lower.contains(&complete_before))
-            && let Some(other) = find_matching_task(id, task_ids, &lower, statement)
-        {
-            return Some((id.clone(), other));
-        }
-        if lower.contains(&after_pattern)
-            && let Some(other) = find_matching_task(id, task_ids, &lower, statement)
-        {
-            return Some((other, id.clone()));
-        }
-    }
-    None
-}
-
-/// Find a task ID that appears in the statement, different from the given ID.
-fn find_matching_task(
-    id: &str,
-    task_ids: &[String],
-    lower: &str,
-    statement: &str,
-) -> Option<String> {
-    for other in task_ids {
-        if other != id && (lower.contains(other) || statement.contains(&format!("T{}", other))) {
-            return Some(other.clone());
-        }
-    }
-    None
-}
-
-/// Normalize a task ID (1.3 → t_1_3) for use in LTL variable names.
-pub(crate) fn normalize_id(id: &str) -> String {
-    format!("t{}", id.replace('.', "_"))
-}
+mod ltl;
+#[cfg(any(test, kani))]
+pub(crate) use ltl::normalize_id;
+pub use ltl::{extract_task_refs, extract_task_refs_bare, find_sequential_pair, generate_ltl};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_find_sequential_pair_before() {
         let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
@@ -425,7 +281,6 @@ mod tests {
         let result = find_sequential_pair("1.1 before 1.2", &task_ids);
         assert_eq!(result, Some(("1.1".to_string(), "1.2".to_string())));
     }
-
     #[test]
     fn test_find_sequential_pair_after() {
         let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
@@ -433,20 +288,17 @@ mod tests {
         let result = find_sequential_pair("1.2 after 1.1", &task_ids);
         assert_eq!(result, Some(("1.2".to_string(), "1.1".to_string())));
     }
-
     #[test]
     fn test_find_sequential_pair_no_match() {
         let task_ids = vec!["1.1".to_string()];
         let result = find_sequential_pair("The system SHALL be robust", &task_ids);
         assert_eq!(result, None);
     }
-
     #[test]
     fn test_normalize_id() {
         assert_eq!(normalize_id("1.3"), "t1_3");
         assert_eq!(normalize_id("10.7"), "t10_7");
     }
-
     #[test]
     fn test_diagnose_bare_capability() {
         // References a task, no vague word -> BareCapability
@@ -465,7 +317,6 @@ mod tests {
             ConstraintCategory::NonFormalizable
         );
     }
-
     #[test]
     fn test_diagnose_vague_action() {
         // References a task + vague adverb -> VagueAction
@@ -479,7 +330,6 @@ mod tests {
             }
         );
     }
-
     #[test]
     fn test_diagnose_vague_quality() {
         // No task reference + vague adjective -> VagueQuality
@@ -492,7 +342,6 @@ mod tests {
             }
         );
     }
-
     #[test]
     fn test_safety_boundary_temporal_not_diagnosed() {
         // A temporal requirement is NEVER diagnosed as vague — classify() returns
@@ -505,14 +354,16 @@ mod tests {
         assert_ne!(cat, ConstraintCategory::NonFormalizable);
         assert_ne!(cat, ConstraintCategory::Informational);
         assert!(
-            diagnose_vague("T1.1 SHALL be done quickly BEFORE T1.2 SHALL start.", &task_ids)
-                .is_none()
+            diagnose_vague(
+                "T1.1 SHALL be done quickly BEFORE T1.2 SHALL start.",
+                &task_ids
+            )
+            .is_none()
                 || !classify("T1.1 SHALL be done quickly BEFORE T1.2 SHALL start.")
                     .eq(&ConstraintCategory::NonFormalizable),
             "temporal requirement must not be diagnosed as vague"
         );
     }
-
     #[test]
     fn test_diagnose_undiagnosed_falls_back() {
         // No task reference, no vague word -> None (generic blocker fallback)
@@ -524,7 +375,6 @@ mod tests {
             ConstraintCategory::NonFormalizable
         );
     }
-
     #[test]
     fn test_diagnose_verdict_unchanged() {
         // Vague requirements still classify as NonFormalizable (blocker),
@@ -544,7 +394,6 @@ mod tests {
         }
     }
 }
-
 #[test]
 fn test_generate_ltl_sequential() {
     let plan = make_test_plan();
@@ -558,7 +407,6 @@ fn test_generate_ltl_sequential() {
     assert!(ltl_str.contains("active_t1_2"));
     assert!(ltl_str.contains("done_t1_1"));
 }
-
 #[test]
 fn test_generate_ltl_exclusive() {
     let plan = make_test_plan();
@@ -572,7 +420,6 @@ fn test_generate_ltl_exclusive() {
     assert!(ltl_str.contains("active_t1_1"));
     assert!(ltl_str.contains("active_t1_2"));
 }
-
 #[test]
 fn test_generate_ltl_conditional() {
     let plan = make_test_plan();
@@ -586,7 +433,6 @@ fn test_generate_ltl_conditional() {
     assert!(ltl_str.contains("failed_t1_1"));
     assert!(ltl_str.contains("active_t2_1"));
 }
-
 #[test]
 fn test_generate_ltl_concurrent() {
     let plan = make_test_plan();
@@ -599,7 +445,6 @@ fn test_generate_ltl_concurrent() {
     let ltl_str = crate::ir::ltl::ltl_to_string(&ltl.unwrap());
     assert!(ltl_str.contains("<->"));
 }
-
 #[test]
 fn test_generate_ltl_non_formalizable() {
     let plan = make_test_plan();
@@ -610,7 +455,6 @@ fn test_generate_ltl_non_formalizable() {
     );
     assert!(ltl.is_none());
 }
-
 #[test]
 fn test_extract_task_refs() {
     let plan = make_test_plan();
@@ -619,7 +463,6 @@ fn test_extract_task_refs() {
     assert!(refs.contains(&"1.1".to_string()));
     assert!(refs.contains(&"1.2".to_string()));
 }
-
 #[test]
 fn test_extract_task_refs_bare() {
     let task_ids = vec!["1.1".to_string(), "1.2".to_string(), "2.1".to_string()];

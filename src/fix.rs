@@ -51,9 +51,10 @@ pub fn fix_plan(plan: &PlanIR, findings: &[Finding], base_dir: &Path) -> FixRepo
 
         // Only apply findings with a deterministic replacement.
         let Some(replacement) = &f.replacement else {
-            report
-                .left_as_suggestions
-                .push(format!("{}: {} (no deterministic replacement)", f.kind, f.message));
+            report.left_as_suggestions.push(format!(
+                "{}: {} (no deterministic replacement)",
+                f.kind, f.message
+            ));
             continue;
         };
 
@@ -171,10 +172,8 @@ fn apply_span_replacement(
     // requirement span but falling back to the whole file.
     let abs_start = if let Some(rel) = find_word(&content[search_start..search_end], &target) {
         search_start + rel
-    } else if let Some(rel) = find_word(&content, &target) {
-        rel
     } else {
-        return None;
+        find_word(&content, &target)?
     };
     let abs_end = abs_start + target.len();
 
@@ -209,8 +208,8 @@ fn find_word(hay: &str, word: &str) -> Option<usize> {
         if &bytes[i..i + w.len()] == w {
             // Check word boundaries.
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
-            let after_ok = i + w.len() == bytes.len()
-                || !bytes[i + w.len()].is_ascii_alphanumeric();
+            let after_ok =
+                i + w.len() == bytes.len() || !bytes[i + w.len()].is_ascii_alphanumeric();
             if before_ok && after_ok {
                 return Some(i);
             }
@@ -229,9 +228,10 @@ fn apply_task_rename(
 ) -> Option<AppliedEdit> {
     // The finding's message references the duplicate task ID. Find the task in
     // the plan whose source location matches the finding's file/line.
-    let task = plan.tasks.iter().find(|t| {
-        t.source.file == f.file && t.source.start_line == f.line
-    })?;
+    let task = plan
+        .tasks
+        .iter()
+        .find(|t| t.source.file == f.file && t.source.start_line == f.line)?;
     let path = resolve_path(&f.file, base_dir)?;
     let content = std::fs::read_to_string(&path).ok()?;
     // Replace the task ID token at the task's source span.
@@ -256,7 +256,12 @@ mod tests {
     use super::*;
     use crate::ir::{Finding, Fixability, Op, PlanIR};
 
-    fn make_finding(kind: &str, op: Op, fixability: Fixability, replacement: Option<&str>) -> Finding {
+    fn make_finding(
+        kind: &str,
+        op: Op,
+        fixability: Fixability,
+        replacement: Option<&str>,
+    ) -> Finding {
         Finding {
             kind: kind.to_string(),
             severity: "warning".into(),
@@ -339,7 +344,10 @@ mod tests {
             Some("split body"),
         )];
         let report = fix_plan(&plan, &findings, std::path::Path::new("/tmp"));
-        assert!(report.applied.is_empty(), "split_requirement must not be auto-applied");
+        assert!(
+            report.applied.is_empty(),
+            "split_requirement must not be auto-applied"
+        );
         assert_eq!(report.left_as_suggestions.len(), 1);
     }
 

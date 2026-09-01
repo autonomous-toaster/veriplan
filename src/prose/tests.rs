@@ -1,5 +1,7 @@
 use super::*;
-use crate::ir::{PlanIR, Requirement, Rfc2119Strength, Scenario, ScenarioStep, SourceLocation, StepKind, Task};
+use crate::ir::{
+    PlanIR, Requirement, Rfc2119Strength, Scenario, ScenarioStep, SourceLocation, StepKind, Task,
+};
 
 fn req(id: &str, statement: &str) -> Requirement {
     Requirement {
@@ -18,7 +20,6 @@ fn req(id: &str, statement: &str) -> Requirement {
         },
     }
 }
-
 fn task(id: &str, description: &str) -> Task {
     Task {
         id: id.to_string(),
@@ -34,7 +35,6 @@ fn task(id: &str, description: &str) -> Task {
         },
     }
 }
-
 fn plan_with(reqs: Vec<Requirement>, tasks: Vec<Task>) -> PlanIR {
     PlanIR {
         tasks,
@@ -44,7 +44,6 @@ fn plan_with(reqs: Vec<Requirement>, tasks: Vec<Task>) -> PlanIR {
         source_map: crate::ir::SourceMap::default(),
     }
 }
-
 #[test]
 fn curated_rules_do_not_flag_openspec_grammar() {
     // "shall" (RFC 2119) and scenario scaffolding must not produce findings.
@@ -71,7 +70,6 @@ fn curated_rules_do_not_flag_openspec_grammar() {
         );
     }
 }
-
 #[test]
 fn scenario_then_step_not_flagged_as_passive() {
     // A requirement statement that is active (has task agent) must not be
@@ -91,7 +89,6 @@ fn scenario_then_step_not_flagged_as_passive() {
         findings
     );
 }
-
 #[test]
 fn passive_requirement_is_flagged() {
     let plan = plan_with(
@@ -108,7 +105,6 @@ fn passive_requirement_is_flagged() {
         findings
     );
 }
-
 #[test]
 fn tasks_get_minimal_rule_subset_only() {
     // tasks.md should only get OneInstructionPerSentence + Hedging, not passive.
@@ -127,7 +123,6 @@ fn tasks_get_minimal_rule_subset_only() {
         findings
     );
 }
-
 #[test]
 fn strictness_mapping_downgrades_in_lax() {
     let plan = plan_with(
@@ -139,21 +134,23 @@ fn strictness_mapping_downgrades_in_lax() {
     );
     let strict = check_prose(&plan, None, &StrictnessProfile::Strict);
     let lax = check_prose(&plan, None, &StrictnessProfile::Lax);
-    // In strict, passive is a blocker; in lax it's info.
+    // PassiveVoice stays advisory (warning) even in strict: it is not part of
+    // the two ambiguity-indicating blocker rules, so it never blocks. In lax
+    // it downgrades to info.
     assert!(
         strict
             .iter()
-            .any(|f| f.rule == "verb/passive" && f.severity == "blocker"),
-        "strict should mark passive as blocker: {:?}",
+            .any(|f| f.rule == "verb/passive" && f.severity == "warning"),
+        "strict should keep passive as a warning (advisory): {:?}",
         strict
     );
     assert!(
-        lax.iter().any(|f| f.rule == "verb/passive" && f.severity == "info"),
+        lax.iter()
+            .any(|f| f.rule == "verb/passive" && f.severity == "info"),
         "lax should downgrade passive to info: {:?}",
         lax
     );
 }
-
 #[test]
 fn combined_directive_when_passive_and_ungrounded() {
     // A passive requirement with no task agent grounds poorly.
@@ -167,8 +164,10 @@ fn combined_directive_when_passive_and_ungrounded() {
     let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
     let directives = correlate_with_grounding(&findings, &plan, &StrictnessProfile::Strict);
     // Find the directive for the passive requirement.
-    let passive_findings: Vec<&ProseFinding> =
-        findings.iter().filter(|f| f.rule == "verb/passive").collect();
+    let passive_findings: Vec<&ProseFinding> = findings
+        .iter()
+        .filter(|f| f.rule == "verb/passive")
+        .collect();
     assert!(!passive_findings.is_empty(), "expected a passive finding");
     // correlation should produce a combined directive (or the requirement is
     // not ungroundable if it references a task — here it does not).
@@ -183,7 +182,6 @@ fn combined_directive_when_passive_and_ungrounded() {
         combined.directive
     );
 }
-
 #[test]
 fn no_combined_directive_when_active_and_grounded() {
     // An active requirement with explicit task agent should ground cleanly.
@@ -202,7 +200,6 @@ fn no_combined_directive_when_active_and_grounded() {
         directives
     );
 }
-
 fn scenario_step(kind: StepKind, text: &str) -> ScenarioStep {
     ScenarioStep {
         kind,
@@ -216,7 +213,6 @@ fn scenario_step(kind: StepKind, text: &str) -> ScenarioStep {
         },
     }
 }
-
 fn plan_with_scenario(steps: Vec<ScenarioStep>) -> PlanIR {
     let mut plan = plan_with(
         vec![req(
@@ -238,7 +234,6 @@ fn plan_with_scenario(steps: Vec<ScenarioStep>) -> PlanIR {
     }];
     plan
 }
-
 #[test]
 fn scenario_legitimate_state_assertion_not_flagged_passive() {
     // A scenario THEN step describing a state ("the plan SHALL be marked
@@ -262,7 +257,6 @@ fn scenario_legitimate_state_assertion_not_flagged_passive() {
         findings
     );
 }
-
 #[test]
 fn scenario_ambiguous_pronoun_is_flagged() {
     // A real scenario step from the steve corpus with two real noun
@@ -279,7 +273,6 @@ fn scenario_ambiguous_pronoun_is_flagged() {
         findings
     );
 }
-
 #[test]
 fn real_corpus_clear_scenarios_not_flagged() {
     // Real scenario steps from the sibling projects that use a pronoun with a
@@ -306,11 +299,13 @@ fn real_corpus_clear_scenarios_not_flagged() {
             report.is_empty(),
             "clear real scenario step should not be flagged: {:?} => {:?}",
             s,
-            report.iter().map(|f| f.message().to_string()).collect::<Vec<_>>()
+            report
+                .iter()
+                .map(|f| f.message().to_string())
+                .collect::<Vec<_>>()
         );
     }
 }
-
 #[test]
 fn scenario_scaffolding_stripped_before_checking() {
     // The **THEN** marker and inline code spans must be stripped before
@@ -323,22 +318,47 @@ fn scenario_scaffolding_stripped_before_checking() {
     // The **THEN** marker is removed.
     assert!(!stripped.starts_with("**THEN**"));
 }
-
 #[test]
-fn scenario_prose_findings_advisory_not_blocking() {
-    // Scenario prose findings are advisory (warnings/info), never blockers —
-    // the plan stays convertible (spec R2.1). check_prose returns findings
-    // that the checker maps to warnings/info, never a blocker.
+fn scenario_pronoun_ambiguity_blocks_in_strict() {
+    // PronounAmbiguity is now a blocker rule in Strict, and scenario steps run
+    // the PronounAmbiguity rule. An ambiguous pronoun in a **THEN** step is
+    // therefore a `blocker` in Strict (previously all prose was advisory).
     let plan = plan_with_scenario(vec![scenario_step(
         StepKind::Then,
         "**THEN** the valve and the pump are connected, and it is faulty",
     )]);
     let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    let pronoun: Vec<&ProseFinding> = findings
+        .iter()
+        .filter(|f| f.rule == "style/pronoun-ambiguity")
+        .collect();
+    assert!(
+        !pronoun.is_empty(),
+        "expected a pronoun-ambiguity finding: {:?}",
+        findings
+    );
+    assert!(
+        pronoun.iter().all(|f| f.severity == "blocker"),
+        "pronoun ambiguity should block in strict: {:?}",
+        findings
+    );
+}
+#[test]
+fn scenario_sentence_length_stays_advisory() {
+    // Pure-style rules (e.g. SentenceLength) stay advisory even in Strict.
+    let plan = plan_with_scenario(vec![scenario_step(
+        StepKind::Then,
+        "**THEN** a deliberately long sentence exceeding the configured word cap is present so the rule fires",
+    )]);
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
     for f in &findings {
-        assert_ne!(f.severity, "blocker", "scenario prose must not block: {:?}", f);
+        assert_ne!(
+            f.severity, "blocker",
+            "sentence-length prose must not block: {:?}",
+            f
+        );
     }
 }
-
 #[test]
 fn scenario_verdict_unchanged() {
     // The presence of scenario prose findings must not change the plan verdict
@@ -355,7 +375,6 @@ fn scenario_verdict_unchanged() {
     assert_ne!(cat, crate::ir::ConstraintCategory::NonFormalizable);
     assert!(!findings.is_empty(), "scenario finding expected");
 }
-
 #[test]
 fn slop_word_with_replacement_is_local() {
     // "leverage" has a plain replacement ("use"), so the SlopWord finding
@@ -372,7 +391,11 @@ fn slop_word_with_replacement_is_local() {
         .iter()
         .filter(|f| f.rule == "slop-word" || f.rule == "style/slop-word")
         .collect();
-    assert!(!slop.is_empty(), "expected a SlopWord finding: {:?}", findings);
+    assert!(
+        !slop.is_empty(),
+        "expected a SlopWord finding: {:?}",
+        findings
+    );
     for f in &slop {
         assert_eq!(
             f.fixability,
@@ -387,7 +410,6 @@ fn slop_word_with_replacement_is_local() {
         );
     }
 }
-
 #[test]
 fn slop_word_without_replacement_is_structural() {
     // "robust" has no plain replacement (None), so the SlopWord finding must
@@ -404,7 +426,11 @@ fn slop_word_without_replacement_is_structural() {
         .iter()
         .filter(|f| f.rule == "slop-word" || f.rule == "style/slop-word")
         .collect();
-    assert!(!slop.is_empty(), "expected a SlopWord finding: {:?}", findings);
+    assert!(
+        !slop.is_empty(),
+        "expected a SlopWord finding: {:?}",
+        findings
+    );
     for f in &slop {
         assert_eq!(
             f.fixability,
@@ -419,7 +445,6 @@ fn slop_word_without_replacement_is_structural() {
         );
     }
 }
-
 #[test]
 fn prose_fields_survive_to_checkitem_boundary() {
     // The prose→report boundary in `verify_with_strictness` must carry
@@ -459,7 +484,10 @@ fn prose_fields_survive_to_checkitem_boundary() {
     };
     assert_eq!(item.check, "slop-word");
     assert_eq!(item.location, "spec.md:3");
-    assert_eq!(item.fix.as_deref(), Some("replace \"leverage\" with \"use\""));
+    assert_eq!(
+        item.fix.as_deref(),
+        Some("replace \"leverage\" with \"use\"")
+    );
     // The structured fields are preserved on the ProseFinding and available
     // to the annotator's `findings()` projection.
     assert_eq!(pf.fixability, crate::ir::Fixability::Local);
@@ -469,4 +497,48 @@ fn prose_fields_survive_to_checkitem_boundary() {
     assert_eq!(pf.end, 18);
     assert_eq!(pf.column, 5);
 }
-
+#[test]
+fn task_prose_finding_reports_real_line_and_file_bytes() {
+    // Task 6.2: a task-description prose finding must report the task's real
+    // file line and file-absolute byte offsets, not snippet-relative ones.
+    // Before the fix, the line was always 1 (relative to the single-line
+    // snippet) and start/end were snippet-relative, which sent the model to
+    // the wrong task.
+    let mut t = task(
+        "5.1",
+        "Open the crate and read the docs and verify the version.",
+    );
+    // Simulate the task sitting at line 31 of tasks.md, with the checklist
+    // marker occupying bytes 0..6 so the description begins at byte 6.
+    t.source = SourceLocation {
+        file: "tasks.md".into(),
+        start_byte: 30,
+        end_byte: 0,
+        start_line: 31,
+        end_line: 31,
+    };
+    let plan = plan_with(vec![], vec![t]);
+    let findings = check_prose(&plan, None, &StrictnessProfile::Strict);
+    assert!(
+        !findings.is_empty(),
+        "expected a task prose finding: {:?}",
+        findings
+    );
+    for f in &findings {
+        assert_eq!(f.file, "tasks.md");
+        // The reported line is the task's real file line (was 1 before).
+        assert_eq!(
+            f.line, 31,
+            "finding must report the real file line: {:?}",
+            f
+        );
+        // The byte offset is file-absolute: start_byte (30) + marker (6) +
+        // snippet-relative offset, so it is at least 36.
+        assert!(
+            f.start >= 36 && f.start < 200,
+            "start must be a file-absolute byte offset anchored after the marker: {:?}",
+            f
+        );
+        assert!(f.end > f.start);
+    }
+}

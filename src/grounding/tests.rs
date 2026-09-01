@@ -303,7 +303,12 @@ fn split_constraint_clauses_splits_multi_constraint() {
     use crate::grounding::split_constraint_clauses;
     let stmt = "T4.7 SHALL inspect AFTER T4.4 SHALL classify. T4.6 SHALL complete BEFORE T4.7 SHALL inspect.";
     let clauses = split_constraint_clauses(stmt);
-    assert_eq!(clauses.len(), 2, "should split into two clauses: {:?}", clauses);
+    assert_eq!(
+        clauses.len(),
+        2,
+        "should split into two clauses: {:?}",
+        clauses
+    );
     assert!(clauses[0].contains("AFTER"));
     assert!(clauses[1].contains("BEFORE"));
 }
@@ -327,7 +332,11 @@ fn split_constraint_clauses_does_not_split_mid_sentence() {
     // second sentence starts with T2.1, so it should split into two.
     assert!(clauses.len() >= 1);
     // Verify the second clause is the task-ID one.
-    assert!(clauses.last().unwrap().starts_with("T2.1"), "last clause should start with task ID: {:?}", clauses);
+    assert!(
+        clauses.last().unwrap().starts_with("T2.1"),
+        "last clause should start with task ID: {:?}",
+        clauses
+    );
 }
 
 #[test]
@@ -336,9 +345,14 @@ fn ambiguous_detail_includes_grounding_diagnostic() {
     // argument set → the grounder assigns 0.5 with a diagnostic explaining why.
     let plan = make_test_plan(
         vec![("1.1", "setup"), ("1.2", "migration")],
-        vec![("R1", "The setup SHALL complete BEFORE the migration runs", "seq")],
+        vec![(
+            "R1",
+            "The setup SHALL complete BEFORE the migration runs",
+            "seq",
+        )],
     );
-    let (_blockers, _warnings, _info, _outcomes) = check_grounding(&plan, &StrictnessProfile::Strict);
+    let (_blockers, _warnings, _info, _outcomes) =
+        check_grounding(&plan, &StrictnessProfile::Strict);
     // We mainly verify the diagnostic plumbing compiles and runs without panic;
     // the exact status depends on the grounder's alias matching.
     // (The diagnostic field is now surfaced by veriplan's ambiguous detail.)

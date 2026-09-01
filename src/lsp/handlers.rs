@@ -1,10 +1,3 @@
-use anyhow::Context;
-use anyhow::Result;
-use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
-use lsp_types::*;
-use std::path::Path;
-use std::sync::{Arc, RwLock};
-
 use super::code_actions;
 use super::completions;
 use super::diagnostics as diag;
@@ -12,9 +5,13 @@ use super::navigation;
 use super::state::ChangeStore;
 use super::symbols;
 use crate::ir::{ConvertibilityReport, PlanIR};
-
+use anyhow::Context;
+use anyhow::Result;
+use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
+use lsp_types::*;
+use std::path::Path;
+use std::sync::{Arc, RwLock};
 type RequestHandler = fn(&Connection, &Arc<RwLock<ChangeStore>>, Request) -> Result<()>;
-
 const REQUEST_HANDLERS: &[(&str, RequestHandler)] = &[
     ("textDocument/completion", handle_completion_req),
     ("textDocument/definition", handle_definition_req),
@@ -22,7 +19,6 @@ const REQUEST_HANDLERS: &[(&str, RequestHandler)] = &[
     ("textDocument/documentSymbol", handle_symbol_req),
     ("textDocument/codeAction", handle_code_action_req),
 ];
-
 pub(crate) fn handle_request(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
@@ -41,7 +37,6 @@ pub(crate) fn handle_request(
     connection.sender.send(Message::Response(response))?;
     Ok(())
 }
-
 fn handle_completion_req(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
@@ -54,7 +49,6 @@ fn handle_completion_req(
     connection.sender.send(Message::Response(response))?;
     Ok(())
 }
-
 fn handle_definition_req(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
@@ -67,7 +61,6 @@ fn handle_definition_req(
     connection.sender.send(Message::Response(response))?;
     Ok(())
 }
-
 fn handle_hover_req(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
@@ -79,7 +72,6 @@ fn handle_hover_req(
     connection.sender.send(Message::Response(response))?;
     Ok(())
 }
-
 fn handle_symbol_req(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
@@ -92,7 +84,6 @@ fn handle_symbol_req(
     connection.sender.send(Message::Response(response))?;
     Ok(())
 }
-
 fn handle_code_action_req(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
@@ -105,15 +96,12 @@ fn handle_code_action_req(
     connection.sender.send(Message::Response(response))?;
     Ok(())
 }
-
 type NotificationHandler = fn(&Connection, &Arc<RwLock<ChangeStore>>, Notification) -> Result<()>;
-
 const NOTIFICATION_HANDLERS: &[(&str, NotificationHandler)] = &[
     ("textDocument/didOpen", handle_did_open),
     ("textDocument/didChange", handle_did_change),
     ("textDocument/didSave", handle_did_save),
 ];
-
 pub(crate) fn handle_notification(
     connection: &Connection,
     store: &Arc<RwLock<ChangeStore>>,
@@ -137,9 +125,7 @@ fn handle_did_open(
         serde_json::from_value(not.params).context("Bad didOpen params")?;
     let file_path = params.text_document.uri.to_file_path().unwrap_or_default();
     eprintln!("[veriplan-lsp] didOpen: {}", file_path.display());
-
     let change_name = resolve_change_with_rescan(store, &file_path);
-
     if let Some(change) = change_name {
         publish_change_diagnostics(connection, store, &change);
     } else {
@@ -158,10 +144,8 @@ fn handle_did_change(
         serde_json::from_value(not.params).context("Bad didChange params")?;
     let file_path = params.text_document.uri.to_file_path().unwrap_or_default();
     eprintln!("[veriplan-lsp] didChange: {}", file_path.display());
-
     let change_name = resolve_change_with_rescan(store, &file_path);
     let diagnostics_per_file = get_diagnostics_for_file(store, &file_path, change_name.as_deref());
-
     publish_diagnostics(connection, &diagnostics_per_file);
     clear_stale_diagnostics(connection, store, &file_path, &diagnostics_per_file);
     Ok(())
@@ -177,10 +161,8 @@ fn handle_did_save(
         serde_json::from_value(not.params).context("Bad didSave params")?;
     let file_path = params.text_document.uri.to_file_path().unwrap_or_default();
     eprintln!("[veriplan-lsp] didSave: {}", file_path.display());
-
     let change_name = resolve_change_with_rescan(store, &file_path);
     let diagnostics_per_file = get_diagnostics_for_file(store, &file_path, change_name.as_deref());
-
     let published_uris = publish_diagnostics_and_collect(connection, &diagnostics_per_file);
     clear_stale_diagnostics_filtered(connection, store, &file_path, &published_uris);
     Ok(())
@@ -322,7 +304,6 @@ fn clear_unpublished_diagnostics(
         }
     }
 }
-
 fn clear_diagnostics_for_entries(
     connection: &Connection,
     entries: &[std::path::PathBuf],
@@ -416,9 +397,7 @@ fn publish_change_diagnostics(
         }
     }
 }
-
 // ── Request handlers ──
-
 pub(crate) fn handle_completion(
     store: &Arc<RwLock<ChangeStore>>,
     params: &CompletionParams,
@@ -438,7 +417,6 @@ pub(crate) fn handle_completion(
     )?;
     Some(CompletionResponse::List(completions))
 }
-
 pub(crate) fn handle_goto_definition(
     store: &Arc<RwLock<ChangeStore>>,
     params: &GotoDefinitionParams,
@@ -450,7 +428,6 @@ pub(crate) fn handle_goto_definition(
     let line_text = read_line(&file_path, pos.line as usize)?;
     navigation::goto_definition(&plan, uri, &pos, &line_text)
 }
-
 pub(crate) fn handle_hover(
     store: &Arc<RwLock<ChangeStore>>,
     params: &HoverParams,
@@ -462,7 +439,6 @@ pub(crate) fn handle_hover(
     let line_text = read_line(&file_path, pos.line as usize)?;
     navigation::hover(&plan, &pos, &line_text)
 }
-
 pub(crate) fn handle_document_symbols(
     store: &Arc<RwLock<ChangeStore>>,
     params: &DocumentSymbolParams,
@@ -475,11 +451,9 @@ pub(crate) fn handle_document_symbols(
         _ => handle_spec_symbols(&plan, &file_path),
     }
 }
-
 fn resolve_doc_symbol_path(params: &DocumentSymbolParams) -> Option<std::path::PathBuf> {
     params.text_document.uri.to_file_path().ok()
 }
-
 fn handle_spec_symbols(
     plan: &PlanIR,
     file_path: &std::path::Path,
@@ -500,7 +474,6 @@ fn handle_spec_symbols(
         .collect();
     symbols::spec_document_symbols_with_labels(&requirements, &categories)
 }
-
 fn resolve_plan(
     store: &Arc<RwLock<ChangeStore>>,
     file_path: &std::path::Path,
@@ -509,7 +482,6 @@ fn resolve_plan(
     let plan = store.read().ok()?.get_plan(&change_name)?.clone();
     Some((change_name, plan))
 }
-
 pub(crate) fn handle_code_action(
     store: &Arc<RwLock<ChangeStore>>,
     params: &CodeActionParams,
@@ -525,7 +497,6 @@ pub(crate) fn handle_code_action(
         Some(actions)
     }
 }
-
 fn resolve_report(
     store: &Arc<RwLock<ChangeStore>>,
     file_path: &std::path::Path,
@@ -537,7 +508,6 @@ fn resolve_report(
     drop(guard);
     Some((report, project_root))
 }
-
 fn get_file_diagnostics(
     report: &ConvertibilityReport,
     project_root: &std::path::Path,
@@ -550,7 +520,6 @@ fn get_file_diagnostics(
         .map(|(_, diags)| diags)
         .unwrap_or_default()
 }
-
 // ── Helpers ──
 
 /// Read a specific line from a file.
@@ -576,7 +545,6 @@ pub(crate) fn walk_files_for_clear(dir: &Path) -> std::io::Result<Vec<std::path:
     }
     Ok(files)
 }
-
 #[cfg(test)]
 #[path = "handlers_tests.rs"]
 mod tests;

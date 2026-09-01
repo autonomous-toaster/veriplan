@@ -68,34 +68,40 @@ T3.2 SHALL exclude scenario scaffolding BEFORE T4.2 SHALL apply per-artifact rul
 - **THEN** PassiveVoice, PronounAmbiguity, and Hedging SHALL be active
 - **AND** OneInstructionPerSentence SHALL NOT be active
 
-### Requirement: Map steve finding severity from StrictnessProfile
+### Requirement: Map the two ambiguity-indicating prose rules to blockers in Strict
 
-T3.3 SHALL exclude inline code spans BEFORE T4.3 SHALL map steve finding severity. The mapping SHALL use StrictnessProfile: `Strict` marks PassiveVoice and OneInstructionPerSentence hard and the rest soft; `Moderate` marks all soft; `Lax` marks all info.
+T3.1 SHALL mark `OneInstructionPerSentence` and `PronounAmbiguity` as blockers in Strict BEFORE T3.2 SHALL keep the remaining rules advisory. `PassiveVoice`, `Hedging`, `SynonymConsistency`, `SentenceLength`, and `SlopWord` SHALL remain advisory in all profiles.
 
-#### Scenario: Strict profile maps to hard/soft
+#### Scenario: Strict maps the two rules to blockers
 
 - **GIVEN** StrictnessProfile is `Strict`
-- **WHEN** T4.3 maps a PassiveVoice finding and a PronounAmbiguity finding
-- **THEN** the PassiveVoice finding SHALL be severity `blocker`
-- **AND** the PronounAmbiguity finding SHALL be severity `warning`
+- **WHEN** T3.1 maps a PronounAmbiguity finding and a PassiveVoice finding
+- **THEN** the PronounAmbiguity finding SHALL be severity `blocker`
+- **AND** the PassiveVoice finding SHALL be severity `warning`
 
-#### Scenario: Lax profile maps to info
+#### Scenario: Lax keeps all prose advisory
 
 - **GIVEN** StrictnessProfile is `Lax`
-- **WHEN** T4.3 maps any curated steve finding
+- **WHEN** T3.2 keeps prose advisory
 - **THEN** the finding SHALL be severity `info`
 
-### Requirement: Report prose findings without blocking
+### Requirement: Report ambiguous prose as blockers in Strict
 
-T3.2 SHALL copy steve's structured fields onto each prose finding AFTER T3.1 SHALL extend the `ProseFinding` shape. Prose findings SHALL NEVER flip the plan status to Blocking.
+T3.2 SHALL copy steve's structured fields onto each prose finding AFTER T3.1 SHALL extend the `ProseFinding` shape. T3.1 SHALL map the two ambiguity-indicating prose rules to blockers in Strict BEFORE T1.1 SHALL derive the plan status from the flattened findings. In Strict mode, `OneInstructionPerSentence` and `PronounAmbiguity` findings SHALL be severity `blocker` and SHALL flip the plan status to Blocking. In Moderate and Lax modes, prose findings SHALL remain advisory and SHALL NOT flip the plan status. `PassiveVoice` and `Hedging` findings SHALL remain advisory in all profiles.
 
-#### Scenario: prose findings do not block a convertible plan
+#### Scenario: Strict ambiguous prose flips the plan to Blocking
 
-- **GIVEN** a plan that passes all structural and semantic checks but has one passive-voice requirement
-- **WHEN** T4.4 tags the prose finding advisory
-- **THEN** the report SHALL include a Finding for the passive requirement
-- **AND** the plan status SHALL remain ConvertibleWithWarnings
-- **AND** the plan SHALL NOT be marked Blocking
+- **GIVEN** a plan that passes all structural and semantic checks but has a task description with two instructions
+- **WHEN** T1.1 derives the plan status under Strict
+- **THEN** the report SHALL include a Finding for the task with severity `blocker`
+- **AND** the plan status SHALL be Blocking
+
+#### Scenario: Moderate ambiguous prose stays advisory
+
+- **GIVEN** a plan with a PronounAmbiguity finding under Moderate
+- **WHEN** T3.2 keeps prose advisory
+- **THEN** the finding SHALL be severity `warning`
+- **AND** the plan status SHALL NOT be Blocking
 
 #### Scenario: prose Finding carries steve structured fields
 

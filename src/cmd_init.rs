@@ -117,7 +117,8 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
         vec![
             "Give every task an N.M identifier (e.g. 1.3)".to_string(),
             "Write each task as a short, imperative action (one instruction per task)".to_string(),
-            "Task descriptions become aliases for matching — make them descriptive but concise".to_string(),
+            "Task descriptions become aliases for matching — make them descriptive but concise"
+                .to_string(),
         ],
     );
     rules
@@ -211,7 +212,10 @@ mod tests {
         assert!(content.contains("T-prefixed ID"));
         assert!(content.contains("Give every task an N.M identifier"));
         // Config must not cite any tool
-        assert!(!content.contains("veriplan"), "config must not name the tool");
+        assert!(
+            !content.contains("veriplan"),
+            "config must not name the tool"
+        );
         assert!(!content.contains("steve"), "config must not name tools");
     }
 
@@ -281,8 +285,14 @@ mod tests {
         // Context: cross-cutting, tool-free.
         assert!(content.contains("T-prefixed ID"));
         assert!(content.contains("human review only"));
-        assert!(!content.contains("steve"), "config must not cite tool names");
-        assert!(!content.contains("veriplan"), "config must not cite tool names");
+        assert!(
+            !content.contains("steve"),
+            "config must not cite tool names"
+        );
+        assert!(
+            !content.contains("veriplan"),
+            "config must not cite tool names"
+        );
         assert!(!content.contains("NonFormalizable"), "no internal jargon");
         // Specs rules: core grammar present.
         assert!(content.contains("temporal constraint"));
@@ -292,11 +302,15 @@ mod tests {
         let parsed: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
         let specs = parsed["rules"]["specs"].as_sequence().unwrap();
         assert!(
-            specs.iter().any(|r| r.as_str().unwrap().contains("ASD-STE100")),
+            specs
+                .iter()
+                .any(|r| r.as_str().unwrap().contains("ASD-STE100")),
             "specs rules must include the Simplified Technical English rule"
         );
         assert!(
-            specs.iter().any(|r| r.as_str().unwrap().contains("GOOD body")),
+            specs
+                .iter()
+                .any(|r| r.as_str().unwrap().contains("GOOD body")),
             "specs rules must include a GOOD example"
         );
     }

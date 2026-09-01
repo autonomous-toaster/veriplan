@@ -122,7 +122,11 @@ fn rules_for(artifact: &str) -> Vec<RuleId> {
         // tasks.md: minimal set — descriptions become grounding aliases.
         "tasks" => vec![RuleId::OneInstructionPerSentence, RuleId::Hedging],
         // design/proposal: light set, more human-oriented.
-        "design" => vec![RuleId::PassiveVoice, RuleId::PronounAmbiguity, RuleId::Hedging],
+        "design" => vec![
+            RuleId::PassiveVoice,
+            RuleId::PronounAmbiguity,
+            RuleId::Hedging,
+        ],
         // spec.md: full curated set.
         _ => curated_rules(),
     }
@@ -132,7 +136,10 @@ fn rules_for(artifact: &str) -> Vec<RuleId> {
 fn severity(mode: &StrictnessProfile, rule: RuleId) -> Severity {
     match mode {
         StrictnessProfile::Strict => match rule {
-            RuleId::PassiveVoice | RuleId::OneInstructionPerSentence => Severity::Hard,
+            // Only the ambiguity-indicating rules block in Strict. PassiveVoice
+            // and Hedging stay advisory because they fight OpenSpec's required
+            // (passive, RFC 2119) grammar and would false-positive on every spec.
+            RuleId::OneInstructionPerSentence | RuleId::PronounAmbiguity => Severity::Hard,
             _ => Severity::Soft,
         },
         // Moderate and Lax: steve has no "info", so we use soft and then
@@ -219,12 +226,24 @@ fn veriplan_severity(sev: &steve::Severity, mode: &StrictnessProfile) -> &'stati
 }
 
 /// Run steve's curated rules over one snippet, returning findings.
+///
+/// `anchor_line` is the 1-based file line where the snippet begins,
+/// `anchor_col` the byte column within that line, and `anchor_byte` the
+/// file-absolute byte offset. steve reports offsets relative to the snippet;
+/// we add the anchor so every finding carries file-absolute `line` and
+/// `start`/`end` coordinates (previously they were snippet-relative but
+/// reported as file coordinates, which made the model chase a phantom
+/// blocker in the wrong task).
+#[allow(clippy::too_many_arguments)]
 fn check_snippet(
     ste: &Ste,
     snippet: &str,
     file: &str,
     element: &str,
     mode: &StrictnessProfile,
+    anchor_line: usize,
+    anchor_col: usize,
+    anchor_byte: usize,
 ) -> Vec<ProseFinding> {
     let Ok(report) = ste.check_text(snippet) else {
         return Vec::new();
@@ -235,14 +254,14 @@ fn check_snippet(
             severity: veriplan_severity(&f.severity(), mode).to_string(),
             rule: f.rule().as_str().to_string(),
             file: file.to_string(),
-            line: f.line(),
-            column: f.column(),
+            line: anchor_line + f.line().saturating_sub(1),
+            column: anchor_col + f.column(),
             element: element.to_string(),
             message: f.message().to_string(),
             suggestion: f.suggestion().map(|s| s.to_string()),
             snippet: f.snippet().to_string(),
-            start: f.start(),
-            end: f.end(),
+            start: anchor_byte + f.start(),
+            end: anchor_byte + f.end(),
             replacement: f.replacement().map(|r| r.to_string()),
             // steve derives `fixability` from the rule, so `SlopWord` is
             // `Structural` even when it carries a plain replacement. The
@@ -288,7 +307,16 @@ pub fn check_prose(
         }
         let file = req.source.file.clone();
         let element = format!("Requirement '{}'", req.id);
-        findings.extend(check_snippet(&ste_spec, &req.statement, &file, &element, mode));
+        findings.extend(check_snippet(
+            &ste_spec,
+            &req.statement,
+            &file,
+            &element,
+            mode,
+            req.source.start_line,
+            0,
+            req.source.start_byte,
+        ));
     }
 
     // spec.md: scenario step content (safe subset). Scenarios are parsed and
@@ -310,6 +338,9 @@ pub fn check_prose(
                 &scenario.source.file,
                 &element,
                 mode,
+                step.source.start_line,
+                0,
+                step.source.start_byte,
             ));
         }
     }
@@ -322,7 +353,21 @@ pub fn check_prose(
     for task in &plan.tasks {
         let file = task.source.file.clone();
         let element = format!("Task {}", task.id);
-        findings.extend(check_snippet(&ste_tasks, &task.description, &file, &element, mode));
+        // The description begins after the "- [ ] " / "- [x] " marker, which
+        // is 6 bytes in the checklist-item line. Anchor file-absolute coords
+        // there so a task prose finding reports the task's real file line and
+        // its bytes within that line.
+        let marker_len = 6usize;
+        findings.extend(check_snippet(
+            &ste_tasks,
+            &task.description,
+            &file,
+            &element,
+            mode,
+            task.source.start_line,
+            marker_len,
+            task.source.start_byte + marker_len,
+        ));
     }
 
     // design.md / proposal.md: light set on body paragraphs.
@@ -340,6 +385,9 @@ pub fn check_prose(
                     artifact,
                     artifact,
                     mode,
+                    1,
+                    0,
+                    0,
                 ));
             }
         }
@@ -374,12 +422,21 @@ pub fn correlate_with_grounding(
                     "verb/passive" | "style/pronoun-ambiguity" | "style/hedging"
                 )
         })
-        .filter_map(|f| f.element.strip_prefix("Requirement '").map(|s| s.trim_end_matches('\'').to_string()))
+        .filter_map(|f| {
+            f.element
+                .strip_prefix("Requirement '")
+                .map(|s| s.trim_end_matches('\'').to_string())
+        })
         .collect();
 
     let mut directives = Vec::new();
     for outcome in &outcomes {
-        let failed = outcome.failed || matches!(outcome.status, crate::grounding::GroundingStatus::Ungroundable | crate::grounding::GroundingStatus::Ambiguous);
+        let failed = outcome.failed
+            || matches!(
+                outcome.status,
+                crate::grounding::GroundingStatus::Ungroundable
+                    | crate::grounding::GroundingStatus::Ambiguous
+            );
         if failed && style_ids.contains(&outcome.requirement_id) {
             let sev = match mode {
                 StrictnessProfile::Strict => "blocker",

@@ -183,7 +183,10 @@ mod tests {
                 "expected check '{}' for statement '{}', got {:?}",
                 expected_check,
                 statement,
-                blockers.iter().map(|b| b.check.as_str()).collect::<Vec<_>>()
+                blockers
+                    .iter()
+                    .map(|b| b.check.as_str())
+                    .collect::<Vec<_>>()
             );
             // The subtype must NOT collapse to the old generic value.
             assert!(
@@ -220,11 +223,13 @@ fn temporal_constraint_beats_human_review_marker() {
     let stmt = "T1.1 SHALL produce an audit log BEFORE T1.2 SHALL deploy it. The audit log is human review only.";
     let cat = crate::translator::classify(stmt);
     assert_ne!(
-        cat, ConstraintCategory::Informational,
+        cat,
+        ConstraintCategory::Informational,
         "temporal keyword must take priority over the human-review marker"
     );
     assert_ne!(
-        cat, ConstraintCategory::NonFormalizable,
+        cat,
+        ConstraintCategory::NonFormalizable,
         "temporal keyword must make the requirement verifiable"
     );
 }

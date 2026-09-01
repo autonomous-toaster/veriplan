@@ -41,7 +41,8 @@ fn check_json(dir: &TempDir, name: &str) -> serde_json::Value {
     serde_json::from_str(&stdout).expect("Failed to parse JSON output")
 }
 
-const GOOD_TASKS: &str = "# Tasks\n\n## Phase 1: Setup\n\n- [x] 1.1 First task\n- [ ] 1.2 Second task\n";
+const GOOD_TASKS: &str =
+    "# Tasks\n\n## Phase 1: Setup\n\n- [x] 1.1 First task\n- [ ] 1.2 Second task\n";
 const GOOD_SPEC: &str = "# Specification\n\n## Task Reference\n\n| Task ID | Description |\n|---------|-------------|\n| T1.1 | First task |\n| T1.2 | Second task |\n\n### Requirement: Basic\n\nT1.1 SHALL complete BEFORE T1.2 SHALL run.\n";
 
 #[test]
@@ -65,11 +66,16 @@ fn multi_keyword_change_is_blocked() {
         "# Specification\n\n## Task Reference\n\n| Task ID | Description |\n|---------|-------------|\n| T1.1 | First task |\n| T1.2 | Second task |\n| T2.1 | Third task |\n\n### Requirement: Multi\n\nT1.1 SHALL complete BEFORE T1.2. T2.1 SHALL ALWAYS be available.\n",
     );
     let json = check_json(&dir, "multi");
-    assert_eq!(json["convertible"], false, "multi-keyword change must be blocked");
+    assert_eq!(
+        json["convertible"], false,
+        "multi-keyword change must be blocked"
+    );
     // The blocker is present in the findings array at default verbosity.
     let findings = json["findings"].as_array().unwrap();
     assert!(
-        findings.iter().any(|f| f["kind"] == "grounding_multi_keyword"),
+        findings
+            .iter()
+            .any(|f| f["kind"] == "grounding_multi_keyword"),
         "expected a grounding_multi_keyword finding, got: {:?}",
         findings
     );
@@ -88,7 +94,10 @@ fn bad_task_reference_is_blocked() {
     // A requirement referencing a non-existent task must be blocked. The
     // specific kind may be grounding_ambiguous (the bad_task_reference check
     // only fires for known-ID mismatches), but the verdict must be blocked.
-    assert_eq!(json["convertible"], false, "bad task reference must be blocked");
+    assert_eq!(
+        json["convertible"], false,
+        "bad task reference must be blocked"
+    );
     let findings = json["findings"].as_array().unwrap();
     assert!(
         findings.iter().any(|f| f["severity"] == "blocker"),

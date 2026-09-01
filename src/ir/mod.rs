@@ -463,7 +463,12 @@ mod tests {
             let kind = kind_of(check);
             // `kind` is a pure function of the check value — it never depends
             // on severity, so it is stable across strictness profiles.
-            assert_eq!(kind_of(check), kind, "kind_of must be deterministic for {}", check);
+            assert_eq!(
+                kind_of(check),
+                kind,
+                "kind_of must be deterministic for {}",
+                check
+            );
             assert!(!kind.as_str().is_empty());
         }
     }

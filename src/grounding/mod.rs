@@ -265,7 +265,8 @@ pub fn check_grounding(
         // Skip MAY and Informational requirements — they are informational
         // and don't need grounding.
         if req.strength == Rfc2119Strength::May
-            || crate::translator::classify(&req.statement) == crate::ir::ConstraintCategory::Informational
+            || crate::translator::classify(&req.statement)
+                == crate::ir::ConstraintCategory::Informational
         {
             info.push(make_item(
                 "info",

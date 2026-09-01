@@ -17,7 +17,14 @@ fn veriplan_bin() -> String {
 fn prose_guidance_surfaces_as_non_blocking_advice() {
     let change = "openspec/changes/archive/2026-06-30-flexible-input/";
     let output = Command::new(veriplan_bin())
-        .args(["check", change, "--phase", "convertibility", "--strict", "--verbose"])
+        .args([
+            "check",
+            change,
+            "--phase",
+            "convertibility",
+            "--strict",
+            "--verbose",
+        ])
         .output()
         .expect("failed to run veriplan");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -45,7 +52,14 @@ fn prose_guidance_surfaces_as_non_blocking_advice() {
 fn prose_guidance_still_surfaces_in_lax_mode() {
     let change = "openspec/changes/archive/2026-06-30-flexible-input/";
     let output = Command::new(veriplan_bin())
-        .args(["check", change, "--phase", "convertibility", "--lax", "--verbose"])
+        .args([
+            "check",
+            change,
+            "--phase",
+            "convertibility",
+            "--lax",
+            "--verbose",
+        ])
         .output()
         .expect("failed to run veriplan");
     let stdout = String::from_utf8_lossy(&output.stdout);

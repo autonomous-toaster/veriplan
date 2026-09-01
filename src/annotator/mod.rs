@@ -8,7 +8,6 @@ use crate::ir::{CheckItem, Finding, Fixability, PlanIR};
 pub use helpers::{
     build_phase_context, category_breakdown, parse_conditional_ltl, task_ids_from_ltl,
 };
-
 /// Flatten convertibility blockers/warnings/info and model-check violations
 /// into one canonical `Vec<Finding>` (design D1/D5).
 ///
@@ -21,7 +20,12 @@ pub fn findings(
     let mut out = Vec::new();
 
     if let Some(report) = &result.convertibility_report {
-        for item in report.blockers.iter().chain(report.warnings.iter()).chain(report.info.iter()) {
+        for item in report
+            .blockers
+            .iter()
+            .chain(report.warnings.iter())
+            .chain(report.info.iter())
+        {
             out.push(check_item_to_finding(item));
         }
     }
@@ -32,7 +36,6 @@ pub fn findings(
 
     out
 }
-
 /// Convert a `CheckItem` (convertibility blocker/warning/info) to a `Finding`.
 fn check_item_to_finding(item: &CheckItem) -> Finding {
     let (file, line) = parse_location(&item.location);
@@ -53,7 +56,6 @@ fn check_item_to_finding(item: &CheckItem) -> Finding {
         advisory: item.severity == "info" || item.kind == crate::ir::Kind::ProseOther,
     }
 }
-
 /// Convert an annotated model-check violation to a `Finding`.
 fn violation_to_finding(v: &AnnotatedViolation) -> Finding {
     let (file, line) = v
@@ -82,17 +84,15 @@ fn violation_to_finding(v: &AnnotatedViolation) -> Finding {
         advisory: false,
     }
 }
-
 /// Parse a "file:line" location string into (file, line).
 fn parse_location(loc: &str) -> (String, usize) {
-    if let Some((file, line)) = loc.rsplit_once(':') {
-        if let Ok(line) = line.parse::<usize>() {
-            return (file.to_string(), line);
-        }
+    if let Some((file, line)) = loc.rsplit_once(':')
+        && let Ok(line) = line.parse::<usize>()
+    {
+        return (file.to_string(), line);
     }
     (loc.to_string(), 0)
 }
-
 /// Extract a requirement ID from an element string like "Requirement 'R1'".
 fn extract_requirement_id(element: &str) -> Option<String> {
     element
@@ -100,7 +100,6 @@ fn extract_requirement_id(element: &str) -> Option<String> {
         .and_then(|s| s.strip_suffix('\''))
         .map(|s| s.to_string())
 }
-
 /// Group identical findings by `kind` for compact human output (design D6).
 /// Returns a list of (count, representative finding).
 pub fn group_by_kind(findings: &[Finding]) -> Vec<(usize, &Finding)> {
@@ -114,7 +113,6 @@ pub fn group_by_kind(findings: &[Finding]) -> Vec<(usize, &Finding)> {
     }
     groups
 }
-
 /// Annotated violation with additional context.
 #[derive(Debug, Clone)]
 pub struct AnnotatedViolation {
@@ -126,7 +124,6 @@ pub struct AnnotatedViolation {
     pub consequent_task: Option<String>,
     pub category: String,
 }
-
 /// Annotate violations with source locations and context.
 pub fn annotate(
     result: &crate::checker::VerificationResult,
@@ -170,7 +167,6 @@ pub fn annotate(
 
     annotated
 }
-
 /// Format verification result as human-readable text.
 ///
 /// Always shows findings at default verbosity (design D5). Identical findings
@@ -184,14 +180,14 @@ pub fn format_human(
 ) -> String {
     let mut output = String::new();
 
-    let status = status_label(result);
+    let all_findings = findings(result, annotated);
+    let status = status_label(result, &all_findings);
     output.push_str(&format!("Plan: {} — {}\n", result.plan_name, status));
 
     if let Some(reason) = &result.skip_reason {
         output.push_str(&format!("\n  Model check skipped: {}\n", reason));
     }
 
-    let all_findings = findings(result, annotated);
     if !all_findings.is_empty() {
         format_findings(&mut output, &all_findings, verbose);
     } else if result.convertible && result.valid == Some(true) {
@@ -208,7 +204,6 @@ pub fn format_human(
 
     output
 }
-
 /// Render findings, grouping identical ones by `kind` at default verbosity and
 /// expanding them under `--verbose` (design D6).
 fn format_findings(output: &mut String, all_findings: &[Finding], verbose: bool) {
@@ -229,7 +224,6 @@ fn format_findings(output: &mut String, all_findings: &[Finding], verbose: bool)
         }
         return;
     }
-
     // Default: group identical findings by `kind` ("N× <kind>: <rephrase>").
     let groups = group_by_kind(all_findings);
     for (count, f) in groups {
@@ -240,19 +234,28 @@ fn format_findings(output: &mut String, all_findings: &[Finding], verbose: bool)
         ));
     }
 }
-
-fn status_label(result: &crate::checker::VerificationResult) -> &'static str {
-    if result.convertible && result.valid == Some(true) {
-        "✓ VALID"
-    } else if !result.convertible {
+fn status_label(
+    result: &crate::checker::VerificationResult,
+    all_findings: &[Finding],
+) -> &'static str {
+    if !result.convertible {
         "⚠ SKIPPED"
     } else if result.valid == Some(false) {
         "✗ INVALID"
+    } else if result.valid == Some(true) {
+        // The verdict is derived from the same flattened finding set that is
+        // printed, so the label and the findings list can never contradict a
+        // `blocker` (including prose blockers in Strict). This is the fix for
+        // the original "✓ VALID" + "[BLOCKER] prose_other" contradiction.
+        if all_findings.iter().any(|f| f.severity == "blocker") {
+            "⚠ VALID (with blockers)"
+        } else {
+            "✓ VALID"
+        }
     } else {
         "⚠ UNKNOWN"
     }
 }
-
 /// Format verification result as JSON.
 ///
 /// Always emits a top-level `findings[]` array (regardless of `--verbose`),
@@ -281,14 +284,13 @@ pub fn format_json(
     if let Some(reason) = &result.skip_reason {
         output["skip_reason"] = serde_json::json!(reason);
     }
-
     // `--verbose` adds supplementary info only; it never changes which core
     // findings are present (design D5).
     if verbose {
-        if let Some(report) = &result.convertibility_report {
-            if !report.rephrase_directives.is_empty() {
-                output["rephrase_directives"] = serde_json::json!(report.rephrase_directives);
-            }
+        if let Some(report) = &result.convertibility_report
+            && !report.rephrase_directives.is_empty()
+        {
+            output["rephrase_directives"] = serde_json::json!(report.rephrase_directives);
         }
         if !result.constraints_summary.is_empty() {
             output["constraints_summary"] = serde_json::json!(result.constraints_summary);
@@ -297,7 +299,6 @@ pub fn format_json(
 
     serde_json::to_string_pretty(&output).unwrap_or_default()
 }
-
 fn resolve_source(v: &Violation, plan: &PlanIR) -> (Option<String>, Option<String>) {
     let task_source = v.task_source.clone().or_else(|| {
         helpers::task_ids_from_ltl(&v.ltl).first().and_then(|id| {
@@ -317,7 +318,6 @@ fn resolve_source(v: &Violation, plan: &PlanIR) -> (Option<String>, Option<Strin
 
     (task_source, req_source)
 }
-
 fn verbose_section(
     output: &mut String,
     plans: &[(String, PlanIR)],
@@ -335,7 +335,9 @@ fn verbose_section(
 mod tests {
     use super::*;
     use crate::checker::{VerificationResult, Violation};
-    use crate::ir::{ConvertibilityReport, PlanIR, SourceLocation, Task};
+    use crate::ir::{
+        CheckItem, ConvertibilityReport, Fixability, Op, PlanIR, SourceLocation, Task,
+    };
 
     fn make_plan() -> PlanIR {
         PlanIR {
@@ -358,7 +360,6 @@ mod tests {
             source_map: crate::ir::SourceMap::default(),
         }
     }
-
     fn make_result() -> VerificationResult {
         VerificationResult {
             plan_name: "test".into(),
@@ -385,11 +386,9 @@ mod tests {
             skip_reason: None,
         }
     }
-
     fn make_plans() -> Vec<(String, PlanIR)> {
         vec![("test".into(), make_plan())]
     }
-
     #[test]
     fn test_format_human_contains_requirement() {
         let result = make_result();
@@ -400,7 +399,6 @@ mod tests {
         assert!(output.contains("violation_sequential"));
         assert!(output.contains("Add before-task"));
     }
-
     #[test]
     fn test_findings_projection_flattens_violations() {
         let result = make_result();
@@ -414,7 +412,6 @@ mod tests {
             all
         );
     }
-
     #[test]
     fn test_format_json_contains_findings() {
         let result = make_result();
@@ -427,7 +424,6 @@ mod tests {
         // The old top-level `violations` key is dropped (BREAKING).
         assert!(!json.contains("\"violations\""));
     }
-
     #[test]
     fn test_format_json_convertible() {
         let result = make_result();
@@ -436,7 +432,6 @@ mod tests {
         let json = format_json(&result, &annotated, &plans, false);
         assert!(json.contains("\"convertible\": true"));
     }
-
     #[test]
     fn test_format_json_verbose_adds_supplementary_only() {
         let mut result = make_result();
@@ -454,7 +449,6 @@ mod tests {
         assert!(json.contains("rephrase_directives"));
         assert!(!json.contains("convertibility_report"));
     }
-
     #[test]
     fn test_format_json_not_verbose_still_has_findings() {
         let mut result = make_result();
@@ -472,7 +466,6 @@ mod tests {
         assert!(json.contains("\"findings\""));
         assert!(!json.contains("convertibility_report"));
     }
-
     #[test]
     fn test_group_by_kind_groups_identical() {
         let result = make_result();
@@ -484,7 +477,6 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].0, all.len());
     }
-
     #[test]
     fn test_json_and_human_describe_same_findings() {
         // Default JSON and default human output must describe the same set of
@@ -497,7 +489,6 @@ mod tests {
         let all = findings(&result, &annotated);
         let json = format_json(&result, &annotated, &plans, false);
         let human = format_human(&result, &annotated, &plans, false);
-
         // Every finding kind appears in both formats.
         for f in &all {
             assert!(
@@ -513,5 +504,43 @@ mod tests {
                 human
             );
         }
+    }
+    #[test]
+    fn verdict_not_valid_when_blocker_finding_present() {
+        // The verdict derives from the flattened findings, so a `blocker`
+        // finding prevents "✓ VALID" even when the model-check result is valid
+        // (guards the original "✓ VALID" + "[BLOCKER]" contradiction).
+        let mut result = make_result();
+        result.convertible = true;
+        result.valid = Some(true);
+        result.violations = vec![];
+        result.convertibility_report = Some(ConvertibilityReport {
+            status: crate::ir::ConvertibilityStatus::Convertible,
+            blockers: vec![CheckItem {
+                severity: "blocker".into(),
+                check: "style/pronoun-ambiguity".into(),
+                element: "Task 1.1".into(),
+                location: "tasks.md:3".into(),
+                detail: "pronoun 'it' is ambiguous".into(),
+                fix: Some("replace the pronoun with the specific noun".into()),
+                kind: crate::ir::Kind::ProseOther,
+                op: Op::None,
+                fixability: Fixability::Structural,
+                start: 0,
+                end: 0,
+                replacement: None,
+            }],
+            warnings: vec![],
+            info: vec![],
+            rephrase_directives: vec![],
+        });
+        let plans = make_plans();
+        let annotated = annotate(&result, &plans);
+        let human = format_human(&result, &annotated, &plans, false);
+        assert!(
+            !human.contains("✓ VALID"),
+            "verdict must not be VALID when a blocker finding is present: {}",
+            human
+        );
     }
 }
