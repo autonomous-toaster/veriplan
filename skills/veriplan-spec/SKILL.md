@@ -103,17 +103,24 @@ GOOD  T2.1 SHALL complete BEFORE T3.1 SHALL start.
   A task id that appears only in a `WHEN`/`THEN` step does not count.
 - `skip_specs: true` does not exempt a change.
 
-## Scale: read this before iterating
+## Scale
 
-The model is one process per task, so its state space grows fast. Measured with
-`--checker spin-rs`: 8 tasks ≈ 10 s, 10 tasks ≈ 130 s, and a 26-task plan reports
-`⚠ UNKNOWN` after exhausting the default budget.
+The model is one process per task. Measured after the completion-ordering fix, a linear
+plan with one ordering constraint:
 
-- Iterate with `veriplan check <change> --phase convertibility`; it is instant
-  and catches everything except the model check.
-- Above roughly 10 tasks, `UNKNOWN` is the tool's limit rather than a fault in
-  your spec. Do not keep rewriting requirements chasing `✓ VALID`; say so
-  instead.
+| tasks | pan states | plan check |
+|---|---|---|
+| 20 | 101 | under a second |
+| 62 | 311 | under a second |
+| 100 | — | about a second |
+
+Before that fix the same shape cost 1 276 states at eight tasks and was unmeasurable at
+twenty, so a plan of more than ten tasks reported `⚠ UNKNOWN`. That is gone; if a plan
+still reports `UNKNOWN` with a non-zero `Unchecked`, it hit `VERIPLAN_MAX_STATES` and the
+budget needs raising, not the spec rewriting.
+
+- Iterate with `veriplan check <change> --phase convertibility`; it is instant and catches
+  everything except the model check.
 - `VERIPLAN_MAX_STATES` raises the in-process budget at the cost of time.
 
 ## Checklist
