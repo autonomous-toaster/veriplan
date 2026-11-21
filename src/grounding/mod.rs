@@ -551,7 +551,8 @@ pub fn check_grounding(
             GroundingStatus::Ungroundable => {
                 // Check if any constant name from the Signature appears in the text
                 let has_task_id = sig.constants.iter().any(|c| {
-                    req.statement.contains(&c.name)
+                    let id = c.name.trim_start_matches('T');
+                    crate::util::mentions_task(&req.statement, id)
                         || c.aliases
                             .iter()
                             .any(|a| req.statement.to_lowercase().contains(a))

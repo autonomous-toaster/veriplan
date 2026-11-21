@@ -358,8 +358,7 @@ pub fn check_task_coverage(plan: &PlanIR, is_openspec: bool) -> (Vec<CheckItem>,
     let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
     for req in &plan.requirements {
         for task in &plan.tasks {
-            let dot_id = format!("T{}", task.id);
-            if req.statement.contains(&dot_id) {
+            if crate::util::mentions_task(&req.statement, &task.id) {
                 referenced.insert(task.id.clone());
             }
         }

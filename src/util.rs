@@ -64,3 +64,72 @@ mod tests {
         assert_eq!(t, "…");
     }
 }
+
+/// Whether a statement mentions a task id as a whole identifier.
+///
+/// A plain substring test makes T1.1 match T1.10, so a body citing only the tenth
+/// task reports the first, and the LTL atoms can be built from the wrong task.
+pub fn mentions_task(statement: &str, task_id: &str) -> bool {
+    for pattern in [format!("T{task_id}"), format!("t{task_id}")] {
+        let mut from = 0usize;
+        while let Some(at) = statement[from..].find(&pattern) {
+            let start = from + at;
+            let end = start + pattern.len();
+            let before_ok = statement[..start]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !c.is_alphanumeric() && c != '.');
+            let after_ok = statement[end..]
+                .chars()
+                .next()
+                .is_none_or(|c| !c.is_ascii_digit() && c != '.');
+            if before_ok && after_ok {
+                return true;
+            }
+            from = end;
+        }
+    }
+    false
+}
+
+/// Position of the first whole-identifier mention of a task id, if any.
+pub fn find_task(statement: &str, task_id: &str) -> Option<usize> {
+    for pattern in [format!("T{task_id}"), format!("t{task_id}")] {
+        let mut from = 0usize;
+        while let Some(at) = statement[from..].find(&pattern) {
+            let start = from + at;
+            let end = start + pattern.len();
+            let before_ok = statement[..start]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !c.is_alphanumeric() && c != '.');
+            let after_ok = statement[end..]
+                .chars()
+                .next()
+                .is_none_or(|c| !c.is_ascii_digit() && c != '.');
+            if before_ok && after_ok {
+                return Some(start);
+            }
+            from = end;
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    #[test]
+    fn task_ids_match_on_identifier_boundaries() {
+        // A plain substring test made T1.1 match inside T1.10, so a body citing only the
+        // tenth task reported the first, and the LTL atoms could be built from the wrong task.
+        assert!(super::mentions_task("T1.10 SHALL run", "1.10"));
+        assert!(!super::mentions_task("T1.10 SHALL run", "1.1"));
+        assert!(!super::mentions_task("T1.1 SHALL run", "1.10"));
+        assert!(super::mentions_task("T1.1 SHALL run", "1.1"));
+        // A sentence-final id, and one followed by punctuation, still match.
+        assert!(super::mentions_task("T2.3 SHALL run.", "2.3"));
+        assert!(super::mentions_task("(T2.3)", "2.3"));
+        // A decimal in prose is not a task id.
+        assert!(!super::mentions_task("worth 1.10 of the budget", "1.10"));
+    }
+}

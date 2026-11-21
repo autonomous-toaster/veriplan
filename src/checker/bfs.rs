@@ -274,7 +274,7 @@ pub(crate) fn suggest_fix(
     } else if task_ids.len() <= 2 {
         format!(
             " tasks {} and {}",
-            &task_ids[0],
+            task_ids[0],
             task_ids.get(1).unwrap_or(&task_ids[0])
         )
     } else {

@@ -101,11 +101,8 @@ pub fn extract_task_refs(statement: &str, plan: &PlanIR) -> Vec<String> {
     // Find all referenced task IDs and sort by their position in the statement
     let mut refs_with_pos: Vec<(usize, String)> = Vec::new();
     for task in &plan.tasks {
-        let id_pattern = format!("T{}", task.id);
-        let alt_pattern = format!("t{}", task.id);
-        if let Some(pos) = statement.find(&id_pattern) {
-            refs_with_pos.push((pos, task.id.clone()));
-        } else if let Some(pos) = statement.find(&alt_pattern) {
+        // Whole-identifier match: "T1.1" must not match inside "T1.10".
+        if let Some(pos) = crate::util::find_task(statement, &task.id) {
             refs_with_pos.push((pos, task.id.clone()));
         }
     }
@@ -117,9 +114,8 @@ pub fn extract_task_refs(statement: &str, plan: &PlanIR) -> Vec<String> {
 pub fn extract_task_refs_bare(statement: &str, task_ids: &[String]) -> Vec<String> {
     let mut refs = Vec::new();
     for id in task_ids {
-        let id_pattern = format!("T{}", id);
-        let alt_pattern = format!("t{}", id);
-        if statement.contains(&id_pattern) || statement.contains(&alt_pattern) {
+        // Whole-identifier match, same rule as extract_task_refs.
+        if crate::util::mentions_task(statement, id) {
             refs.push(id.clone());
         }
     }
