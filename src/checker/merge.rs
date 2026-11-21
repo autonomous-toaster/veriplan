@@ -33,6 +33,9 @@ pub fn merge_results(results: &[VerificationResult]) -> VerificationResult {
             violations: vec![],
             total_constraints: 0,
             satisfied_constraints: 0,
+            unmodelled_constraints: 0,
+            unchecked_constraints: 0,
+            backend: String::new(),
             constraints_summary: vec![],
             skip_reason: None,
         };
@@ -68,6 +71,14 @@ pub fn merge_results(results: &[VerificationResult]) -> VerificationResult {
         violations: results.iter().flat_map(|r| r.violations.clone()).collect(),
         total_constraints: results.iter().map(|r| r.total_constraints).sum(),
         satisfied_constraints: results.iter().map(|r| r.satisfied_constraints).sum(),
+        unmodelled_constraints: results.iter().map(|r| r.unmodelled_constraints).sum(),
+        unchecked_constraints: results.iter().map(|r| r.unchecked_constraints).sum(),
+        backend: results
+            .iter()
+            .map(|r| r.backend.as_str())
+            .find(|b| !b.is_empty())
+            .unwrap_or("")
+            .to_string(),
         constraints_summary: results
             .iter()
             .flat_map(|r| r.constraints_summary.clone())
@@ -116,6 +127,9 @@ mod tests {
                 .collect(),
             total_constraints: 10,
             satisfied_constraints: 5,
+            unmodelled_constraints: 0,
+            unchecked_constraints: 0,
+            backend: "test".into(),
             constraints_summary: vec![],
             skip_reason: None,
         }

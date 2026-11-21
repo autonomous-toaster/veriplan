@@ -35,6 +35,9 @@ fn run_bfs_check(
         } else {
             formalizable.len().saturating_sub(violations_count)
         },
+        unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
+        unchecked_constraints: 0,
+        backend: "bfs".into(),
         constraints_summary: vec![],
         skip_reason: None,
     }
@@ -379,6 +382,9 @@ pub(crate) fn simple_result(
         violations: vec![],
         total_constraints: 0,
         satisfied_constraints: 0,
+        unmodelled_constraints: 0,
+        unchecked_constraints: 0,
+        backend: "bfs".into(),
         constraints_summary: vec![],
         skip_reason: Some("Model check error".into()),
     }

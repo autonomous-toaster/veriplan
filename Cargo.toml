@@ -22,7 +22,7 @@ lsp-types = "0.95"
 crossbeam-channel = "0.5"
 
 # Grounding
-groundcontrol = { git = "https://github.com/autonomous-toaster/groundcontrol", tag = "v0.1.0" }
+groundcontrol = { git = "https://github.com/autonomous-toaster/groundcontrol", tag = "v0.2.0" }
 
 # Prose-guidance (curated steve rules for OpenSpec unambiguity)
 steve = { git = "https://github.com/autonomous-toaster/steve", tag = "v0.2.0" }
@@ -34,7 +34,7 @@ env_logger = "0.11"
 streaming-iterator = "0.1"
 
 # spin-rs: Rust-native Promela model checker (in-process alternative to spin binary)
-spin-rs = { git = "https://github.com/autonomous-toaster/spin-rs", tag = "v0.1.0" }
+spin-rs = { git = "https://github.com/autonomous-toaster/spin-rs", tag = "v0.1.1" }
 
 # Optional: Z3 SAT checking
 z3 = { version = "0.14", optional = true }

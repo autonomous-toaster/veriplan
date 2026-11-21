@@ -182,7 +182,17 @@ pub fn format_human(
 
     let all_findings = findings(result, annotated);
     let status = status_label(result, &all_findings);
-    output.push_str(&format!("Plan: {} — {}\n", result.plan_name, status));
+    // The backend is named in the verdict: two runs differing only in backend used to be
+    // indistinguishable, and the engine decides what the number means.
+    let engine = if result.backend.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", result.backend)
+    };
+    output.push_str(&format!(
+        "Plan: {} — {}{}\n",
+        result.plan_name, status, engine
+    ));
 
     if let Some(reason) = &result.skip_reason {
         output.push_str(&format!("\n  Model check skipped: {}\n", reason));
@@ -193,8 +203,11 @@ pub fn format_human(
     } else if result.convertible && result.valid == Some(true) {
         output.push_str("  All constraints satisfied.\n");
         output.push_str(&format!(
-            "  Satisfied: {} | Violated: 0 | Total: {}\n",
-            result.satisfied_constraints, result.total_constraints
+            "  Satisfied: {} | Violated: 0 | Unmodelled: {} | Unchecked: {} | Total: {}\n",
+            result.satisfied_constraints,
+            result.unmodelled_constraints,
+            result.unchecked_constraints,
+            result.total_constraints
         ));
     }
 
@@ -279,7 +292,13 @@ pub fn format_json(
         "findings": all_findings,
         "total_constraints": result.total_constraints,
         "satisfied_constraints": result.satisfied_constraints,
+        "unmodelled_constraints": result.unmodelled_constraints,
+        "unchecked_constraints": result.unchecked_constraints,
+        "backend": result.backend,
     });
+    if !result.constraints_summary.is_empty() {
+        output["constraints"] = serde_json::json!(result.constraints_summary);
+    }
 
     if let Some(reason) = &result.skip_reason {
         output["skip_reason"] = serde_json::json!(reason);
@@ -383,6 +402,9 @@ mod tests {
             }],
             total_constraints: 5,
             satisfied_constraints: 4,
+            unmodelled_constraints: 0,
+            unchecked_constraints: 0,
+            backend: "test".into(),
             constraints_summary: vec![],
             skip_reason: None,
         }

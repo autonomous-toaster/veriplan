@@ -139,11 +139,10 @@ fn build_aliases(id: &str, desc: &str) -> Vec<String> {
     if words.len() > 5 {
         aliases.push(words[..5].join(" "));
     }
-    for w in &words {
-        if w.len() > 4 && !aliases.contains(&w.to_string()) {
-            aliases.push(w.to_string());
-        }
-    }
+    // A single word from a task description is NOT an alias for the task: one shared
+    // adjective would otherwise outrank the task ids the requirement actually names,
+    // and the grounder would bind the wrong constant to a slot. Only the full
+    // description and its leading phrases are aliases.
     aliases.push(id.to_string());
     aliases
 }
@@ -166,7 +165,7 @@ pub struct GroundingOutcome {
 ///
 /// Returns the clauses in order, falling back to the whole statement if it
 /// cannot be split (e.g. a single sentence).
-fn split_constraint_clauses(statement: &str) -> Vec<&str> {
+pub(crate) fn split_constraint_clauses(statement: &str) -> Vec<&str> {
     let mut clauses = Vec::new();
     let mut start = 0usize;
     let bytes = statement.as_bytes();
@@ -360,7 +359,10 @@ pub fn check_grounding(
 
         let failed = matches!(
             result.status,
-            GroundingStatus::Ungroundable | GroundingStatus::Ambiguous
+            GroundingStatus::Ungroundable
+                | GroundingStatus::Ambiguous
+                | GroundingStatus::Incomplete
+                | GroundingStatus::Contradictory
         );
 
         outcomes.push(GroundingOutcome {
@@ -373,50 +375,174 @@ pub fn check_grounding(
             GroundingStatus::Grounded => {
                 // Pass silently
             }
-            GroundingStatus::Ambiguous => {
-                let best_confidence = result
-                    .candidates
-                    .first()
-                    .map(|c| c.confidence)
-                    .unwrap_or(0.0);
-                let diagnostic = result
-                    .candidates
-                    .first()
-                    .map(|c| c.diagnostic.as_str())
-                    .unwrap_or("");
+            GroundingStatus::Ambiguous | GroundingStatus::Incomplete => {
+                let first = result.candidates.first();
+                let predicate = first.map(|c| c.predicate.clone()).unwrap_or_default();
+                let found = first.map(|c| c.arguments.len()).unwrap_or(0);
+                let names = first.map(|c| c.names().join(", ")).unwrap_or_default();
+                let exact = first.map(|c| c.exact).unwrap_or(true);
+                let confidence = first.map(|c| c.confidence).unwrap_or(0.0);
+                let expected = sig
+                    .predicates
+                    .iter()
+                    .find(|p| p.name == predicate)
+                    .map(|p| p.arguments.len())
+                    .unwrap_or(0);
+                let location = format!("{}:{}", req.source.file, req.source.start_line);
+                let element = format!("Requirement '{}'", req.id);
+
+                // A task id cited by the text that this signature does not declare is a
+                // different diagnosis from an under-filled predicate: the author already
+                // named a task, the change simply does not own it.
+                if !result.absent_identifiers.is_empty() {
+                    let missing = result.absent_identifiers.join(", ");
+                    let detail = format!(
+                        "Requirement '{}' cites {} — not a task of this change",
+                        truncate(&req.statement, 80),
+                        missing,
+                    );
+                    let fix =
+                        "Cite a task this change defines, or add the task to tasks.md".to_string();
+                    match strictness {
+                        StrictnessProfile::Strict => blockers.push(make_item(
+                            "blocker",
+                            "grounding_absent_task",
+                            element,
+                            location,
+                            detail,
+                            Some(fix),
+                        )),
+                        StrictnessProfile::Moderate => warnings.push(make_item(
+                            "warning",
+                            "grounding_absent_task",
+                            element,
+                            location,
+                            detail,
+                            Some(fix),
+                        )),
+                        StrictnessProfile::Lax => info.push(make_item(
+                            "info",
+                            "grounding_absent_task",
+                            element,
+                            location,
+                            detail,
+                            Some(fix),
+                        )),
+                    }
+                    continue;
+                }
+
+                // A task the author named that no slot used is a grounding weakness, not a
+                // statement defect: the slots were filled from something weaker. Saying so
+                // separates "you wrote it wrong" from "the binder chose badly".
+                let unused = if result.unused_identifiers.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "; the text names {} but no slot used it",
+                        result.unused_identifiers.join(", ")
+                    )
+                };
                 let detail = format!(
-                    "Ambiguous grounding for '{}' — low confidence ({:.2}){}{}",
+                    "Ambiguous grounding for '{}' — confidence {:.2}: {} expects {} argument(s), found {}{}{}{}",
                     truncate(&req.statement, 80),
-                    best_confidence,
-                    if diagnostic.is_empty() { "" } else { ": " },
-                    diagnostic,
+                    confidence,
+                    if predicate.is_empty() {
+                        "no predicate"
+                    } else {
+                        predicate.as_str()
+                    },
+                    expected,
+                    found,
+                    if names.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", names)
+                    },
+                    if !exact && found > 0 {
+                        ", at least one matched by alias"
+                    } else {
+                        ""
+                    },
+                    unused,
                 );
                 let fix =
                     "Add explicit task ID references (e.g., 'T2.1') to the requirement statement"
                         .to_string();
-
                 match strictness {
                     StrictnessProfile::Strict => blockers.push(make_item(
                         "blocker",
                         "grounding_ambiguous",
-                        format!("Requirement '{}'", req.id),
-                        format!("{}:{}", req.source.file, req.source.start_line),
+                        element,
+                        location,
                         detail,
                         Some(fix),
                     )),
                     StrictnessProfile::Moderate => warnings.push(make_item(
                         "warning",
                         "grounding_ambiguous",
-                        format!("Requirement '{}'", req.id),
-                        format!("{}:{}", req.source.file, req.source.start_line),
+                        element,
+                        location,
                         detail,
                         Some(fix),
                     )),
                     StrictnessProfile::Lax => info.push(make_item(
                         "info",
                         "grounding_ambiguous",
-                        format!("Requirement '{}'", req.id),
-                        format!("{}:{}", req.source.file, req.source.start_line),
+                        element,
+                        location,
+                        detail,
+                        Some(fix),
+                    )),
+                }
+            }
+            GroundingStatus::Contradictory => {
+                let names = result
+                    .candidates
+                    .first()
+                    .map(|c| c.names().join(", "))
+                    .unwrap_or_default();
+                let unused = if result.unused_identifiers.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "; the text also names {}, which no slot used",
+                        result.unused_identifiers.join(", ")
+                    )
+                };
+                let detail = format!(
+                    "Contradictory grounding for '{}' — one task fills both slots ({}){}",
+                    truncate(&req.statement, 80),
+                    names,
+                    unused,
+                );
+                let fix =
+                    "Use two different task ids, or drop a relation a task cannot have with itself"
+                        .to_string();
+                let element = format!("Requirement '{}'", req.id);
+                let location = format!("{}:{}", req.source.file, req.source.start_line);
+                match strictness {
+                    StrictnessProfile::Strict => blockers.push(make_item(
+                        "blocker",
+                        "grounding_contradictory",
+                        element,
+                        location,
+                        detail,
+                        Some(fix),
+                    )),
+                    StrictnessProfile::Moderate => warnings.push(make_item(
+                        "warning",
+                        "grounding_contradictory",
+                        element,
+                        location,
+                        detail,
+                        Some(fix),
+                    )),
+                    StrictnessProfile::Lax => info.push(make_item(
+                        "info",
+                        "grounding_contradictory",
+                        element,
+                        location,
                         detail,
                         Some(fix),
                     )),

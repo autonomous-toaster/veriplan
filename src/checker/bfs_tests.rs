@@ -531,6 +531,7 @@ fn test_run_bfs_check_with_violation() {
             Box::new(LtlCondition::Atom("done_t1_2".into())),
         ))),
         is_hard: true,
+        unmodelled_reason: None,
     }];
     let report = ConvertibilityReport {
         status: ConvertibilityStatus::Convertible,

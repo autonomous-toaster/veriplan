@@ -24,6 +24,7 @@ pub fn extract_scenarios(
     body: &str,
     _bytes: &[u8],
     file: &str,
+    body_start_line: usize,
 ) -> (Vec<crate::ir::Scenario>, Vec<crate::ir::Scenario>) {
     let mut scenarios = Vec::new();
     let standalone_scenarios = Vec::new();
@@ -34,7 +35,7 @@ pub fn extract_scenarios(
     while i < lines.len() {
         let line = lines[i].trim();
         if (line.starts_with("#### Scenario:") || line.starts_with("#### scenario:"))
-            && let Some((scenario, consumed)) = parse_one_scenario(&lines, i, file)
+            && let Some((scenario, consumed)) = parse_one_scenario(&lines, i, file, body_start_line)
         {
             scenarios.push(scenario);
             i += consumed;
@@ -51,6 +52,7 @@ fn parse_one_scenario(
     lines: &[&str],
     start: usize,
     file: &str,
+    body_start_line: usize,
 ) -> Option<(crate::ir::Scenario, usize)> {
     let line = lines[start].trim();
     let name = line
@@ -75,7 +77,9 @@ fn parse_one_scenario(
             continue;
         }
 
-        if let Some(step) = parse_step(step_line, file, i + 1) {
+        // The body's first line is a file line, so body index i is body_start_line + i.
+        // Reporting i + 1 pointed every step finding at the requirement body instead.
+        if let Some(step) = parse_step(step_line, file, body_start_line + i) {
             steps.push(step);
         }
         i += 1;
@@ -94,8 +98,8 @@ fn parse_one_scenario(
                 file: file.to_string(),
                 start_byte: 0,
                 end_byte: 0,
-                start_line: i - steps_len,
-                end_line: i,
+                start_line: body_start_line + (i - steps_len),
+                end_line: body_start_line + i,
             },
         },
         i - start,
@@ -258,6 +262,23 @@ pub fn explore_node<'a>(node: &tree_sitter::Node<'a>, source: &'a [u8], indent: 
 
 #[cfg(test)]
 mod tests {
+    /// A scenario step carries its own line in the file, not an index into the body.
+    #[test]
+    fn step_source_is_file_absolute() {
+        let lines = vec![
+            "T1.1 SHALL complete BEFORE T1.2 SHALL start.",
+            "",
+            "#### Scenario: s",
+            "- **WHEN** T1.1 runs",
+            "- **THEN** T1.2 SHALL follow",
+        ];
+        // The body starts on file line 4.
+        let (scenarios, _) = super::extract_scenarios(&lines.join("\n"), b"", "spec.md", 4);
+        let steps = &scenarios[0].steps;
+        assert_eq!(steps[0].source.start_line, 7);
+        assert_eq!(steps[1].source.start_line, 8);
+    }
+
     use super::*;
     use crate::ir::StepKind;
 
@@ -346,7 +367,7 @@ mod tests {
             "- **WHEN** action happens",
             "- **THEN** result occurs",
         ];
-        let result = parse_one_scenario(&lines, 0, "test.md");
+        let result = parse_one_scenario(&lines, 0, "test.md", 1);
         assert!(result.is_some());
         let (scenario, consumed) = result.unwrap();
         assert_eq!(scenario.name, "Test scenario");
@@ -357,7 +378,7 @@ mod tests {
     #[test]
     fn test_parse_one_scenario_no_steps() {
         let lines = vec!["#### Scenario: Empty"];
-        let result = parse_one_scenario(&lines, 0, "test.md");
+        let result = parse_one_scenario(&lines, 0, "test.md", 1);
         assert!(result.is_none());
     }
 
@@ -368,7 +389,7 @@ mod tests {
             "- **GIVEN** condition",
             "#### Scenario: Second",
         ];
-        let result = parse_one_scenario(&lines, 0, "test.md");
+        let result = parse_one_scenario(&lines, 0, "test.md", 1);
         assert!(result.is_some());
         let (_, consumed) = result.unwrap();
         assert_eq!(consumed, 2);

@@ -164,6 +164,7 @@ fn test_display_label_sequential() {
         ))),
         strength: Rfc2119Strength::Must,
         is_hard: true,
+        unmodelled_reason: None,
     };
     assert_eq!(display_label(&c), "sequential");
 }
@@ -180,6 +181,7 @@ fn test_display_label_fixed_time_with_ordering() {
         ))),
         strength: Rfc2119Strength::Must,
         is_hard: true,
+        unmodelled_reason: None,
     };
     assert_eq!(display_label(&c), "sequential");
 }
@@ -195,6 +197,7 @@ fn test_display_label_fixed_time_no_ordering() {
         )))),
         strength: Rfc2119Strength::Must,
         is_hard: true,
+        unmodelled_reason: None,
     };
     assert_eq!(display_label(&c), "fixed-time");
 }

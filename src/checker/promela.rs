@@ -25,18 +25,20 @@ pub fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedCons
     }
     writeln!(s).ok();
 
+    // A failure branch exists only to satisfy an IF...THEN constraint. Emitting it for every
+    // task doubles the branching at every step, and a plan with no conditional constraint pays
+    // 2^N states for a flag nothing reads.
+    let needs_failures = constraints
+        .iter()
+        .any(|c| c.ltl_string().contains("failed_"));
+
     // ── Task execution processes (phase-ordered only) ──
     for task in &plan.tasks {
         let av = active_var(&task.id);
         let dv = done_var(&task.id);
         let fv = fail_var(&task.id);
 
-        writeln!(
-            s,
-            "active proctype task_{}() {{",
-            &task.id.replace('.', "_")
-        )
-        .ok();
+        writeln!(s, "active proctype task_{}() {{", task.id.replace('.', "_")).ok();
 
         // Only phase-ordering guard: predecessor must be done
         let predecessors = super::bfs::find_predecessors(plan, &task.id);
@@ -58,11 +60,13 @@ pub fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedCons
         writeln!(s, "\t\t{} = 1;\t/* complete */", dv).ok();
         writeln!(s, "\t\t{} = 0;\t/* deactivate */", av).ok();
 
-        // Non-deterministic failure (for conditional constraint exploration)
-        writeln!(s, "\t\tif").ok();
-        writeln!(s, "\t\t:: {} = 1;", fv).ok();
-        writeln!(s, "\t\t:: skip;").ok();
-        writeln!(s, "\t\tfi;").ok();
+        if needs_failures {
+            // Non-deterministic failure, only where a constraint reads the flag.
+            writeln!(s, "\t\tif").ok();
+            writeln!(s, "\t\t:: {} = 1;", fv).ok();
+            writeln!(s, "\t\t:: skip;").ok();
+            writeln!(s, "\t\tfi;").ok();
+        }
 
         writeln!(s, "\t\tbreak").ok();
         writeln!(s, "\tod").ok();

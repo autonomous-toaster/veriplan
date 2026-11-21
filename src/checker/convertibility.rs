@@ -76,6 +76,37 @@ pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> (Convertibility
         }
     }
 
+    // Check 4b: Every constraint clause of a body must be modelled.
+    // classify() reads one clause, so a body with two silently loses the second. Reporting it
+    // is the repair list; the alternative is a plan that looks checked and is not.
+    for req in &plan.requirements {
+        let clauses = grounding::split_constraint_clauses(&req.statement);
+        if clauses.len() > 1 {
+            let modelled = clauses[0].trim();
+            let dropped: Vec<String> = clauses[1..]
+                .iter()
+                .map(|c| crate::util::truncate(c, 60))
+                .collect();
+            blockers.push(checks::make_item(
+                "blocker",
+                "pattern_multi_clause",
+                format!("Requirement '{}'", req.id),
+                format!("{}:{}", req.source.file, req.source.start_line),
+                format!(
+                    "Requirement '{}' holds {} constraint clauses; only the first is modelled: '{}'. Not modelled: {}",
+                    crate::util::truncate(&req.statement, 60),
+                    clauses.len(),
+                    crate::util::truncate(modelled, 60),
+                    dropped.join("; ")
+                ),
+                Some(
+                    "Split the body into one requirement per constraint clause, each citing two task ids"
+                        .to_string(),
+                ),
+            ));
+        }
+    }
+
     // Check 5: Temporal classifiability
     let class_check = checks::check_classifiability(plan, is_openspec);
     blockers.extend(class_check.0);

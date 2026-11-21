@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 pub mod bfs;
+pub(crate) mod canary;
 pub(crate) mod checks;
 mod convertibility;
 pub(crate) mod merge;
@@ -47,6 +48,11 @@ pub struct ConstraintSummary {
     pub category: String,
     pub satisfied: bool,
     pub unchecked: bool,
+    /// False when the constraint carried no formula and was therefore never checked.
+    pub modelled: bool,
+    /// Why the constraint was not modelled, when that is the case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unmodelled_reason: Option<String>,
 }
 
 /// Final verification result.
@@ -60,6 +66,12 @@ pub struct VerificationResult {
     pub violations: Vec<Violation>,
     pub total_constraints: usize,
     pub satisfied_constraints: usize,
+    /// Constraints that carried no formula. Not counted as satisfied.
+    pub unmodelled_constraints: usize,
+    /// Constraints whose search did not complete within the budget.
+    pub unchecked_constraints: usize,
+    /// The backend that produced the verdict. Named so two runs cannot be confused.
+    pub backend: String,
     /// If None, no skip reason. If Some(reason), model check was skipped.
     pub skip_reason: Option<String>,
     /// Per-constraint pass/fail summary for display.
@@ -93,6 +105,14 @@ impl std::str::FromStr for CheckerBackend {
 // ═══════════════════════════════════════════════════════════════
 // Phase 2: Model Checking
 // ═══════════════════════════════════════════════════════════════
+
+/// Human name of a backend, used in the verdict so two runs cannot be confused.
+fn backend_label(backend: CheckerBackend) -> &'static str {
+    match backend {
+        CheckerBackend::Spin => "spin",
+        CheckerBackend::SpinRs => "spin-rs",
+    }
+}
 
 /// Check if SPIN is available on PATH.
 pub fn require_spin() -> Result<(), String> {
@@ -130,6 +150,9 @@ pub fn verify(
             violations: vec![],
             total_constraints: 0,
             satisfied_constraints: 0,
+            unmodelled_constraints: 0,
+            unchecked_constraints: 0,
+            backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
             skip_reason: Some("Convertibility check failed".into()),
         };
@@ -148,6 +171,9 @@ pub fn verify(
             violations: vec![],
             total_constraints: 0,
             satisfied_constraints: 0,
+            unmodelled_constraints: 0,
+            unchecked_constraints: 0,
+            backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
             skip_reason: None,
         };
@@ -160,21 +186,34 @@ pub fn verify(
     if formalizable.is_empty() {
         // In single-file/stdin mode, having no formalizable constraints is OK (no requirements is expected)
         // In OpenSpec mode, this would have been caught earlier as a blocker
+        // Placeholders are gone, so a plan can hold constraints of which none is modelled.
+        // That is not a pass: nothing was checked.
+        let unmodelled = constraints.iter().filter(|c| !c.modelled()).count();
+        let (valid, skip_reason) = if constraints.is_empty() {
+            (Some(true), None) // nothing to check; single-file input is expected to be empty
+        } else {
+            (
+                None,
+                Some(format!(
+                    "no constraint could be modelled ({} constraint(s), all unmodelled)",
+                    unmodelled
+                )),
+            )
+        };
         return VerificationResult {
             plan_name: plan_name.to_string(),
             phase: "model_check".into(),
             convertible: true,
             convertibility_report: Some(conv_report),
-            valid: Some(true), // No constraints to check = valid by default in single-file mode
+            valid,
             violations: vec![],
-            total_constraints: 0,
+            total_constraints: constraints.len(),
             satisfied_constraints: 0,
+            unmodelled_constraints: unmodelled,
+            unchecked_constraints: 0,
+            backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
-            skip_reason: if is_openspec {
-                Some("No formalizable constraints to check".into())
-            } else {
-                None // Single-file mode: no requirements is expected
-            },
+            skip_reason,
         };
     }
 
@@ -192,11 +231,58 @@ pub fn verify(
             convertibility_report: Some(conv_report),
             valid: None, // Unknown — can't prove without SPIN
             violations: vec![],
-            total_constraints: formalizable.len(),
+            total_constraints: constraints.len(),
             satisfied_constraints: 0,
+            unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
+            unchecked_constraints: formalizable.len(),
+            backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
             skip_reason: Some(msg),
         };
+    }
+
+    // Calibration: a backend that cannot refute a model with a known violation cannot be
+    // trusted to judge this one. Unverified, never valid and never invalid.
+    match canary::refuted(backend) {
+        Ok(true) => {}
+        Ok(false) => {
+            return VerificationResult {
+                plan_name: plan_name.to_string(),
+                phase: "model_check".into(),
+                convertible: true,
+                convertibility_report: Some(conv_report),
+                valid: None,
+                violations: vec![],
+                total_constraints: constraints.len(),
+                satisfied_constraints: 0,
+                unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
+                unchecked_constraints: formalizable.len(),
+                backend: backend_label(backend).to_string(),
+                constraints_summary: vec![],
+                skip_reason: Some(
+                    "the backend did not refute the calibration canary: a model with a known \
+                     violation was reported clean, so its verdict on this plan means nothing"
+                        .into(),
+                ),
+            };
+        }
+        Err(msg) => {
+            return VerificationResult {
+                plan_name: plan_name.to_string(),
+                phase: "model_check".into(),
+                convertible: true,
+                convertibility_report: Some(conv_report),
+                valid: None,
+                violations: vec![],
+                total_constraints: constraints.len(),
+                satisfied_constraints: 0,
+                unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
+                unchecked_constraints: formalizable.len(),
+                backend: backend_label(backend).to_string(),
+                constraints_summary: vec![],
+                skip_reason: Some(format!("calibration canary could not run: {msg}")),
+            };
+        }
     }
 
     match backend {
@@ -404,6 +490,9 @@ mod tests {
                 .collect(),
             total_constraints: 10,
             satisfied_constraints: 5,
+            unmodelled_constraints: 0,
+            unchecked_constraints: 0,
+            backend: "test".into(),
             constraints_summary: vec![],
             skip_reason: None,
         }

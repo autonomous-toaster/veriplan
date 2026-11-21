@@ -360,20 +360,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dashmap"
-version = "6.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
-dependencies = [
- "cfg-if",
- "crossbeam-utils",
- "hashbrown 0.14.5",
- "lock_api",
- "once_cell",
- "parking_lot_core",
-]
-
-[[package]]
 name = "digest"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -580,23 +566,18 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "groundcontrol"
-version = "0.1.0"
-source = "git+https://github.com/autonomous-toaster/groundcontrol?tag=v0.1.0#42adfc9d9571706175b2cf2f25c33c58e54aad53"
+version = "0.2.0"
+source = "git+https://github.com/autonomous-toaster/groundcontrol?tag=v0.2.0#688ea836d85cec73024a72351e947205ef72d12b"
 dependencies = [
  "anyhow",
  "clap",
  "serde",
  "serde_json",
+ "serde_yaml",
  "thiserror 2.0.18",
  "tree-sitter",
  "tree-sitter-language-pack",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
@@ -1436,12 +1417,11 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 [[package]]
 name = "spin-rs"
 version = "0.1.0"
-source = "git+https://github.com/autonomous-toaster/spin-rs?tag=v0.1.0#0ee4afcc530d2653b2bed3347cf30dd57167fb73"
+source = "git+https://github.com/autonomous-toaster/spin-rs?tag=v0.1.1#1933fc2e5e3e26377a98f7ff48a80910bec690b4"
 dependencies = [
  "anyhow",
  "clap",
  "crossbeam",
- "dashmap",
  "env_logger",
  "fxhash",
  "log",

@@ -6,7 +6,7 @@
 use crate::ir::{
     ConstraintCategory::{self, *},
     PhaseMode, PlanIR, Rfc2119Strength,
-    ltl::{LtlCondition, LtlFormula},
+    ltl::LtlFormula,
 };
 /// Result of translating a requirement to LTL.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -19,6 +19,16 @@ pub struct TranslatedConstraint {
     pub ltl: Option<LtlFormula>,
     /// Whether this is a hard constraint (MUST/MUST NOT)
     pub is_hard: bool,
+    /// Why this constraint carries no formula. Empty when the constraint is modelled, or
+    /// when the requirement failed convertibility for a reason reported elsewhere.
+    pub unmodelled_reason: Option<String>,
+}
+
+impl TranslatedConstraint {
+    /// A constraint is modelled when it carries a formula the engine can check.
+    pub fn modelled(&self) -> bool {
+        self.ltl.is_some()
+    }
 }
 
 impl TranslatedConstraint {
@@ -45,18 +55,45 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
 
     for req in &plan.requirements {
         let category = classify(&req.statement);
-        let ltl = if category == ConcurrentEvents
-            && tasks_in_same_concurrent_phase(plan, &extract_task_refs(&req.statement, plan))
-        {
-            Some(LtlFormula::Always(LtlCondition::Atom("true".into()))) // structurally guaranteed — no LTL
-        } else if category != NonFormalizable
-            && category != PatternUngrounded
-            && category != Informational
-        {
-            generate_ltl(&category, &req.statement, plan)
-        } else {
-            None
-        };
+        // A category the model cannot encode yields no formula AND a reason. Emitting an
+        // always-true formula here would make the constraint indistinguishable from a proof.
+        let refs = extract_task_refs(&req.statement, plan);
+        let (ltl, unmodelled_reason) =
+            if category == ConcurrentEvents && tasks_in_same_concurrent_phase(plan, &refs) {
+                (
+                None,
+                Some(
+                    "the tasks share a concurrent phase; the model does not encode simultaneity"
+                        .to_string(),
+                ),
+            )
+            } else if category == FixedTime || category == Global {
+                (
+                    None,
+                    Some("this category has no encoding in the task-order model".to_string()),
+                )
+            } else if category == NonFormalizable
+                || category == PatternUngrounded
+                || category == Informational
+            {
+                (None, None)
+            } else if refs.len() >= 2 && refs[0] == refs[1] {
+                (
+                    None,
+                    Some(format!(
+                        "the two argument slots name the same task (T{})",
+                        refs[0]
+                    )),
+                )
+            } else {
+                let ltl = generate_ltl(&category, &req.statement, plan);
+                let reason = if ltl.is_none() {
+                    Some("the statement did not yield a formula".to_string())
+                } else {
+                    None
+                };
+                (ltl, reason)
+            };
 
         constraints.push(TranslatedConstraint {
             requirement_id: req.id.clone(),
@@ -65,6 +102,7 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
             category,
             ltl,
             is_hard: req.strength.is_hard(),
+            unmodelled_reason,
         });
     }
 
@@ -85,14 +123,17 @@ pub fn classify(statement: &str) -> ConstraintCategory {
     if is_concurrent(&lower) {
         return ConcurrentEvents;
     }
+    // Sequential order is tested BEFORE fixed time: a requirement body always cites a task
+    // id, and an id used to satisfy the fixed-time clause through its digits, which made
+    // every ordering statement classify as FixedTime and lose its encoding.
+    if is_sequential(&lower) {
+        return SequentialOrder;
+    }
     if is_fixed_time(&lower) {
         return FixedTime;
     }
     if is_global(&lower) {
         return Global;
-    }
-    if is_sequential(&lower) {
-        return SequentialOrder;
     }
     // Only if the requirement is NOT a temporal constraint do we honor the
     // human-review-only marker — otherwise it would accidentally exempt
@@ -256,14 +297,49 @@ fn is_sequential(lower: &str) -> bool {
 }
 
 /// Check if the text references actual clock/calendar time (not task IDs).
+///
+/// A task id is made of digits, so 'contains a digit' was true of every requirement body and
+/// made this predicate meaningless. A time reference is a clock literal or a number with a
+/// duration unit beside it.
 fn is_time_ref(text: &str) -> bool {
-    text.contains("min")
-        || text.contains("hour")
-        || text.contains("sec")
-        || text.contains(":00")
-        || text.contains("am")
-        || text.contains("pm")
-        || text.chars().any(|c| c.is_ascii_digit())
+    let bytes = text.as_bytes();
+    // Clock literal: digit, ':', two digits.
+    for i in 1..bytes.len().saturating_sub(2) {
+        if bytes[i] == b':'
+            && bytes[i - 1].is_ascii_digit()
+            && bytes[i + 1].is_ascii_digit()
+            && bytes[i + 2].is_ascii_digit()
+        {
+            return true;
+        }
+    }
+    // Duration literal: a digit followed (within two bytes) by a unit word.
+    const UNITS: [&str; 9] = [
+        "millisecond",
+        "second",
+        "sec",
+        "minute",
+        "min",
+        "hour",
+        "day",
+        "week",
+        "ms",
+    ];
+    let mut last_digit_end: Option<usize> = None;
+    for (idx, ch) in text.char_indices() {
+        if ch.is_ascii_digit() {
+            last_digit_end = Some(idx + ch.len_utf8());
+        } else if ch.is_alphabetic()
+            && let Some(end) = last_digit_end
+            && idx.saturating_sub(end) <= 2
+        {
+            let rest = &text[idx..];
+            if UNITS.iter().any(|u| rest.starts_with(u)) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 mod ltl;
@@ -274,6 +350,47 @@ pub use ltl::{extract_task_refs, extract_task_refs_bare, find_sequential_pair, g
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// The seam between classification and translation: a realistic body, classified by the
+    /// production path, must produce the ordering formula. Both halves were tested separately and
+    /// the seam was not, which is how every ordering statement became a tautology.
+    #[test]
+    fn test_seam_classify_then_translate_ordering() {
+        let plan = make_test_plan();
+        let statement = "T1.1 SHALL complete BEFORE T1.2 SHALL start.";
+        assert_eq!(
+            classify(statement),
+            ConstraintCategory::SequentialOrder,
+            "a task-citing ordering statement must reach SequentialOrder"
+        );
+        let ltl = generate_ltl(&classify(statement), statement, &plan);
+        assert!(
+            ltl.is_some(),
+            "a task-citing ordering statement must yield a formula"
+        );
+        let rendered = ltl
+            .map(|f| crate::ir::ltl::ltl_to_string(&f))
+            .unwrap_or_default();
+        assert!(
+            rendered.contains("active_t1_2") && rendered.contains("done_t1_1"),
+            "expected active(later) -> done(earlier), got {rendered}"
+        );
+    }
+
+    /// A category with no encoding must not produce a formula.
+    #[test]
+    fn test_unencoded_categories_yield_no_formula() {
+        let plan = make_test_plan();
+        for statement in [
+            "T1.1 SHALL ALWAYS hold the header.",
+            "T1.1 SHALL run within the maintenance window.",
+        ] {
+            assert!(
+                generate_ltl(&classify(statement), statement, &plan).is_none(),
+                "no placeholder formula for: {statement}"
+            );
+        }
+    }
+
     #[test]
     fn test_find_sequential_pair_before() {
         let task_ids = vec!["1.1".to_string(), "1.2".to_string()];

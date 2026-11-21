@@ -109,7 +109,7 @@ fn veriplan_rules() -> BTreeMap<String, Vec<String>> {
             "BAD: \"T1.1 SHALL be done quickly\" (\"quickly\" is vague — define it measurably or use a temporal relation)".to_string(),
             "IF...THEN is for failure-recovery: \"IF T1.1 fails THEN T2.1 SHALL run\"".to_string(),
             "Write in Simplified Technical English (ASD-STE100): active voice and name the acting task by ID (e.g. \"T2.1 SHALL resolve the path\"), short sentences (<30 words), no vague words (robust, clean, good, user-friendly)".to_string(),
-            "Before the first '### Requirement:', add a 'Task Reference' section with a markdown table '| T ID | Description |' listing every task ID used in the file and its one-line description (e.g. '| T1.1 | Implement single-file input detection |')".to_string(),
+            "In design.md, add a 'Task Reference' table '| T ID | Description |' listing every task ID the change uses and its one-line description (e.g. '| T1.1 | Implement single-file input detection |'). Do not put the table in a spec delta: the archive does not carry extra sections into the published spec and warns about each one".to_string(),
         ],
     );
     rules.insert(

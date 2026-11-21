@@ -87,11 +87,10 @@ pub fn generate_ltl(
                 None
             }
         }
-        FixedTime | Global => {
-            // Global invariants and fixed-time constraints without reliable durations
-            // Just note the constraint exists — evaluated as always-true placeholder
-            Some(LtlFormula::Always(LtlCondition::Atom("true".into())))
-        }
+        // No placeholder. A formula that is always true is not a proof, and a report that
+        // counts it as satisfied is worse than a report that says the constraint is not
+        // modelled. translate_all records the reason.
+        FixedTime | Global => None,
         NonFormalizable | Informational => None,
         PatternUngrounded => None,
     }

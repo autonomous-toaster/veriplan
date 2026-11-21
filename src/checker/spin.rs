@@ -49,88 +49,189 @@ pub(crate) fn run_spin_check(
         return super::bfs::simple_result(plan_name, conv_report, vec![]);
     }
 
-    // Phase 2: run pan for each LTL property individually
-    let formalizable: Vec<_> = constraints.iter().filter(|c| c.ltl.is_some()).collect();
+    // Phase 2: run pan once per property, named explicitly. A default pan run evaluates
+    // only the first claim, so a plan with several properties would be under-reported.
     let mut constraints_summary = Vec::new();
     let mut violations = Vec::new();
     let mut satisfied = 0usize;
-    let mut _timed_out_count = 0usize;
+    let mut unmodelled = 0usize;
+    let mut unchecked = 0usize;
+    let mut claim_index = 0usize;
 
-    for (i, c) in formalizable.iter().enumerate() {
-        let label = format!("p{}", i);
+    for c in constraints {
+        let category = format!("{:?}", c.category);
+        if !c.modelled() {
+            unmodelled += 1;
+            constraints_summary.push(ConstraintSummary {
+                requirement_id: c.requirement_id.clone(),
+                statement: c.statement.clone(),
+                category,
+                satisfied: false,
+                unchecked: false,
+                modelled: false,
+                unmodelled_reason: c.unmodelled_reason.clone(),
+            });
+            continue;
+        }
 
-        // Liveness properties (with <>) need -a; safety properties don't — much faster
+        let label = format!("p{}", claim_index);
+        claim_index += 1;
         let has_liveness = c.ltl_string().contains("<>");
         let mut pan_args = vec!["-N", &label, "-n"];
         if has_liveness {
             pan_args.push("-a");
         }
 
-        // Timeout per property: 5s per run (67 tasks × 23 properties = large state space)
-        // If timeout, report as "unchecked" rather than pass/fail
         let output = super::bfs::timeout_command(&pan_path, &pan_args, 5);
-
-        let (passed, violated, timed_out) = match output {
+        let outcome = match output {
             Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let combined = format!("{}\n{}", stdout, stderr);
-                if combined.contains("errors: 1") || combined.contains("errors: 2") {
-                    (false, true, false)
-                } else {
-                    (true, false, false)
-                }
+                let combined = format!(
+                    "{}\n{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                pan_outcome(&combined)
             }
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => (false, false, true),
-            Err(_) => (false, true, false),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => PanOutcome::Unchecked,
+            Err(_) => PanOutcome::Unchecked,
+        };
+
+        let (is_satisfied, is_unchecked) = match outcome {
+            PanOutcome::Passed => {
+                satisfied += 1;
+                (true, false)
+            }
+            PanOutcome::Violated => {
+                let fix = super::bfs::suggest_fix(
+                    &c.category,
+                    c.ltl_string().as_str(),
+                    &c.requirement_id,
+                    &c.statement,
+                );
+                violations.push(Violation {
+                    constraint_id: c.requirement_id.clone(),
+                    requirement_statement: c.statement.clone(),
+                    ltl: c.ltl_string(),
+                    category: category.clone(),
+                    state: format!("(violated in property {})", label),
+                    task_source: None,
+                    req_source: None,
+                    suggested_fix: fix,
+                    plan: plan_name.to_string(),
+                    kind: crate::ir::kind_of(&category),
+                    op: crate::ir::Op::ReplaceBody,
+                });
+                (false, false)
+            }
+            PanOutcome::Unchecked | PanOutcome::Empty => {
+                unchecked += 1;
+                (false, true)
+            }
         };
 
         constraints_summary.push(ConstraintSummary {
             requirement_id: c.requirement_id.clone(),
             statement: c.statement.clone(),
-            category: format!("{:?}", c.category),
-            satisfied: passed,
-            unchecked: timed_out,
+            category,
+            satisfied: is_satisfied,
+            unchecked: is_unchecked,
+            modelled: true,
+            unmodelled_reason: None,
         });
-
-        if timed_out {
-            _timed_out_count += 1;
-        } else if violated {
-            let fix = super::bfs::suggest_fix(
-                &c.category,
-                c.ltl_string().as_str(),
-                &c.requirement_id,
-                &c.statement,
-            );
-            let category = format!("{:?}", c.category);
-            violations.push(Violation {
-                constraint_id: c.requirement_id.clone(),
-                requirement_statement: c.statement.clone(),
-                ltl: c.ltl_string(),
-                category: category.clone(),
-                state: format!("(violated in property {})", label),
-                task_source: None,
-                req_source: None,
-                suggested_fix: fix,
-                plan: plan_name.to_string(),
-                kind: crate::ir::kind_of(&category),
-                op: crate::ir::Op::ReplaceBody,
-            });
-        } else {
-            satisfied += 1;
-        }
     }
+
+    // A verdict that nothing supports is not a verdict. If no constraint was satisfied and
+    // none was refuted, the run proved nothing, whatever the engine printed.
+    let nothing_proved = satisfied == 0 && violations.is_empty();
+    let (valid, skip_reason) = if nothing_proved && !constraints.is_empty() {
+        (
+            None,
+            Some(format!(
+                "no constraint was proved or refuted ({} unmodelled, {} unchecked)",
+                unmodelled, unchecked
+            )),
+        )
+    } else {
+        (Some(violations.is_empty()), None)
+    };
 
     VerificationResult {
         plan_name: plan_name.to_string(),
         phase: "model_check".into(),
         convertible: true,
         convertibility_report: Some(conv_report),
-        valid: Some(violations.is_empty()),
+        valid,
         violations,
-        total_constraints: formalizable.len(),
+        total_constraints: constraints.len(),
         satisfied_constraints: satisfied,
+        unmodelled_constraints: unmodelled,
+        unchecked_constraints: unchecked,
+        backend: "spin".into(),
         constraints_summary,
-        skip_reason: None,
+        skip_reason,
     }
+}
+
+/// Whether pan's summary reports a refutation. Any non-zero error count counts.
+pub(crate) fn pan_found_error(combined: &str) -> bool {
+    int_after(combined, "errors:")
+        .map(|n| n > 0)
+        .unwrap_or(false)
+}
+
+/// What a single pan run established.
+enum PanOutcome {
+    /// The claim held and the search completed.
+    Passed,
+    /// The engine refuted the claim.
+    Violated,
+    /// The search did not complete, or explored nothing: no verdict.
+    Unchecked,
+    /// The engine ran but explored a single state: it checked nothing.
+    Empty,
+}
+
+fn pan_outcome(combined: &str) -> PanOutcome {
+    // 'errors: N' is pan's summary; any non-zero N is a refutation, whatever the count.
+    // Matching only 'errors: 1' and 'errors: 2' silently passed every property with three.
+    if let Some(n) = int_after(combined, "errors:")
+        && n > 0
+    {
+        return PanOutcome::Violated;
+    }
+    if combined.contains("Search not completed") || combined.contains("depth limit") {
+        return PanOutcome::Unchecked;
+    }
+    let states = int_before(combined, " states, stored").unwrap_or(0);
+    let transitions = int_before(combined, " transitions").unwrap_or(0);
+    if states <= 1 && transitions == 0 {
+        return PanOutcome::Empty;
+    }
+    PanOutcome::Passed
+}
+
+/// Parse the first integer following the marker.
+fn int_after(hay: &str, marker: &str) -> Option<usize> {
+    let at = hay.find(marker)? + marker.len();
+    let digits: String = hay[at..]
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
+}
+
+/// Parse the integer immediately preceding the marker.
+fn int_before(hay: &str, marker: &str) -> Option<usize> {
+    let at = hay.find(marker)?;
+    let digits: String = hay[..at]
+        .trim_end()
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    digits.parse().ok()
 }

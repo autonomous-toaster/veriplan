@@ -315,6 +315,9 @@ pub fn parse_spec(
         // Find the body paragraphs after this heading
         let mut body = String::new();
         let mut end_line = start_line;
+        // File line of the body's first line. Scenario steps are located relative to it,
+        // because a body index is not a file line.
+        let mut body_start_line: Option<usize> = None;
 
         let mut sibling = node.next_sibling();
         while let Some(sib) = sibling {
@@ -322,7 +325,10 @@ pub fn parse_spec(
                 // Capture paragraphs and list items (scenario steps) as body
                 // so scenarios can be extracted from the requirement body.
                 if let Ok(text) = helpers::node_text(&sib, bytes) {
-                    if !body.is_empty() {
+                    if body.is_empty() {
+                        body_start_line =
+                            Some(helpers::find_line_for_byte(source, sib.byte_range().start));
+                    } else {
                         body.push('\n');
                     }
                     body.push_str(text);
@@ -332,7 +338,10 @@ pub fn parse_spec(
                 // A `section` wraps a level-4 "#### Scenario:" heading and its
                 // step list. Capture its text so extract_scenarios can parse it.
                 if let Ok(text) = helpers::node_text(&sib, bytes) {
-                    if !body.is_empty() {
+                    if body.is_empty() {
+                        body_start_line =
+                            Some(helpers::find_line_for_byte(source, sib.byte_range().start));
+                    } else {
                         body.push('\n');
                     }
                     body.push_str(text);
@@ -385,7 +394,8 @@ pub fn parse_spec(
         });
 
         // Extract scenarios from body
-        let (req_scenarios, _) = helpers::extract_scenarios(&body, bytes, &file_name);
+        let body_start = body_start_line.unwrap_or(start_line + 1);
+        let (req_scenarios, _) = helpers::extract_scenarios(&body, bytes, &file_name, body_start);
         for mut sc in req_scenarios {
             sc.source.file = file_name.clone();
             standalone_scenarios.push(sc);
