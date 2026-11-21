@@ -125,16 +125,24 @@ T3.7 SHALL extract scenario blocks AFTER T3.5 SHALL complete requirement extract
 
 ### Requirement: Preserve source locations
 
-T3.5 AND T3.7 SHALL ALWAYS associate SourceLocation with every parsed element. T3.5 SHALL complete BEFORE T3.8 SHALL build the requirement-scenario mapping.
+T3.1 SHALL compute scenario-step sources against the file BEFORE T3.2 SHALL sweep the remaining constructors.
+
+Every element in the plan model SHALL carry a source location whose line and byte offsets address the source file. A scenario step SHALL carry the line of the step inside the spec file, not an index inside the requirement body.
 
 #### Scenario: Source location for task
 
-- **GIVEN** a task `- [ ] 1.1 Create project` at line 5 of `tasks.md`
-- **WHEN** T3.3 returns the task
-- **THEN** T3.3 SHALL set `task.source.file` to "tasks.md" and `task.source.start_line` to 5
+- **GIVEN** a task on line 12 of `tasks.md`
+- **WHEN** T3.1 parses the task
+- **THEN** the task source SHALL report line 12
 
 #### Scenario: Source location for requirement
 
-- **GIVEN** a requirement heading at line 12 and its paragraph at line 13 of a spec file under `specs/parser/spec.md`
-- **WHEN** T3.5 returns the requirement
-- **THEN** T3.5 SHALL set `req.source.file` to "specs/parser/spec.md" and `req.source.start_line` to 12
+- **GIVEN** a requirement heading on line 3 of a spec file
+- **WHEN** T3.1 parses the requirement
+- **THEN** the requirement source SHALL report line 3
+
+#### Scenario: A step carries a file line
+
+- **GIVEN** a requirement body that starts on line 5 of a spec file
+- **WHEN** T3.1 parses a `THEN` step four lines into the body
+- **THEN** the step source SHALL report line 9
