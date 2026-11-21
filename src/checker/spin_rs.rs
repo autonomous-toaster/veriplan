@@ -51,9 +51,19 @@ pub(crate) fn run_spin_rs_check(
         }
     };
 
-    // Without a truncation signal from the engine, a search that consumed its whole budget
-    // is indistinguishable from one that closed the space. Treat it as unchecked.
-    let budget_exhausted = check_result.states_explored >= budget;
+    // The engine reports properties it could not decide. A budget that stopped the search,
+    // an unsupported shape, or an unparsable formula lands there, and none of them licenses a
+    // success claim: errors == 0 with a non-empty unverified list is not a clean run.
+    let model_unverified = check_result
+        .unverified
+        .iter()
+        .any(|u| u.property_name == "model");
+    let undecided: Vec<&str> = check_result
+        .unverified
+        .iter()
+        .map(|u| u.property_name.as_str())
+        .filter(|name| *name != "model")
+        .collect();
 
     let mut violated_indices: Vec<usize> = Vec::new();
     for v in &check_result.violations {
@@ -89,8 +99,9 @@ pub(crate) fn run_spin_rs_check(
 
         let idx = claim_index;
         claim_index += 1;
+        let label = format!("p{idx}");
         let is_violated = violated_indices.contains(&idx);
-        let is_unchecked = !is_violated && budget_exhausted;
+        let is_undecided = model_unverified || undecided.contains(&label.as_str());
 
         if is_violated {
             let spin_violation = check_result
@@ -104,7 +115,7 @@ pub(crate) fn run_spin_rs_check(
                 category: category.clone(),
                 state: spin_violation
                     .map(|v| v.description.clone())
-                    .unwrap_or_else(|| format!("(violated in property p{})", idx)),
+                    .unwrap_or_else(|| format!("(violated in property {label})")),
                 task_source: None,
                 req_source: None,
                 suggested_fix: super::bfs::suggest_fix(
@@ -117,7 +128,7 @@ pub(crate) fn run_spin_rs_check(
                 kind: crate::ir::kind_of(&category),
                 op: crate::ir::Op::ReplaceBody,
             });
-        } else if is_unchecked {
+        } else if is_undecided {
             unchecked += 1;
         } else {
             satisfied += 1;
@@ -127,8 +138,8 @@ pub(crate) fn run_spin_rs_check(
             requirement_id: c.requirement_id.clone(),
             statement: c.statement.clone(),
             category,
-            satisfied: !is_violated && !is_unchecked,
-            unchecked: is_unchecked,
+            satisfied: !is_violated && !is_undecided,
+            unchecked: is_undecided,
             modelled: true,
             unmodelled_reason: None,
         });

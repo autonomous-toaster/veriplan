@@ -243,7 +243,7 @@ pub fn verify(
 
     // Calibration: a backend that cannot refute a model with a known violation cannot be
     // trusted to judge this one. Unverified, never valid and never invalid.
-    match canary::refuted(backend) {
+    match canary::calibrated(backend) {
         Ok(true) => {}
         Ok(false) => {
             return VerificationResult {

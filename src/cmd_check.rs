@@ -327,13 +327,36 @@ fn run_compare(
     );
     println!("{}", "-".repeat(60));
 
+    // A backend that produced no verdict for a constraint did not "match" anything, and calling it
+    // a mismatch would be as wrong as calling it a match. Say unverified and leave it out of the tally.
+    if spin_rs_result.valid.is_none() {
+        println!("  spin-rs produced no verdict for this plan:");
+        if let Some(reason) = &spin_rs_result.skip_reason {
+            println!("    {reason}");
+        }
+        println!();
+    }
+
     for c in &spin_result.constraints_summary {
-        let spin_rs_satisfied = spin_rs_result
+        let peer = spin_rs_result
             .constraints_summary
             .iter()
-            .find(|sc| sc.requirement_id == c.requirement_id)
-            .map(|sc| sc.satisfied)
-            .unwrap_or(false);
+            .find(|sc| sc.requirement_id == c.requirement_id);
+        let unverified = match peer {
+            None => spin_rs_result.valid.is_none(),
+            Some(sc) => sc.unchecked,
+        };
+        if unverified {
+            println!(
+                "{:<30} {:<10} {:<10} {:<8}",
+                veriplan::util::truncate(&c.requirement_id, 30),
+                if c.satisfied { "pass" } else { "FAIL" },
+                "unverified",
+                "—"
+            );
+            continue;
+        }
+        let spin_rs_satisfied = peer.map(|sc| sc.satisfied).unwrap_or(false);
 
         let matched = c.satisfied == spin_rs_satisfied;
         if !matched {
