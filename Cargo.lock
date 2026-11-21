@@ -566,8 +566,8 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "groundcontrol"
-version = "0.2.1"
-source = "git+https://github.com/autonomous-toaster/groundcontrol?tag=v0.2.1#2cc5a804cb51e8330213ac024c22464055c04dfd"
+version = "0.2.2"
+source = "git+https://github.com/autonomous-toaster/groundcontrol?tag=v0.2.2#3eaf949a27e30646f347d97431b054bf515b7713"
 dependencies = [
  "anyhow",
  "clap",

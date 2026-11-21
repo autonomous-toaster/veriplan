@@ -22,7 +22,7 @@ lsp-types = "0.95"
 crossbeam-channel = "0.5"
 
 # Grounding
-groundcontrol = { git = "https://github.com/autonomous-toaster/groundcontrol", tag = "v0.2.1" }
+groundcontrol = { git = "https://github.com/autonomous-toaster/groundcontrol", tag = "v0.2.2" }
 
 # Prose-guidance (curated steve rules for OpenSpec unambiguity)
 steve = { git = "https://github.com/autonomous-toaster/steve", tag = "v0.2.0" }
