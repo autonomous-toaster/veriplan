@@ -463,7 +463,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1249,7 +1249,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1416,8 +1416,8 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "spin-rs"
-version = "0.4.6"
-source = "git+https://github.com/autonomous-toaster/spin-rs?tag=v0.4.6#836ed99ffac48f26aa3b3f2c9ba06ba8d622f210"
+version = "0.4.7"
+source = "git+https://github.com/autonomous-toaster/spin-rs?tag=v0.4.7#53a5696e92acd4eb1eb4d9e508ca2aa82ac7457a"
 dependencies = [
  "anyhow",
  "clap",
@@ -1513,7 +1513,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
