@@ -164,6 +164,8 @@ mod tests {
                 ))),
             ))),
             is_hard: true,
+            historical: None,
+            foreign_tasks: Vec::new(),
             unmodelled_reason: None,
         }
     }
@@ -221,6 +223,8 @@ mod tests {
                 ]),
             )))),
             is_hard: true,
+            historical: None,
+            foreign_tasks: Vec::new(),
             unmodelled_reason: None,
         }
     }

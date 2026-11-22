@@ -42,8 +42,12 @@ pub(crate) fn run_spin_rs_check(
                 violations: vec![],
                 total_constraints: constraints.len(),
                 satisfied_constraints: 0,
-                unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
+                unmodelled_constraints: constraints
+                    .iter()
+                    .filter(|c| !c.modelled() && !c.historical())
+                    .count(),
                 unchecked_constraints: constraints.iter().filter(|c| c.modelled()).count(),
+                historical_constraints: constraints.iter().filter(|c| c.historical()).count(),
                 backend: "spin-rs".into(),
                 constraints_summary: vec![],
                 skip_reason: Some(format!("spin-rs verification error: {}", e)),
@@ -72,13 +76,18 @@ pub(crate) fn run_spin_rs_check(
     let mut violations = Vec::new();
     let mut satisfied = 0usize;
     let mut unmodelled = 0usize;
+    let mut historical = 0usize;
     let mut unchecked = 0usize;
     let mut claim_index = 0usize;
 
     for c in constraints {
         let category = format!("{:?}", c.category);
         if !c.modelled() {
-            unmodelled += 1;
+            if c.historical() {
+                historical += 1;
+            } else {
+                unmodelled += 1;
+            }
             constraints_summary.push(ConstraintSummary {
                 requirement_id: c.requirement_id.clone(),
                 statement: c.statement.clone(),
@@ -87,6 +96,8 @@ pub(crate) fn run_spin_rs_check(
                 unchecked: false,
                 modelled: false,
                 unchecked_reason: None,
+                historical: c.historical.is_some(),
+                historical_owner: c.historical.clone(),
                 unmodelled_reason: c.unmodelled_reason.clone(),
             });
             continue;
@@ -146,6 +157,8 @@ pub(crate) fn run_spin_rs_check(
             unchecked: is_undecided,
             modelled: true,
             unchecked_reason,
+            historical: false,
+            historical_owner: None,
             unmodelled_reason: None,
         });
     }
@@ -181,6 +194,7 @@ pub(crate) fn run_spin_rs_check(
         satisfied_constraints: satisfied,
         unmodelled_constraints: unmodelled,
         unchecked_constraints: unchecked,
+        historical_constraints: historical,
         backend: "spin-rs".into(),
         constraints_summary,
         skip_reason,

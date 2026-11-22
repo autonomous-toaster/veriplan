@@ -113,6 +113,26 @@ truth to keep in step with the archive, for a cost that does not need paying.
 - **D5 loses a check.** Accepted explicitly: a mixed constraint is reported and not modelled, so the
   live half goes unchecked until the author splits it.
 
+## Validation over the wider corpus
+
+Run across every OpenSpec project on this machine - 31 repositories, 58 archived changes, 9 active
+changes - rather than against this repository alone:
+
+| measurement | result |
+|---|---|
+| active changes citing an id that only an archived change defines | **0** |
+| active changes producing a `grounding_historical` or `grounding_mixed` finding | 0 |
+| repositories aborting | 1 (`scred`), and the abort is a panic in groundcontrol, not here |
+
+So the change is **behaviour-neutral on every plan that exists today**, and the unblocking it promises
+is prospective: the first vocabulary delta to be written will pass, and none is pending. That is worth
+stating plainly rather than implying a fire was put out.
+
+The one abort is filed as groundcontrol `9kvc`: its identifier scanner slices inside a multi-byte
+character, so a spec containing an arrow aborts the process. It reproduces against the current pin and
+not against `v0.1.0`, which makes it a regression in that crate's identifier work, found only because
+the corpus was widened rather than the fixtures deepened.
+
 ## Migration Plan
 
 1. Resolve provenance and record it (phase 1). No behaviour change: nothing reads it yet.

@@ -204,6 +204,7 @@ mod tests {
             ],
             requirements: vec![Requirement {
                 id: "R1".into(),
+                grounded_in: None,
                 statement: "T1.1 SHALL complete".into(),
                 strength: Rfc2119Strength::Must,
                 category: ConstraintCategory::SequentialOrder,

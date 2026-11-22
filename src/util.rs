@@ -65,6 +65,44 @@ mod tests {
     }
 }
 
+/// Every whole-identifier task id in a statement, in order of appearance.
+pub fn task_ids_in(statement: &str) -> Vec<String> {
+    let bytes = statement.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        if (bytes[i] == b'T' || bytes[i] == b't')
+            && bytes[i + 1].is_ascii_digit()
+            && !(i > 0 && bytes[i - 1].is_ascii_alphanumeric())
+        {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j < bytes.len()
+                && bytes[j] == b'.'
+                && j + 1 < bytes.len()
+                && bytes[j + 1].is_ascii_digit()
+            {
+                let mut k = j + 1;
+                while k < bytes.len() && bytes[k].is_ascii_digit() {
+                    k += 1;
+                }
+                if k == bytes.len() || (!bytes[k].is_ascii_digit() && bytes[k] != b'.') {
+                    let id = statement[i + 1..k].to_string();
+                    if !out.contains(&id) {
+                        out.push(id);
+                    }
+                    i = k;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
 /// Whether a statement mentions a task id as a whole identifier.
 ///
 /// A plain substring test makes T1.1 match T1.10, so a body citing only the tenth

@@ -55,13 +55,18 @@ pub(crate) fn run_spin_check(
     let mut violations = Vec::new();
     let mut satisfied = 0usize;
     let mut unmodelled = 0usize;
+    let mut historical = 0usize;
     let mut unchecked = 0usize;
     let mut claim_index = 0usize;
 
     for c in constraints {
         let category = format!("{:?}", c.category);
         if !c.modelled() {
-            unmodelled += 1;
+            if c.historical() {
+                historical += 1;
+            } else {
+                unmodelled += 1;
+            }
             constraints_summary.push(ConstraintSummary {
                 requirement_id: c.requirement_id.clone(),
                 statement: c.statement.clone(),
@@ -70,6 +75,8 @@ pub(crate) fn run_spin_check(
                 unchecked: false,
                 modelled: false,
                 unchecked_reason: None,
+                historical: c.historical.is_some(),
+                historical_owner: c.historical.clone(),
                 unmodelled_reason: c.unmodelled_reason.clone(),
             });
             continue;
@@ -139,6 +146,8 @@ pub(crate) fn run_spin_check(
             modelled: true,
             // The external backend reports a bare timeout, with no kind to relay.
             unchecked_reason: is_unchecked.then(|| "state_budget: search timed out".to_string()),
+            historical: false,
+            historical_owner: None,
             unmodelled_reason: None,
         });
     }
@@ -169,6 +178,7 @@ pub(crate) fn run_spin_check(
         satisfied_constraints: satisfied,
         unmodelled_constraints: unmodelled,
         unchecked_constraints: unchecked,
+        historical_constraints: historical,
         backend: "spin".into(),
         constraints_summary,
         skip_reason,

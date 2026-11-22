@@ -379,6 +379,9 @@ pub fn parse_spec(
 
         requirements.push(crate::ir::Requirement {
             id: req_id,
+            // Filled by load_plan, which is the level that knows the archive. The parser sees one
+            // change directory and nothing else.
+            grounded_in: None,
             statement: statement.clone(),
             strength,
             category,

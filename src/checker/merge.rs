@@ -35,6 +35,7 @@ pub fn merge_results(results: &[VerificationResult]) -> VerificationResult {
             satisfied_constraints: 0,
             unmodelled_constraints: 0,
             unchecked_constraints: 0,
+            historical_constraints: 0,
             backend: String::new(),
             constraints_summary: vec![],
             skip_reason: None,
@@ -73,6 +74,7 @@ pub fn merge_results(results: &[VerificationResult]) -> VerificationResult {
         satisfied_constraints: results.iter().map(|r| r.satisfied_constraints).sum(),
         unmodelled_constraints: results.iter().map(|r| r.unmodelled_constraints).sum(),
         unchecked_constraints: results.iter().map(|r| r.unchecked_constraints).sum(),
+        historical_constraints: 0,
         backend: results
             .iter()
             .map(|r| r.backend.as_str())
@@ -129,6 +131,7 @@ mod tests {
             satisfied_constraints: 5,
             unmodelled_constraints: 0,
             unchecked_constraints: 0,
+            historical_constraints: 0,
             backend: "test".into(),
             constraints_summary: vec![],
             skip_reason: None,

@@ -203,10 +203,11 @@ pub fn format_human(
     } else if result.convertible && result.valid == Some(true) {
         output.push_str("  All constraints satisfied.\n");
         output.push_str(&format!(
-            "  Satisfied: {} | Violated: 0 | Unmodelled: {} | Unchecked: {} | Total: {}\n",
+            "  Satisfied: {} | Violated: 0 | Unmodelled: {} | Unchecked: {} | Historical: {} | Total: {}\n",
             result.satisfied_constraints,
             result.unmodelled_constraints,
             result.unchecked_constraints,
+            result.historical_constraints,
             result.total_constraints
         ));
     }
@@ -294,6 +295,7 @@ pub fn format_json(
         "satisfied_constraints": result.satisfied_constraints,
         "unmodelled_constraints": result.unmodelled_constraints,
         "unchecked_constraints": result.unchecked_constraints,
+        "historical_constraints": result.historical_constraints,
         "backend": result.backend,
     });
     if !result.constraints_summary.is_empty() {
@@ -404,6 +406,7 @@ mod tests {
             satisfied_constraints: 4,
             unmodelled_constraints: 0,
             unchecked_constraints: 0,
+            historical_constraints: 0,
             backend: "test".into(),
             constraints_summary: vec![],
             skip_reason: None,

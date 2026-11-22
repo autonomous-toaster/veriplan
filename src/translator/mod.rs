@@ -22,12 +22,23 @@ pub struct TranslatedConstraint {
     /// Why this constraint carries no formula. Empty when the constraint is modelled, or
     /// when the requirement failed convertibility for a reason reported elsewhere.
     pub unmodelled_reason: Option<String>,
+    /// The archived change this constraint's body was written against, when its arguments belong to
+    /// history rather than to this change. Such a constraint carries no formula: it states an order
+    /// between pieces of work that are already complete.
+    pub historical: Option<String>,
+    /// Cited task ids that belong to the requirement's history rather than to this change.
+    pub foreign_tasks: Vec<String>,
 }
 
 impl TranslatedConstraint {
     /// A constraint is modelled when it carries a formula the engine can check.
     pub fn modelled(&self) -> bool {
         self.ltl.is_some()
+    }
+
+    /// A constraint is historical when its body is grounded on completed work.
+    pub fn historical(&self) -> bool {
+        self.historical.is_some()
     }
 }
 
@@ -55,6 +66,26 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
 
     for req in &plan.requirements {
         let category = classify(&req.statement);
+        // A body written against history states an order between completed work. It carries no
+        // formula, is reported with its owning change, and is counted separately - never satisfied.
+        let cited = crate::util::task_ids_in(&req.statement);
+        let live: Vec<&String> = cited
+            .iter()
+            .filter(|id| plan.tasks.iter().any(|t| &t.id == *id))
+            .collect();
+        let foreign: Vec<String> = cited
+            .iter()
+            .filter(|id| !plan.tasks.iter().any(|t| &t.id == *id))
+            .cloned()
+            .collect();
+        let historical = match (&req.grounded_in, foreign.is_empty()) {
+            (Some(history), false) if live.is_empty() => Some(history.change.clone()),
+            // Mixed: the live half cannot be modelled without the historical atom, so the whole
+            // constraint is historical and the foreign ids are named. See design D5.
+            (Some(history), false) => Some(history.change.clone()),
+            _ => None,
+        };
+
         // A category the model cannot encode yields no formula AND a reason. Emitting an
         // always-true formula here would make the constraint indistinguishable from a proof.
         let refs = extract_task_refs(&req.statement, plan);
@@ -103,6 +134,8 @@ pub fn translate_all(plan: &PlanIR) -> Vec<TranslatedConstraint> {
             ltl,
             is_hard: req.strength.is_hard(),
             unmodelled_reason,
+            historical,
+            foreign_tasks: foreign,
         });
     }
 

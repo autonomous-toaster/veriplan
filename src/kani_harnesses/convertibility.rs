@@ -79,6 +79,7 @@ fn verify_check_requirements_no_panic() {
         requirements: vec![
             Requirement {
                 id: "R1".into(),
+                grounded_in: None,
                 statement: "T1.1 SHALL complete BEFORE T1.2".into(),
                 strength: Rfc2119Strength::Must,
                 category: ConstraintCategory::SequentialOrder,
@@ -94,6 +95,7 @@ fn verify_check_requirements_no_panic() {
             },
             Requirement {
                 id: "R2".into(),
+                grounded_in: None,
                 statement: "The system SHALL be robust".into(),
                 strength: Rfc2119Strength::None,
                 category: ConstraintCategory::NonFormalizable,
@@ -147,6 +149,7 @@ fn verify_check_task_references_no_false_positives() {
         }],
         requirements: vec![Requirement {
             id: "R1".into(),
+            grounded_in: None,
             statement: "T1.1 SHALL complete".into(),
             strength: Rfc2119Strength::Must,
             category: ConstraintCategory::SequentialOrder,
@@ -183,6 +186,7 @@ fn verify_check_classifiability_no_panic() {
         tasks: vec![],
         requirements: vec![Requirement {
             id: "R1".into(),
+            grounded_in: None,
             statement: "T1.1 SHALL complete BEFORE T1.2".into(),
             strength: Rfc2119Strength::Must,
             category: ConstraintCategory::NonFormalizable,

@@ -54,6 +54,11 @@ pub struct ConstraintSummary {
     /// unsupported_property, unparsable_formula, state_budget, depth_budget, early_stop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unchecked_reason: Option<String>,
+    /// The requirement body is grounded on an archived change, so no formula describes this plan.
+    pub historical: bool,
+    /// The archived change that owns the body, when `historical` is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub historical_owner: Option<String>,
     /// Why the constraint was not modelled, when that is the case.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unmodelled_reason: Option<String>,
@@ -74,6 +79,8 @@ pub struct VerificationResult {
     pub unmodelled_constraints: usize,
     /// Constraints whose search did not complete within the budget.
     pub unchecked_constraints: usize,
+    /// Constraints whose body is grounded on history. Not checkable, and never counted as satisfied.
+    pub historical_constraints: usize,
     /// The backend that produced the verdict. Named so two runs cannot be confused.
     pub backend: String,
     /// If None, no skip reason. If Some(reason), model check was skipped.
@@ -156,6 +163,7 @@ pub fn verify(
             satisfied_constraints: 0,
             unmodelled_constraints: 0,
             unchecked_constraints: 0,
+            historical_constraints: 0,
             backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
             skip_reason: Some("Convertibility check failed".into()),
@@ -177,6 +185,7 @@ pub fn verify(
             satisfied_constraints: 0,
             unmodelled_constraints: 0,
             unchecked_constraints: 0,
+            historical_constraints: 0,
             backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
             skip_reason: None,
@@ -192,15 +201,21 @@ pub fn verify(
         // In OpenSpec mode, this would have been caught earlier as a blocker
         // Placeholders are gone, so a plan can hold constraints of which none is modelled.
         // That is not a pass: nothing was checked.
-        let unmodelled = constraints.iter().filter(|c| !c.modelled()).count();
+        let unmodelled = constraints
+            .iter()
+            .filter(|c| !c.modelled() && !c.historical())
+            .count();
+        let historical = constraints.iter().filter(|c| c.historical()).count();
         let (valid, skip_reason) = if constraints.is_empty() {
             (Some(true), None) // nothing to check; single-file input is expected to be empty
         } else {
             (
                 None,
                 Some(format!(
-                    "no constraint could be modelled ({} constraint(s), all unmodelled)",
-                    unmodelled
+                    "no constraint could be modelled ({} constraint(s): {} unmodelled, {} historical)",
+                    constraints.len(),
+                    unmodelled,
+                    historical
                 )),
             )
         };
@@ -215,6 +230,7 @@ pub fn verify(
             satisfied_constraints: 0,
             unmodelled_constraints: unmodelled,
             unchecked_constraints: 0,
+            historical_constraints: historical,
             backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
             skip_reason,
@@ -239,6 +255,7 @@ pub fn verify(
             satisfied_constraints: 0,
             unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
             unchecked_constraints: formalizable.len(),
+            historical_constraints: 0,
             backend: backend_label(backend).to_string(),
             constraints_summary: vec![],
             skip_reason: Some(msg),
@@ -261,6 +278,7 @@ pub fn verify(
                 satisfied_constraints: 0,
                 unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
                 unchecked_constraints: formalizable.len(),
+                historical_constraints: 0,
                 backend: backend_label(backend).to_string(),
                 constraints_summary: vec![],
                 skip_reason: Some(
@@ -282,6 +300,7 @@ pub fn verify(
                 satisfied_constraints: 0,
                 unmodelled_constraints: constraints.iter().filter(|c| !c.modelled()).count(),
                 unchecked_constraints: formalizable.len(),
+                historical_constraints: 0,
                 backend: backend_label(backend).to_string(),
                 constraints_summary: vec![],
                 skip_reason: Some(format!("calibration canary could not run: {msg}")),
@@ -496,6 +515,7 @@ mod tests {
             satisfied_constraints: 5,
             unmodelled_constraints: 0,
             unchecked_constraints: 0,
+            historical_constraints: 0,
             backend: "test".into(),
             constraints_summary: vec![],
             skip_reason: None,

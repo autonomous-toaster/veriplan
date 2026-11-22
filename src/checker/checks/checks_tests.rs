@@ -34,6 +34,7 @@ mod tests {
             ],
             requirements: vec![Requirement {
                 id: "R1".into(),
+                grounded_in: None,
                 statement: "T1.1 SHALL complete BEFORE T1.2".into(),
                 strength: Rfc2119Strength::Must,
                 category: ConstraintCategory::SequentialOrder,
@@ -208,6 +209,7 @@ mod tests {
                 }],
                 requirements: vec![Requirement {
                     id: "R1".into(),
+                    grounded_in: None,
                     statement: statement.into(),
                     strength: Rfc2119Strength::Must,
                     category: ConstraintCategory::NonFormalizable,

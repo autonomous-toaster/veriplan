@@ -59,7 +59,8 @@ pub fn check_classifiability(
         let cat = if cat != ConstraintCategory::NonFormalizable
             && cat != ConstraintCategory::PatternUngrounded
         {
-            let refs = translator::extract_task_refs_bare(&req.statement, &task_ids);
+            let available = ids_for(req, &task_ids);
+            let refs = translator::extract_task_refs_bare(&req.statement, &available);
             if refs.is_empty() {
                 ConstraintCategory::PatternUngrounded
             } else {
@@ -161,4 +162,18 @@ pub fn check_classifiability(
     }
 
     (blockers, warnings, info)
+}
+
+/// The task ids a requirement may cite: this change's tasks, plus the tasks of the change that
+/// wrote the requirement's body when a provenance was resolved.
+fn ids_for(req: &crate::ir::Requirement, plan_ids: &[String]) -> Vec<String> {
+    let mut ids = plan_ids.to_vec();
+    if let Some(history) = &req.grounded_in {
+        for id in &history.tasks {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+    }
+    ids
 }

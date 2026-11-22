@@ -26,6 +26,7 @@ fn make_test_plan(tasks: Vec<(&str, &str)>, reqs: Vec<(&str, &str, &str)>) -> Pl
         .enumerate()
         .map(|(i, (id, statement, _cat))| Requirement {
             id: id.to_string(),
+            grounded_in: None,
             statement: statement.to_string(),
             strength: Rfc2119Strength::Must,
             category: ConstraintCategory::SequentialOrder,

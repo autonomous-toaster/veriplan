@@ -107,6 +107,65 @@ pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> (Convertibility
         }
     }
 
+    // Check 4c: a body grounded on history states an order between completed work. Report it rather
+    // than silently counting it, and name the owning change so a typo is distinguishable from a
+    // reference to history.
+    for req in &plan.requirements {
+        let Some(history) = &req.grounded_in else {
+            continue;
+        };
+        let cited = crate::util::task_ids_in(&req.statement);
+        let foreign: Vec<String> = cited
+            .iter()
+            .filter(|id| !plan.tasks.iter().any(|t| &t.id == *id))
+            .cloned()
+            .collect();
+        if foreign.is_empty() {
+            continue;
+        }
+        let live = cited.len() - foreign.len();
+        let location = format!("{}:{}", req.source.file, req.source.start_line);
+        let element = format!("Requirement '{}'", req.id);
+        let foreign_list = foreign
+            .iter()
+            .map(|id| format!("T{id}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if live == 0 {
+            info.push(checks::make_item(
+                "info",
+                "grounding_historical",
+                element,
+                location,
+                format!(
+                    "Requirement '{}' is grounded on change '{}': {} belong to completed work, so no formula describes this plan",
+                    crate::util::truncate(&req.statement, 60),
+                    history.change,
+                    foreign_list
+                ),
+                Some(
+                    "No action needed: a historical constraint is reported, never counted as satisfied. To model the constraint, cite a task defined in tasks.md".to_string(),
+                ),
+            ));
+        } else {
+            warnings.push(checks::make_item(
+                "warning",
+                "grounding_mixed",
+                element,
+                location,
+                format!(
+                    "Requirement '{}' mixes this change's tasks with history: {} belongs to change '{}'. The whole constraint is treated as historical, so the live half is not modelled",
+                    crate::util::truncate(&req.statement, 60),
+                    foreign_list,
+                    history.change
+                ),
+                Some(
+                    "Split the constraint: cite only tasks defined in tasks.md in the body to model, and leave the historical reference out".to_string(),
+                ),
+            ));
+        }
+    }
+
     // Check 5: Temporal classifiability
     let class_check = checks::check_classifiability(plan, is_openspec);
     blockers.extend(class_check.0);

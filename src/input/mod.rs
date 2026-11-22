@@ -262,10 +262,27 @@ pub fn discover_changes(project_root: &Path) -> Result<Vec<String>, String> {
 /// For OpenSpec directories, uses the existing `parse_plan()` which requires
 /// tasks.md and specs/. For all other sources, uses `parse_content()` which
 /// tries both parsers and merges results.
+/// Resolve which archived change grounds each requirement, from the archive beside the change.
+///
+/// Done here because this is the level that knows where the archive is. Grounding and translation
+/// read the result and stay filesystem-free.
+fn attach_provenance(plan: &mut PlanIR, change_dir: &Path) {
+    let Some(archive) = change_dir.parent().map(|p| p.join("archive")) else {
+        return;
+    };
+    let resolved = crate::provenance::resolve(plan, &archive);
+    for req in &mut plan.requirements {
+        req.grounded_in = resolved.get(&req.id).cloned();
+    }
+}
+
 pub fn load_plan(source: &InputSource) -> Result<PlanIR, String> {
     match source {
         InputSource::OpenSpec { change_dir, .. } => {
-            parser::parse_plan(change_dir).map_err(|e| format!("Parse error: {}", e))
+            let mut plan =
+                parser::parse_plan(change_dir).map_err(|e| format!("Parse error: {}", e))?;
+            attach_provenance(&mut plan, change_dir);
+            Ok(plan)
         }
         InputSource::Directory {
             path,

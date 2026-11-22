@@ -6,6 +6,7 @@ use crate::ir::{
 fn req(id: &str, statement: &str) -> Requirement {
     Requirement {
         id: id.to_string(),
+        grounded_in: None,
         statement: statement.to_string(),
         strength: Rfc2119Strength::Must,
         category: crate::ir::ConstraintCategory::SequentialOrder,

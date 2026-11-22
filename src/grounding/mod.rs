@@ -126,6 +126,28 @@ pub fn signature_from_planir(plan: &PlanIR) -> Signature {
     }
 }
 
+/// The base signature plus the task ids of the change that wrote a requirement's body.
+///
+/// Archived tasks contribute no aliases: their descriptions are not read, and inventing words from
+/// ids would be the incidental-alias problem again. A published body cites ids, which is enough.
+fn with_history_tasks(base: &Signature, tasks: &[String]) -> Signature {
+    let mut sig = base.clone();
+    for id in tasks {
+        let name = format!("T{id}");
+        if sig.constants.iter().any(|c| c.name == name) {
+            // A live task of the same id wins: it is work this change will do.
+            continue;
+        }
+        sig.constants.push(groundcontrol::types::ConstantDef {
+            name,
+            type_name: "task_id".into(),
+            aliases: vec![id.clone()],
+        });
+    }
+    sig.constants.sort_by(|a, b| a.name.cmp(&b.name));
+    sig
+}
+
 /// Build alias list from task description (mirrors groundcontrol's approach).
 fn build_aliases(id: &str, desc: &str) -> Vec<String> {
     let mut aliases = Vec::new();
@@ -257,7 +279,12 @@ pub fn check_grounding(
         return (blockers, warnings, info, outcomes);
     }
 
-    let sig = signature_from_planir(plan);
+    let base_sig = signature_from_planir(plan);
+    // Each requirement grounds against this change's tasks plus the tasks of the change that wrote
+    // its body. Per requirement rather than as one union, so an id from one requirement's history
+    // cannot bind a slot in another's.
+    let mut history_sigs: std::collections::BTreeMap<String, Signature> =
+        std::collections::BTreeMap::new();
     let grounder = RuleGrounder;
 
     for req in &plan.requirements {
@@ -282,7 +309,13 @@ pub fn check_grounding(
             continue;
         }
 
-        let result = grounder.ground(&req.statement, &sig);
+        let sig = match &req.grounded_in {
+            None => &base_sig,
+            Some(history) => history_sigs
+                .entry(history.change.clone())
+                .or_insert_with(|| with_history_tasks(&base_sig, &history.tasks)),
+        };
+        let result = grounder.ground(&req.statement, sig);
 
         // Multi-keyword pre-check: detect if multiple predicates matched
         let mut matched_predicates: Vec<&str> = result
@@ -396,11 +429,19 @@ pub fn check_grounding(
                 // named a task, the change simply does not own it.
                 if !result.absent_identifiers.is_empty() {
                     let missing = result.absent_identifiers.join(", ");
-                    let detail = format!(
-                        "Requirement '{}' cites {} — not a task of this change",
-                        truncate(&req.statement, 80),
-                        missing,
-                    );
+                    let detail = if req.grounded_in.is_none() {
+                        format!(
+                            "Requirement '{}' cites {} — not a task of this change, and no archived change records this requirement, so the ids belong to neither",
+                            truncate(&req.statement, 80),
+                            missing,
+                        )
+                    } else {
+                        format!(
+                            "Requirement '{}' cites {} — not a task of this change",
+                            truncate(&req.statement, 80),
+                            missing,
+                        )
+                    };
                     let fix =
                         "Cite a task this change defines, or add the task to tasks.md".to_string();
                     match strictness {
