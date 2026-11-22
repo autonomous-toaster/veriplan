@@ -113,10 +113,14 @@ pub(crate) fn run_spin_rs_check(
             .find(|u| u.property_name == label);
         // A claim may be undecided because of its own limitation or because the whole run
         // stopped. Name the reason either way: "unchecked" alone tells a caller nothing.
+        //
+        // A refuted claim is decided even when the engine also reports it as not fully
+        // explored - the traversal found a counterexample, and what it would have done with
+        // the rest of its budget cannot change that. Without this priority the per-claim
+        // summary says "unchecked" for claims the total counts as violated, so the report
+        // contradicts its own arithmetic.
         let undecided_entry = claim_entry.or(model_entry);
-        let is_undecided = undecided_entry.is_some();
-        let unchecked_reason =
-            undecided_entry.map(|u| format!("{}: {}", u.kind.as_str(), u.reason));
+        let status = claim_status(is_violated, undecided_entry);
 
         if is_violated {
             let spin_violation = check_result
@@ -143,7 +147,7 @@ pub(crate) fn run_spin_rs_check(
                 kind: crate::ir::kind_of(&category),
                 op: crate::ir::Op::ReplaceBody,
             });
-        } else if is_undecided {
+        } else if status.unchecked {
             unchecked += 1;
         } else {
             satisfied += 1;
@@ -153,10 +157,10 @@ pub(crate) fn run_spin_rs_check(
             requirement_id: c.requirement_id.clone(),
             statement: c.statement.clone(),
             category,
-            satisfied: !is_violated && !is_undecided,
-            unchecked: is_undecided,
+            satisfied: status.satisfied,
+            unchecked: status.unchecked,
             modelled: true,
-            unchecked_reason,
+            unchecked_reason: status.reason,
             historical: false,
             historical_owner: None,
             unmodelled_reason: None,
@@ -201,12 +205,74 @@ pub(crate) fn run_spin_rs_check(
     }
 }
 
+/// A modelled claim's verdict, derived once so the tally and the per-claim summary cannot
+/// disagree.
+///
+/// A refuted claim is decided even when the engine also reports it as not fully explored: the
+/// traversal found a counterexample, and the rest of its budget cannot take that back. Anything
+/// else that carries no verdict is unchecked, and says why.
+#[derive(Debug, PartialEq, Eq)]
+struct ClaimStatus {
+    satisfied: bool,
+    unchecked: bool,
+    reason: Option<String>,
+}
+
+fn claim_status(is_violated: bool, undecided: Option<&spin_rs::Unverified>) -> ClaimStatus {
+    if is_violated {
+        return ClaimStatus {
+            satisfied: false,
+            unchecked: false,
+            reason: None,
+        };
+    }
+    match undecided {
+        Some(u) => ClaimStatus {
+            satisfied: false,
+            unchecked: true,
+            reason: Some(format!("{}: {}", u.kind.as_str(), u.reason)),
+        },
+        None => ClaimStatus {
+            satisfied: true,
+            unchecked: false,
+            reason: None,
+        },
+    }
+}
+
 fn parse_property_index(name: &str) -> Option<usize> {
     name.trim().strip_prefix('p')?.parse().ok()
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// A claim the engine both refuted and reported as not fully explored is decided. The
+    /// summary must not call it unchecked while the tally counts it as violated: a report that
+    /// disagrees with its own arithmetic is worse than one that omits the detail.
+    #[test]
+    fn a_refuted_claim_is_decided_even_when_the_engine_also_reports_it_unexplored() {
+        let unexplored = spin_rs::Unverified {
+            property_name: "p3".into(),
+            kind: spin_rs::UnverifiedKind::StateBudget,
+            reason: "the share was used up".into(),
+        };
+        let status = claim_status(true, Some(&unexplored));
+        assert!(!status.satisfied);
+        assert!(!status.unchecked, "a refuted claim is not unchecked");
+        assert_eq!(status.reason, None);
+
+        let undecided = claim_status(false, Some(&unexplored));
+        assert!(!undecided.satisfied);
+        assert!(undecided.unchecked);
+        assert!(undecided.reason.unwrap().starts_with("state_budget: "));
+
+        let satisfied = claim_status(false, None);
+        assert!(satisfied.satisfied);
+        assert!(!satisfied.unchecked);
+    }
+
     /// The tags veriplan relays to its callers are the engine's own stable strings. The
     /// dependency has agreed to announce a change to them; this test is what makes that
     /// agreement enforceable rather than a promise.
