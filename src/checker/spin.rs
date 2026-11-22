@@ -69,6 +69,7 @@ pub(crate) fn run_spin_check(
                 satisfied: false,
                 unchecked: false,
                 modelled: false,
+                unchecked_reason: None,
                 unmodelled_reason: c.unmodelled_reason.clone(),
             });
             continue;
@@ -136,6 +137,8 @@ pub(crate) fn run_spin_check(
             satisfied: is_satisfied,
             unchecked: is_unchecked,
             modelled: true,
+            // The external backend reports a bare timeout, with no kind to relay.
+            unchecked_reason: is_unchecked.then(|| "state_budget: search timed out".to_string()),
             unmodelled_reason: None,
         });
     }

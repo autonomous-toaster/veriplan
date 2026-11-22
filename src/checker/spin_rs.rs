@@ -54,16 +54,10 @@ pub(crate) fn run_spin_rs_check(
     // The engine reports properties it could not decide. A budget that stopped the search,
     // an unsupported shape, or an unparsable formula lands there, and none of them licenses a
     // success claim: errors == 0 with a non-empty unverified list is not a clean run.
-    let model_unverified = check_result
+    let model_entry = check_result
         .unverified
         .iter()
-        .any(|u| u.property_name == "model");
-    let undecided: Vec<&str> = check_result
-        .unverified
-        .iter()
-        .map(|u| u.property_name.as_str())
-        .filter(|name| *name != "model")
-        .collect();
+        .find(|u| u.property_name == "model");
 
     let mut violated_indices: Vec<usize> = Vec::new();
     for v in &check_result.violations {
@@ -92,6 +86,7 @@ pub(crate) fn run_spin_rs_check(
                 satisfied: false,
                 unchecked: false,
                 modelled: false,
+                unchecked_reason: None,
                 unmodelled_reason: c.unmodelled_reason.clone(),
             });
             continue;
@@ -101,7 +96,16 @@ pub(crate) fn run_spin_rs_check(
         claim_index += 1;
         let label = format!("p{idx}");
         let is_violated = violated_indices.contains(&idx);
-        let is_undecided = model_unverified || undecided.contains(&label.as_str());
+        let claim_entry = check_result
+            .unverified
+            .iter()
+            .find(|u| u.property_name == label);
+        // A claim may be undecided because of its own limitation or because the whole run
+        // stopped. Name the reason either way: "unchecked" alone tells a caller nothing.
+        let undecided_entry = claim_entry.or(model_entry);
+        let is_undecided = undecided_entry.is_some();
+        let unchecked_reason =
+            undecided_entry.map(|u| format!("{}: {}", u.kind.as_str(), u.reason));
 
         if is_violated {
             let spin_violation = check_result
@@ -141,6 +145,7 @@ pub(crate) fn run_spin_rs_check(
             satisfied: !is_violated && !is_undecided,
             unchecked: is_undecided,
             modelled: true,
+            unchecked_reason,
             unmodelled_reason: None,
         });
     }
@@ -150,8 +155,15 @@ pub(crate) fn run_spin_rs_check(
         (
             None,
             Some(format!(
-                "no constraint was proved or refuted ({} unmodelled, {} unchecked, {} states explored)",
-                unmodelled, unchecked, check_result.states_explored
+                "no constraint was proved or refuted ({} unmodelled, {} unchecked{}, {} states explored)",
+                unmodelled,
+                unchecked,
+                check_result
+                    .unverified
+                    .first()
+                    .map(|u| format!(" — {}", u.kind.as_str()))
+                    .unwrap_or_default(),
+                check_result.states_explored
             )),
         )
     } else {
@@ -177,4 +189,36 @@ pub(crate) fn run_spin_rs_check(
 
 fn parse_property_index(name: &str) -> Option<usize> {
     name.trim().strip_prefix('p')?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    /// The tags veriplan relays to its callers are the engine's own stable strings. The
+    /// dependency has agreed to announce a change to them; this test is what makes that
+    /// agreement enforceable rather than a promise.
+    #[test]
+    fn the_relayed_kinds_are_the_agreed_tags() {
+        use spin_rs::UnverifiedKind::*;
+        let tags: Vec<&str> = [
+            UnsupportedProperty,
+            UnparsableFormula,
+            StateBudget,
+            DepthBudget,
+            EarlyStop,
+        ]
+        .iter()
+        .map(|k| k.as_str())
+        .collect();
+        assert_eq!(
+            tags,
+            [
+                "unsupported_property",
+                "unparsable_formula",
+                "state_budget",
+                "depth_budget",
+                "early_stop"
+            ],
+            "a tag veriplan relays to its callers changed; update the mapping and tell the engine"
+        );
+    }
 }

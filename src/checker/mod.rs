@@ -50,6 +50,10 @@ pub struct ConstraintSummary {
     pub unchecked: bool,
     /// False when the constraint carried no formula and was therefore never checked.
     pub modelled: bool,
+    /// Why no verdict was produced, when the engine reported a reason: one of
+    /// unsupported_property, unparsable_formula, state_budget, depth_budget, early_stop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unchecked_reason: Option<String>,
     /// Why the constraint was not modelled, when that is the case.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unmodelled_reason: Option<String>,
