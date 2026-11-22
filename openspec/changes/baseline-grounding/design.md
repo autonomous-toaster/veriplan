@@ -1,103 +1,98 @@
 ## Context
 
-See proposal.md. Grounding builds a `Signature` (groundcontrol) from the plan's tasks and grounds
-each requirement statement against it. A constant is a task id; the grounder matches ids and
-aliases, and reports `absent_identifiers` for constant-shaped tokens the signature does not declare.
+See proposal.md for the measurement that rules out the obvious fix. This document records what the
+archive can and cannot be, and why the smaller answer is the correct one.
 
-The archive is not consulted anywhere in that path, although `openspec/changes/archive/*/tasks.md`
-exists in every repository checked (22 of 23 changes in this repository, 1 of 1 in the downstream
-one that hit this). The tasks are complete, but their ids are the vocabulary the published specs were
-written in.
+Grounding builds a `Signature` from `plan.tasks` and grounds each requirement statement against it.
+The archive is not consulted, although `openspec/changes/archive/*/tasks.md` is retained everywhere
+checked (24 of 24 changes here, 1 of 1 downstream).
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- A requirement may cite a task id that an archived change defines, and ground.
-- The ownership of a cited id is available to the finding, so the message can name the change.
-- A constraint that only the archive grounds is visible as such in the report.
+- A citation of an archived task id produces a diagnosis that names the owning change.
+- An id that many changes define is reported as non-distinguishing rather than as a missing id.
+- The project root reaches the grounding check without being re-derived from relative paths.
 
 **Non-Goals:**
 
-- Model checking the archive. Archived changes are not checked as changes; this change only reads
-  their task lists as a vocabulary.
-- Parsing delta headers (`ADDED`, `MODIFIED`, `REMOVED`). That would let the tool distinguish a
-  requirement being modified from one being added, which is the cleaner rule for deciding whether an
-  archived citation is legitimate. It is a separate change, and this one does not need it to remove
-  the blocker.
-- Merged-model checking (published specs plus delta in one state space). Also separate, and blocked
-  on the corpus being free of unmodelled constraints first.
+- Grounding on archived tasks. See D1.
+- Changing the model, the signature, or which constraints are checkable.
+- Delta-header parsing, merged-model checking.
 
 ## Decisions
 
-### D1 — Archived constants are bindable, not merely known
+### D1 — The archive is provenance, not vocabulary
 
-The alternative is to keep the signature as it is and use the archive only to improve the message:
-"T2.6 is defined by change X". That resolves the misdiagnosis but not the blocker — the author still
-cannot write the sentence that describes their change, and the downstream repository still has to
-abandon the correction or invent a task.
+Three measurements decided this, and each alone would be enough:
 
-So archived tasks become real constants, and the slot binding works exactly as it does for a live
-task. The guard is D3.
+1. **Ambiguity.** 54 of 94 distinct ids are defined by more than one archived change, and `T1.1`
+   is defined by twenty-two. A flat namespace cannot represent that; a scoped one still cannot for
+   the nine capabilities that several changes touched.
+2. **Alias contamination.** A constant carries aliases taken from task descriptions. Twenty-two
+   descriptions attached to `T1.1` would let an incidental word ground a requirement to an arbitrary
+   piece of history — the failure that was removed from `build_aliases` precisely because it silently
+   outranked the ids an author wrote.
+3. **The model cannot hold them.** `generate_promela` declares atoms only for the plan's tasks.
+   A claim citing an archived id yields `undeclared variable`, `spin -a` fails, and the run reports
+   "Model check error". Binding would convert an accurate diagnosis into an opaque failure.
 
-**Cost:** a new requirement could ground on an archived task and pass while referring to work nobody
-will do in this change. That is a real risk and it is why D3 exists rather than being an optional
-nicety.
+The alternative I considered and rejected: declare archived tasks as **completed constants**
+(`done_t2_6 = 1`, never active), so citations are checkable. It works mechanically and is wrong in
+substance — an ordering against a completed task is tautologically satisfied, so the constraint would
+enter the satisfied count as a proof. Tautologies counted as proofs are the defect this tool was just
+cleaned of.
 
-### D2 — Every constant carries its owner, and the active change's constants say so
+### D2 — Scope the scan to the requirement's capability
 
-`ConstantDef` is groundcontrol's type and is not ours to extend, so ownership lives beside the
-signature: a map from constant name to owning change. Constants from the active change map to the
-active change, so the report can distinguish "grounded here" from "grounded in history" without
-consulting the archive again.
+For a requirement in capability `C`, only archived changes whose `specs/C/` exists are scanned. That
+is where the ids a `C` requirement cites can come from, and it keeps the scan proportional to a
+capability's history rather than to the repository's.
 
-### D3 — A constraint grounded only on archived tasks is reported
+**Cost:** nine capabilities here have more than one such change, so an id may have several owners.
+That is not resolved by picking one; it is reported (D3).
 
-If none of a constraint's arguments come from the active change, the ordering it states is between
-pieces of work that are already complete. The constraint is still modelled and checked — the model
-represents the plan's order, and the archived task's completion flag is not in it, so the formula
-will be evaluated against tasks that this change does define. The report names the situation so a
-reader can tell a live ordering from a historical one.
+### D3 — Report the owners, and report an id that does not distinguish
 
-**Why report rather than block:** blocking would restore the original blocker with a different
-message. Reporting gives the author the fact and leaves the decision.
+The finding names the owning changes, and when there are many it says how many. `T1.1 is defined by
+22 archived changes` is the useful message — the author's citation does not identify a task, which is
+different from a task being absent.
+
+**Why not resolve ambiguities by recency?** A rule that picks the most recent owner would be right
+most of the time and silently wrong the rest, and the caller cannot tell which case it is in. The
+tool's value here is the fact, not a guess.
 
 ### D4 — The root is threaded, not rediscovered
 
-The grounding check has no filesystem context today: it receives a `PlanIR` and a strictness. The
-project root is already resolved in `cmd_check` for input resolution, so it is passed down rather
-than re-derived from paths inside the plan, which are relative to the change directory and differ
-between OpenSpec, directory and single-file modes.
+The grounding check receives a `PlanIR` and a strictness, with no filesystem context. The root is
+already resolved in `cmd_check` for input resolution, so it is passed down rather than re-derived
+from `req.source.file`, which is relative to the change directory and differs between OpenSpec,
+directory and single-file modes.
 
-The threading touches five signatures. That is the cost of not having a global, and it is the reason
-this is a change rather than a patch.
+Five signatures change. That is the cost of no global, and the reason this is a change rather than a
+patch.
 
 ## Risks
 
-- **An archived constant shadows a live one.** Task ids are `N.M` and repeat across changes — that is
-  the point. If the active change and an archived change both define `T2.6`, the active one must win,
-  or a live reference would bind to history. The active change's constants SHALL take precedence, and
-  the merge order is the guarantee.
-- **The archive grows without bound.** A repository with hundreds of archived changes contributes
-  hundreds of constants, all of them candidates for alias matching. The mitigation is that only ids
-  and whole descriptions become aliases, so the match surface grows linearly in archived tasks, not
-  combinatorially.
-- **A stale archive.** A task id that an archived change defines but that was later renamed stays in
-  the vocabulary. That is correct — the published spec still cites it — and the ownership note names
-  the change whose task list is being relied on.
+- **A stale archive names a change that no longer exists on a branch.** The finding is advisory
+  guidance, so a wrong owner costs a wrong hint, not a wrong verdict.
+- **A capability is renamed, so its history is not found.** The scan finds nothing and the diagnosis
+  falls back to the current message, which is the status quo rather than a regression.
+- **The scan is filesystem work on every check.** It is bounded by the number of archived changes
+  that touched one capability, and it reads only the `tasks.md` id lines.
 
 ## Migration Plan
 
-1. Resolve and pass the root (task 1.x). No behaviour change yet; the signature is unchanged.
-2. Add the archived constants and the ownership map (task 1.2, 1.3). The corpus must not move except
-   where a citation was previously ungroundable.
-3. Extend the diagnosis and the report (task 2.x).
-4. Re-run the corpus and record the change (task 3.3).
+1. Thread the root (task 1.3). No behaviour change.
+2. Add the scan and the owner map (tasks 1.1, 1.2). The corpus must not move: nothing grounds
+   differently, only the message changes.
+3. Extend the diagnosis (tasks 2.1, 2.2), then re-run the corpus and record it (task 3.3).
 
 ## Self-check
 
 - Every requirement here is a forward ordering over tasks in this change's own `tasks.md`.
-- The change does not require reading the archive to write its own specs, so its gate is meaningful
-  before and after.
-- D1's risk is answered by D3, and the precedence rule in Risks is the one thing an implementer
-  could get subtly wrong, so it is named as such rather than left to the merge.
+- The change does not depend on reading the archive to write its own specs, so its gate is
+  meaningful before and after.
+- The change removes no behaviour: grounding still never succeeds on a task this change does not
+  define, so a plan that was checkable stays checkable and its verdicts are unchanged.

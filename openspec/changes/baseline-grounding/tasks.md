@@ -1,14 +1,13 @@
-## 1. Signature
+## 1. Provenance
 
-- [ ] 1.1 Read the archived task lists from the project root
-- [ ] 1.2 Build the signature from the active tasks and the archived lists
-- [ ] 1.3 Record the owning change on each archived constant
+- [ ] 1.1 Thread the project root into the grounding check
+- [ ] 1.2 Scan the archived task lists of the requirement capability
+- [ ] 1.3 Build an id-to-owners map from those task lists
 
 ## 2. Diagnosis
 
-- [ ] 2.1 Report a cited id owned by an archived change
-- [ ] 2.2 Name the owning change in the finding
-- [ ] 2.3 Report a requirement grounded only on archived tasks
+- [ ] 2.1 Report a cited id that only archived changes define
+- [ ] 2.2 Report how many archived changes define a cited id
 
 ## 3. Validation
 
