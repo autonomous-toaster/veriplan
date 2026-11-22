@@ -2,113 +2,164 @@
 
 ### Requirement: Build Signature from PlanIR
 
-T1.1 SHALL thread the project root into the grounding check BEFORE T1.2 SHALL scan the archived task lists.
+T1.1 SHALL resolve the provenance of every requirement BEFORE T2.1 SHALL ground a body against the active tasks and the provenance tasks.
 
-The signature SHALL be built from the active change's tasks alone. A task id that this change does
-not define SHALL NOT ground, whatever the archive contains.
+A requirement's provenance SHALL be the latest archived change whose delta contains the requirement and
+whose task list defines every id the requirement body cites. The signature SHALL carry the active
+change's tasks and, for each requirement, the tasks of that requirement's provenance change.
 
 #### Scenario: Signature includes all tasks
 
 - **GIVEN** a PlanIR with tasks "1.1" (description "Create project"), "1.2" (description "Add deps")
-- **WHEN** T1.1 provides filesystem context to the grounding check
-- **THEN** the Signature SHALL contain constants "T1.1" and "T1.2"
+- **WHEN** T2.1 builds the signature
+- **THEN** the signature SHALL contain constants "T1.1" and "T1.2"
 - **AND** "T1.1" SHALL have aliases including "create project"
 
 #### Scenario: Signature includes predicate definitions
 
 - **GIVEN** a PlanIR with any tasks
-- **WHEN** the Signature is built
-- **THEN** the Signature SHALL contain predicates: BEFORE, AFTER, CONCURRENTLY, IF_THEN, ALWAYS, AT_MOST_ONE
+- **WHEN** T2.1 builds the signature
+- **THEN** the signature SHALL contain predicates: BEFORE, AFTER, CONCURRENTLY, IF_THEN, ALWAYS, AT_MOST_ONE
 - **AND** each predicate SHALL have the correct argument slots
 
 #### Scenario: Empty plan produces empty signature
 
-- **GIVEN** a PlanIR with zero tasks
-- **WHEN** the Signature is built
-- **THEN** the Signature SHALL have zero constants
-- **AND** the Signature SHALL still include all 6 predicate definitions
+- **GIVEN** a PlanIR with zero tasks and no archived changes
+- **WHEN** T2.1 builds the signature
+- **THEN** the signature SHALL have zero constants
+- **AND** the signature SHALL still include all 6 predicate definitions
 
-#### Scenario: An archived task is not a constant
+#### Scenario: A published body grounds against its provenance
 
-- **GIVEN** a requirement citing a task id that only an archived change defines
-- **WHEN** T1.2 scans the archived task lists
-- **THEN** the Signature SHALL NOT contain a constant for that id
-- **AND** the requirement SHALL NOT ground on it
+- **GIVEN** a delta requirement citing two ids that only the archived change "model-scale" defines
+- **WHEN** T1.1 resolves the provenance of the requirement
+- **THEN** the provenance SHALL be "model-scale"
+- **AND** T2.1 SHALL build constants for both ids
+
+#### Scenario: The latest defining change owns the body
+
+- **GIVEN** a requirement contained in two archived deltas, both defining the cited ids
+- **WHEN** T1.1 resolves the provenance
+- **THEN** the provenance SHALL be the later change in archive order
 
 ## ADDED Requirements
 
-### Requirement: Report a cited id owned by an archived change
+### Requirement: Record the resolved change on the requirement
 
-T1.2 SHALL scan the archived task lists BEFORE T1.3 SHALL build an id-to-owners map.
+T1.1 SHALL resolve the provenance of every requirement BEFORE T1.2 SHALL record the resolved change on the requirement.
 
-A cited id that this change does not define and that archived changes do define SHALL be reported
-with the owning changes named. Only archived changes holding a spec for the requirement's capability
-SHALL be scanned.
+A requirement whose provenance resolves SHALL carry the owning change name. A requirement whose
+provenance does not resolve SHALL carry no owner, and the report SHALL state that provenance is
+missing rather than that a cited id is absent.
 
-#### Scenario: A historical citation names its owners
+#### Scenario: A resolved requirement carries its owner
 
-- **GIVEN** a requirement in capability C citing an id that archived changes A and B define
-- **WHEN** T1.3 builds the map
-- **THEN** the map SHALL associate the id with the changes A and B
-- **AND** the finding SHALL name both
+- **GIVEN** a requirement whose body cites ids defined by one archived change
+- **WHEN** T1.2 records the provenance
+- **THEN** the requirement SHALL carry that change name
 
-#### Scenario: A capability nobody archived yields no owners
+#### Scenario: An unresolved requirement reports missing provenance
 
-- **GIVEN** a requirement in a capability no archived change has touched
-- **WHEN** T1.3 builds the map
-- **THEN** the map SHALL be empty
-- **AND** the finding SHALL be the existing absent-task report
+- **GIVEN** a requirement whose name no archived delta contains
+- **WHEN** T3.1 reports the provenance outcome
+- **THEN** the report SHALL state that no archived change records the requirement
+- **AND** the report SHALL NOT state that a cited id is absent
 
-### Requirement: The provenance map precedes the diagnosis
+### Requirement: A constraint grounded only on history is historical
 
-T1.3 SHALL build an id-to-owners map BEFORE T2.1 SHALL report a cited id that only archives define.
+T2.1 SHALL ground a body against the active tasks and the provenance tasks BEFORE T2.2 SHALL classify a constraint with no live argument as historical.
 
-#### Scenario: No diagnosis without provenance
+A constraint whose every argument belongs to the provenance change SHALL be classified historical. A
+historical constraint SHALL carry no formula and SHALL be reported with the owning change.
 
-- **GIVEN** a requirement citing an id that the active change does not define
-- **WHEN** T2.1 reports the finding
-- **THEN** the map SHALL already hold the owners of that id
-- **AND** the finding SHALL use them rather than reporting an absent id
+#### Scenario: A historical constraint carries no formula
 
-### Requirement: Report an id that many changes define
+- **GIVEN** a constraint whose two arguments are both defined by the provenance change
+- **WHEN** T2.2 classifies the constraint
+- **THEN** the constraint SHALL carry no formula
+- **AND** the report SHALL name the owning change
 
-T2.1 SHALL report a cited id that only archives define BEFORE T2.2 SHALL report how many archived changes define it.
+#### Scenario: A live constraint stays modelled
 
-An id that more than one archived change defines SHALL be reported with the count as well as the
-names, because an id twenty-two changes share does not identify a task.
+- **GIVEN** a constraint whose two arguments belong to the active change
+- **WHEN** T2.2 classifies the constraint
+- **THEN** the constraint SHALL carry a formula
+- **AND** the report SHALL NOT classify the constraint as historical
 
-#### Scenario: A shared id is reported with its count
+### Requirement: A mixed constraint is reported and not failed
 
-- **GIVEN** a requirement citing an id that twenty-two archived changes define
-- **WHEN** T2.2 reports the finding
-- **THEN** the finding SHALL state the number of archived changes that define the id
-- **AND** the finding SHALL NOT ask for a task id reference
+T2.2 SHALL classify a constraint with no live argument as historical BEFORE T2.3 SHALL report a constraint that mixes a live task with history.
 
-#### Scenario: A uniquely defined id is reported without a count
+A constraint holding at least one argument from the active change and at least one from the provenance
+change SHALL be classified historical, SHALL name the foreign ids, and SHALL NOT fail the plan.
 
-- **GIVEN** a requirement citing an id that exactly one archived change defines
-- **WHEN** T2.2 reports the finding
-- **THEN** the finding SHALL name that change
-- **AND** the finding SHALL NOT state a count
+#### Scenario: A mixed constraint names the foreign ids
+
+- **GIVEN** a constraint citing one task of the active change and one task of the provenance change
+- **WHEN** T2.3 reports the constraint
+- **THEN** the report SHALL name the task that belongs to the provenance change
+- **AND** the plan SHALL NOT be reported invalid for the mixing
+
+#### Scenario: A split constraint becomes live
+
+- **GIVEN** the same requirement reworded to cite only tasks of the active change
+- **WHEN** T2.3 reports the constraint
+- **THEN** the constraint SHALL NOT be classified historical
+- **AND** the constraint SHALL carry a formula
+
+### Requirement: A historical constraint is counted separately
+
+T2.3 SHALL report a constraint that mixes a live task with history BEFORE T2.4 SHALL count a historical constraint separately.
+
+The report SHALL carry a historical count, and the total SHALL equal the sum of the satisfied,
+violated, unmodelled, unchecked and historical counts. A historical constraint SHALL NOT be counted as
+satisfied.
+
+#### Scenario: The historical count is visible
+
+- **GIVEN** a plan holding one historical constraint and one live constraint
+- **WHEN** T2.4 counts the results
+- **THEN** the report SHALL state one historical constraint
+- **AND** the satisfied count SHALL state one
+
+#### Scenario: Historical alone yields no verdict
+
+- **GIVEN** a plan whose only constraint is historical
+- **WHEN** T2.4 reports the counts
+- **THEN** the satisfied count SHALL be zero
+- **AND** the verdict SHALL NOT be a pass
+
+### Requirement: The report names the owning change
+
+T3.1 SHALL report a requirement with no recorded provenance BEFORE T3.2 SHALL name the owning change in the report.
+
+Every finding about a historical citation SHALL name the archived change that owns it, so the author
+can tell a typo from a reference to completed work.
+
+#### Scenario: The owning change is named
+
+- **GIVEN** a historical citation whose provenance change is "model-scale"
+- **WHEN** T3.2 composes the finding
+- **THEN** the finding SHALL name "model-scale"
 
 ### Requirement: Both engines agree before the change lands
 
-T3.1 SHALL run the strict validation BEFORE T3.2 SHALL run the plan check against both engines.
+T4.1 SHALL run the strict validation BEFORE T4.2 SHALL run the plan check against both engines.
 
 #### Scenario: The gates agree
 
-- **GIVEN** a change whose constraints are all modelled
-- **WHEN** T3.1 runs the strict validation
+- **GIVEN** a change whose constraints are all live
+- **WHEN** T4.1 runs the strict validation
 - **THEN** the validation SHALL report no error
-- **AND** T3.2 SHALL report the same verdict from each engine
+- **AND** T4.2 SHALL report the same verdict from each engine
 
 ### Requirement: The corpus is re-run before the change lands
 
-T3.2 SHALL run the plan check against both engines BEFORE T3.3 SHALL re-run the corpus and record the change.
+T4.2 SHALL run the plan check against both engines BEFORE T4.3 SHALL re-run the corpus and record the change.
 
-#### Scenario: The corpus is unchanged
+#### Scenario: The corpus records what moved
 
-- **GIVEN** the downstream corpus and this repository's own plan
-- **WHEN** T3.3 re-runs the plan check
-- **THEN** any change in grounding findings SHALL be recorded
-- **AND** no constraint SHALL change its verdict
+- **GIVEN** the downstream corpus and this repository's own plans
+- **WHEN** T4.3 re-runs the plan check
+- **THEN** every plan whose verdict changed SHALL be recorded
+- **AND** every constraint newly reported as historical SHALL be recorded

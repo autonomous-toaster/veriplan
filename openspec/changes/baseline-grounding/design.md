@@ -1,98 +1,129 @@
 ## Context
 
-See proposal.md for the measurement that rules out the obvious fix. This document records what the
-archive can and cannot be, and why the smaller answer is the correct one.
+See proposal.md for the measurements. This document records each decision that shapes the change, the
+alternative that was rejected, and the reason — because most of these were decided by measurement
+rather than preference, and the next reader deserves the number rather than the conclusion.
 
-Grounding builds a `Signature` from `plan.tasks` and grounds each requirement statement against it.
-The archive is not consulted, although `openspec/changes/archive/*/tasks.md` is retained everywhere
-checked (24 of 24 changes here, 1 of 1 downstream).
+`check_convertibility` grounds each requirement against a `Signature` built from `plan.tasks`.
+Translation happens later, in `verify`, and needs to know that a constraint refers to history so it
+does not emit a formula for it.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- A citation of an archived task id produces a diagnosis that names the owning change.
-- An id that many changes define is reported as non-distinguishing rather than as a missing id.
-- The project root reaches the grounding check without being re-derived from relative paths.
+- A requirement that modifies a published requirement is groundable, so a delta can carry it.
+- A constraint about completed work is reported as historical and is never a proof.
+- Every fact the report states is one the archive can support, or is stated as missing.
 
 **Non-Goals:**
 
-- Grounding on archived tasks. See D1.
-- Changing the model, the signature, or which constraints are checkable.
-- Delta-header parsing, merged-model checking.
+- Re-checking the published corpus.
+- Modelling history.
+- Telling an added requirement from a modified one.
 
 ## Decisions
 
-### D1 — The archive is provenance, not vocabulary
+### D1 — The key is the requirement, not the task id
 
-Three measurements decided this, and each alone would be enough:
+Per id, the archive is ambiguous: 54 of 94 ids are defined by more than one change and `T1.1` by
+twenty-two. Per requirement, resolution is total: 111 of 111 published requirements resolve, 100
+uniquely.
 
-1. **Ambiguity.** 54 of 94 distinct ids are defined by more than one archived change, and `T1.1`
-   is defined by twenty-two. A flat namespace cannot represent that; a scoped one still cannot for
-   the nine capabilities that several changes touched.
-2. **Alias contamination.** A constant carries aliases taken from task descriptions. Twenty-two
-   descriptions attached to `T1.1` would let an incidental word ground a requirement to an arbitrary
-   piece of history — the failure that was removed from `build_aliases` precisely because it silently
-   outranked the ids an author wrote.
-3. **The model cannot hold them.** `generate_promela` declares atoms only for the plan's tasks.
-   A claim citing an archived id yields `undeclared variable`, `spin -a` fails, and the run reports
-   "Model check error". Binding would convert an accurate diagnosis into an opaque failure.
+This is the hinge. Every other decision follows from it, and the alternative — a scoped id namespace
+per capability — still leaves the nine capabilities that several changes touched ambiguous.
 
-The alternative I considered and rejected: declare archived tasks as **completed constants**
-(`done_t2_6 = 1`, never active), so citations are checkable. It works mechanically and is wrong in
-substance — an ordering against a completed task is tautologically satisfied, so the constraint would
-enter the satisfied count as a proof. Tautologies counted as proofs are the defect this tool was just
-cleaned of.
+### D2 — Provenance is the latest archived change that contains the requirement and defines its ids
 
-### D2 — Scope the scan to the requirement's capability
+Both conditions are needed:
 
-For a requirement in capability `C`, only archived changes whose `specs/C/` exists are scanned. That
-is where the ids a `C` requirement cites can come from, and it keeps the scan proportional to a
-capability's history rather than to the repository's.
+- *contains the requirement*, so a change that never touched it cannot own it;
+- *defines every id the body cites*, so a change that carried the requirement forward without rewriting
+  the body does not steal ownership from the change that wrote the body.
 
-**Cost:** nine capabilities here have more than one such change, so an id may have several owners.
-That is not resolved by picking one; it is reported (D3).
+Among the 11 requirements with several candidates, the latest by archive order always wins, and it is
+always the change that wrote the published body. Archive order is the `YYYY-MM-DD-` prefix, so the rule
+depends on that prefix; if the archive ever stops being date-prefixed, resolution SHALL fail loudly
+rather than silently take the first entry.
 
-### D3 — Report the owners, and report an id that does not distinguish
+### D3 — Historical constraints carry no formula
 
-The finding names the owning changes, and when there are many it says how many. `T1.1 is defined by
-22 archived changes` is the useful message — the author's citation does not identify a task, which is
-different from a task being absent.
+A constraint whose arguments are all from the provenance change is about completed work. Encoding it
+against the plan would produce a formula whose atoms are not this plan's tasks, and encoding the
+archived tasks as completed constants would make the ordering tautologically true.
 
-**Why not resolve ambiguities by recency?** A rule that picks the most recent owner would be right
-most of the time and silently wrong the rest, and the caller cannot tell which case it is in. The
-tool's value here is the fact, not a guess.
+So the constraint carries no formula, is reported with the owning change, and is counted separately.
+The precedent is `Unmodelled`, which the code already treats this way, with its own count and its own
+reason.
 
-### D4 — The root is threaded, not rediscovered
+### D4 — Historical is never blocking
 
-The grounding check receives a `PlanIR` and a strictness, with no filesystem context. The root is
-already resolved in `cmd_check` for input resolution, so it is passed down rather than re-derived
-from `req.source.file`, which is relative to the change directory and differs between OpenSpec,
-directory and single-file modes.
+Referring to completed work is not a fault in the plan; it is a fact about the requirement. Blocking
+would restore the exact blocker this change removes, wearing a better message.
 
-Five signatures change. That is the cost of no global, and the reason this is a change rather than a
-patch.
+The protection against a plan passing on nothing is already in place: a run with no satisfied and no
+violated constraint reports `valid: null`. A plan whose only constraint is historical therefore
+reports no verdict, not a pass.
+
+### D5 — A mixed constraint is reported, not failed
+
+A constraint citing one live task and one historical one cannot be half-modelled: the historical atom
+has no declaration. Classifying the whole constraint historical loses the half that could have been
+checked, so the report names the foreign ids and the author can split the constraint.
+
+**Rejected: failing the plan with "split this".** It is the harsher and arguably more honest option,
+and it loses the change's purpose — the plan being carried is a reword, and a reword should not have
+to split a published sentence to be accepted.
+
+### D6 — Provenance is resolved once, above the grounding check
+
+`check_grounding` receives a `PlanIR` and a strictness, with no filesystem context. Threading a root
+into it would push I/O into a function that is currently pure and unit-testable.
+
+Instead `cmd_check` resolves provenance once and passes a value down through the convertibility check.
+Grounding stays pure; the archive is read in one place, at one level.
+
+### D7 — Provenance is recorded on the requirement
+
+`Requirement` already carries state that convertibility rewrites (`category` is set to
+`PatternUngrounded` there), so `grounded_in: Option<String>` follows an existing precedent rather
+than introducing a side channel that translation would have to look up.
+
+### D8 — The total accounts for the fourth count
+
+`total_constraints = satisfied + violated + unmodelled + unchecked` is stated in the published
+`model-check` spec and holds today. Adding a fifth category without changing the invariant would make
+the invariant false, so it SHALL become a sum over five.
+
+### D9 — No caching
+
+A full scan of 58 delta specs and 24 task lists is 6.5 ms. An index file would be a second source of
+truth to keep in step with the archive, for a cost that does not need paying.
 
 ## Risks
 
-- **A stale archive names a change that no longer exists on a branch.** The finding is advisory
-  guidance, so a wrong owner costs a wrong hint, not a wrong verdict.
-- **A capability is renamed, so its history is not found.** The scan finds nothing and the diagnosis
-  falls back to the current message, which is the status quo rather than a regression.
-- **The scan is filesystem work on every check.** It is bounded by the number of archived changes
-  that touched one capability, and it reads only the `tasks.md` id lines.
+- **The archive is not date-prefixed.** D2's tie-break breaks. Mitigated by failing loudly.
+- **A requirement is renamed.** Resolution finds nothing and reports "no recorded provenance", which is
+  the honest statement. Measured at 0 of 111 today.
+- **A requirement exists in a delta whose tasks do not define its body's ids**, because the body was
+  edited by hand between changes. Then no candidate matches and the requirement reports no provenance.
+- **The published corpus is not re-checked by this change**, so a requirement whose provenance is
+  resolvable but wrong would not be caught here. It is caught the first time a delta touches that
+  requirement.
+- **D5 loses a check.** Accepted explicitly: a mixed constraint is reported and not modelled, so the
+  live half goes unchecked until the author splits it.
 
 ## Migration Plan
 
-1. Thread the root (task 1.3). No behaviour change.
-2. Add the scan and the owner map (tasks 1.1, 1.2). The corpus must not move: nothing grounds
-   differently, only the message changes.
-3. Extend the diagnosis (tasks 2.1, 2.2), then re-run the corpus and record it (task 3.3).
+1. Resolve provenance and record it (phase 1). No behaviour change: nothing reads it yet.
+2. Ground against the provenance tasks and classify (phase 2). Plans with historical citations start
+   passing convertibility where they failed.
+3. Report the new facts (phase 3), then re-run the corpus and record what moved (phase 4).
 
 ## Self-check
 
 - Every requirement here is a forward ordering over tasks in this change's own `tasks.md`.
-- The change does not depend on reading the archive to write its own specs, so its gate is
-  meaningful before and after.
-- The change removes no behaviour: grounding still never succeeds on a task this change does not
-  define, so a plan that was checkable stays checkable and its verdicts are unchanged.
+- The change does not need provenance to write its own specs, so its gate is meaningful before the fix
+  as well as after.
+- The change makes a class of plans checkable that was not: the corpus re-run in phase 4 is what proves
+  it rather than asserts it.
