@@ -257,6 +257,8 @@ mod tests {
             property_name: "p3".into(),
             kind: spin_rs::UnverifiedKind::StateBudget,
             reason: "the share was used up".into(),
+            states_used: 3_225,
+            budget: Some(3_225),
         };
         let status = claim_status(true, Some(&unexplored));
         assert!(!status.satisfied);
