@@ -19,6 +19,12 @@ const MODELS: &[(&str, Option<usize>)] = &[
     ("never.pml", Some(1)),
     ("unless.pml", Some(0)),
     ("unless_refutes.pml", Some(1)),
+    // The handler is armed by the first statement of the body, so an encoding that checks the escape
+    // only at the loop top refutes a claim pan accepts. The *_toptop file is that wrong encoding,
+    // written out, and pan refutes it - which is what makes the pair discriminating rather than two
+    // more models that happen to agree.
+    ("unless_midbody.pml", Some(0)),
+    ("unless_midbody_toptop.pml", Some(1)),
     ("rendezvous.pml", Some(0)),
     ("rendezvous_holds.pml", Some(0)),
     ("rendezvous_refutes.pml", Some(1)),
