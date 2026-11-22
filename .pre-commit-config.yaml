@@ -1,11 +1,16 @@
 repos:
-  - repo: https://github.com/autonomous-toaster/veriplan
-    rev: v0.1.0
-    hooks:
-      - id: veriplan-system
-
   - repo: local
     hooks:
+      # Checked with the build in this tree, not with a released binary: the published hook
+      # pinned v0.1.0, a release that predates the specs it is checking, so the gate could
+      # not see the tool it ships. The cost is one rebuild before the check.
+      - id: veriplan-check
+        name: veriplan check
+        entry: cargo run --quiet -- check
+        language: system
+        pass_filenames: false
+        types: [markdown]
+
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt --all -- --check
