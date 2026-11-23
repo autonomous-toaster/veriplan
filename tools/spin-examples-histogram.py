@@ -18,7 +18,7 @@ harness (tests/construct_verdicts.rs) does that through spin_rs::verify, and any
 fourth argument overrides the per-model timeout in seconds, default 120; a model that runs past it is
 counted as a timeout rather than stopping the run.
 """
-import collections, os, re, subprocess, sys
+import collections, os, re, subprocess, sys, time
 
 TOKEN = re.compile(r'(\d+) character\(s\) left unconsumed')
 
@@ -77,6 +77,7 @@ def main():
     binary = sys.argv[3] if len(sys.argv) > 3 else 'target/debug/srs-diff'
     timeout = int(sys.argv[4]) if len(sys.argv) > 4 else 120
     models = [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if f.endswith('.pml')]
+    started = time.monotonic()
     totals = collections.Counter()
     parse = collections.Counter()
     examples = {}
@@ -102,9 +103,10 @@ def main():
                 key = 'proctype (parameterised)' if body and body.group(1).strip() else 'proctype (plain)'
             parse[key] += 1
             examples.setdefault(key, os.path.basename(path))
-    print('models:', len(models))
+    print('models:', len(models), '| timeout', timeout, 's')
     for k, n in totals.most_common():
         print('  %3d  %s' % (n, k))
+    print('elapsed: %.1f s' % (time.monotonic() - started))
     if parse:
         print('\nparse-error buckets, by the source line at the offset:')
         for k, n in parse.most_common():
