@@ -59,6 +59,11 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // A process looping through a label whose two assignments a second process can observe between. This
     // pair did NOT reproduce the reduction unsoundness found in ex_3c - both members decide 1 at v0.5.23 and
     // at v0.5.24, though the explored-state counts differ - so it is a coarse guard on the verdict only.
+    // Parameter binding: a run() argument must reach the callee, for a value and for a channel. All three
+    // are refused today, so they assert the day parameterised proctypes and run land together.
+    ("param_bound.pml", Some(0)),
+    ("param_bound_control.pml", Some(1)),
+    ("param_chan.pml", Some(0)),
     ("goto_loop_partial.pml", Some(1)),
     ("goto_loop_control.pml", Some(1)),
     ("mtype_numbering.pml", Some(0)),
