@@ -95,6 +95,17 @@ Each requirement is checked against the plan's task signature:
 This catches requirements that talk about tasks that don't exist,
 or use vague language that can't be formally checked.
 
+**Provenance: a published body cites its own change's tasks.** A delta that rewords a published requirement
+carries that requirement's body, whose ids belong to the change that wrote it. Before grounding, veriplan
+resolves each requirement's provenance from `openspec/changes/archive/`: the latest archived change that
+contains the requirement and defines every id its body cites. A body then grounds against this change's tasks
+*plus* that change's tasks, per requirement — so one requirement's history cannot bind another's slots.
+
+A constraint whose arguments all come from history is reported as **historical**, carries no formula, and is
+counted separately rather than as satisfied; a constraint mixing a live task with history is reported with the
+foreign ids and does not fail the plan. The published invariant is
+`total = satisfied + violated + unmodelled + unchecked + historical`.
+
 ### 3.5 Prose-guidance and ambiguity detection
 
 A spec that is *formally* valid can still be *ambiguous* — and an

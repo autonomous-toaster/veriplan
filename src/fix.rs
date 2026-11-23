@@ -129,12 +129,78 @@ fn find_file_by_name(dir: &Path, name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-/// Apply a byte-span replacement to a source file (e.g. prose SlopWord).
-///
-/// The finding's `start`/`end` are relative to the requirement body snippet,
-/// which does not map directly to file offsets. Instead, we locate the
-/// offending `snippet` text within the requirement's source span in the file
-/// and replace it with the deterministic `replacement`.
+/// Replace a task id in place and describe the edit.
+fn rewrite_task_id(
+    path: &Path,
+    task: &crate::ir::Task,
+    f: &Finding,
+    new_id: &str,
+) -> Option<AppliedEdit> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let new_content = splice_id(
+        &content,
+        task.source.start_byte,
+        task.source.end_byte,
+        new_id,
+    )?;
+    std::fs::write(path, new_content).ok()?;
+    Some(applied(
+        f,
+        format!("renamed task {} to {}", task.id, new_id),
+    ))
+}
+
+/// Replace `start..end` of a file with `replacement` and describe the edit.
+#[allow(clippy::too_many_arguments)]
+fn write_replacement(
+    path: &Path,
+    content: &str,
+    start: usize,
+    end: usize,
+    replacement: &str,
+    f: &Finding,
+    target: &str,
+) -> Option<AppliedEdit> {
+    let mut bytes = content.as_bytes().to_vec();
+    bytes.splice(start..end, replacement.bytes());
+    std::fs::write(path, String::from_utf8(bytes).ok()?).ok()?;
+    Some(applied(
+        f,
+        format!("replaced {target:?} with {replacement:?}"),
+    ))
+}
+
+/// The edit a finding produced, carrying the finding's file and kind.
+fn applied(f: &Finding, description: String) -> AppliedEdit {
+    AppliedEdit {
+        file: f.file.clone(),
+        kind: f.kind.clone(),
+        description,
+    }
+}
+
+/// The byte span a finding's requirement occupies in `content`, or the whole file when the finding
+/// names no requirement it can find.
+fn requirement_span(plan: &PlanIR, f: &Finding, content: &str) -> (usize, usize) {
+    let req = f
+        .requirement_id
+        .as_deref()
+        .and_then(|rid| plan.requirements.iter().find(|r| r.id == rid));
+    match req {
+        Some(r) => (r.source.start_byte, r.source.end_byte.min(content.len())),
+        None => (0, content.len()),
+    }
+}
+
+/// Where the target word sits: inside the requirement span when the span holds it, and anywhere in
+/// the file when it does not - the parser's requirement span may cover only the heading.
+fn locate_target(content: &str, start: usize, end: usize, target: &str) -> Option<usize> {
+    match find_word(&content[start..end], target) {
+        Some(rel) => Some(start + rel),
+        None => find_word(content, target),
+    }
+}
+
 fn apply_span_replacement(
     plan: &PlanIR,
     f: &Finding,
@@ -147,45 +213,22 @@ fn apply_span_replacement(
     let path = resolve_path(&f.file, base_dir)?;
     let content = std::fs::read_to_string(&path).ok()?;
 
-    // Find the requirement this finding belongs to, to bound the search to
-    // its source span in the file. If the span does not contain the target
-    // word (the parser's requirement span may only cover the heading), fall
-    // back to searching the whole file.
-    let req = f
-        .requirement_id
-        .as_deref()
-        .and_then(|rid| plan.requirements.iter().find(|r| r.id == rid));
-
-    let (search_start, search_end) = match req {
-        Some(r) => (r.source.start_byte, r.source.end_byte.min(content.len())),
-        None => (0, content.len()),
-    };
-
-    // The offending snippet is the word to replace. Use the finding's message
-    // to extract the quoted word.
+    let (search_start, search_end) = requirement_span(plan, f, &content);
     let target = extract_quoted_word(&f.message)?;
     if target.is_empty() {
         return None;
     }
+    let abs_start = locate_target(&content, search_start, search_end, &target)?;
 
-    // Find the first occurrence of the target word, preferring the
-    // requirement span but falling back to the whole file.
-    let abs_start = if let Some(rel) = find_word(&content[search_start..search_end], &target) {
-        search_start + rel
-    } else {
-        find_word(&content, &target)?
-    };
-    let abs_end = abs_start + target.len();
-
-    let mut bytes = content.into_bytes();
-    bytes.splice(abs_start..abs_end, replacement.bytes());
-    let new_content = String::from_utf8(bytes).ok()?;
-    std::fs::write(&path, new_content).ok()?;
-    Some(AppliedEdit {
-        file: f.file.clone(),
-        kind: f.kind.clone(),
-        description: format!("replaced {:?} with {:?}", target, replacement),
-    })
+    write_replacement(
+        &path,
+        &content,
+        abs_start,
+        abs_start + target.len(),
+        replacement,
+        f,
+        &target,
+    )
 }
 
 /// Extract a quoted word from a message like `replace "leverage" with "use"`.
@@ -219,6 +262,23 @@ fn find_word(hay: &str, word: &str) -> Option<usize> {
     None
 }
 
+/// The task a finding points at, by file and start line.
+fn find_task_at<'a>(plan: &'a PlanIR, f: &Finding) -> Option<&'a crate::ir::Task> {
+    plan.tasks
+        .iter()
+        .find(|t| t.source.file == f.file && t.source.start_line == f.line)
+}
+
+/// Replace `start..end` of `content` with `new_id`, refusing a span that does not fit.
+fn splice_id(content: &str, start: usize, end: usize, new_id: &str) -> Option<String> {
+    if end > content.len() || start > end {
+        return None;
+    }
+    let mut bytes = content.as_bytes().to_vec();
+    bytes.splice(start..end, new_id.bytes());
+    String::from_utf8(bytes).ok()
+}
+
 /// Rename a duplicate task ID in tasks.md.
 fn apply_task_rename(
     plan: &PlanIR,
@@ -228,27 +288,9 @@ fn apply_task_rename(
 ) -> Option<AppliedEdit> {
     // The finding's message references the duplicate task ID. Find the task in
     // the plan whose source location matches the finding's file/line.
-    let task = plan
-        .tasks
-        .iter()
-        .find(|t| t.source.file == f.file && t.source.start_line == f.line)?;
+    let task = find_task_at(plan, f)?;
     let path = resolve_path(&f.file, base_dir)?;
-    let content = std::fs::read_to_string(&path).ok()?;
-    // Replace the task ID token at the task's source span.
-    let start = task.source.start_byte;
-    let end = task.source.end_byte;
-    if end > content.len() || start > end {
-        return None;
-    }
-    let mut bytes = content.into_bytes();
-    bytes.splice(start..end, new_id.bytes());
-    let new_content = String::from_utf8(bytes).ok()?;
-    std::fs::write(&path, new_content).ok()?;
-    Some(AppliedEdit {
-        file: f.file.clone(),
-        kind: f.kind.clone(),
-        description: format!("renamed task {} to {}", task.id, new_id),
-    })
+    rewrite_task_id(&path, task, f, new_id)
 }
 
 #[cfg(test)]

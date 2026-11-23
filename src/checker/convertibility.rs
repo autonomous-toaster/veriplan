@@ -5,9 +5,56 @@ use crate::grounding;
 
 use crate::ir::{ConvertibilityReport, ConvertibilityStatus, PlanIR};
 
-/// Run the full convertibility check (Phase 1).
-/// Returns (report, updated_plan) where updated_plan has PatternUngrounded
-/// populated on requirements that failed grounding.
+/// Requirement ids that failed the task-reference check, whose bodies are not worth grounding.
+fn failed_reference_ids(blockers: &[crate::ir::CheckItem]) -> std::collections::HashSet<String> {
+    blockers
+        .iter()
+        .filter(|b| b.check == "bad_task_reference")
+        .filter_map(|b| {
+            b.element
+                .strip_prefix("Requirement '")
+                .and_then(|s| s.strip_suffix('\''))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// Ground every requirement, leaving out the ones whose task references do not exist.
+fn grounding_for(
+    plan: &PlanIR,
+    failed_ref_ids: &std::collections::HashSet<String>,
+) -> (
+    Vec<crate::ir::CheckItem>,
+    Vec<crate::ir::CheckItem>,
+    Vec<crate::ir::CheckItem>,
+    Vec<grounding::GroundingOutcome>,
+) {
+    let strict = crate::input::StrictnessProfile::Strict;
+    if failed_ref_ids.is_empty() {
+        return grounding::check_grounding(plan, &strict);
+    }
+    let mut filtered = plan.clone();
+    filtered
+        .requirements
+        .retain(|r| !failed_ref_ids.contains(&r.id));
+    grounding::check_grounding(&filtered, &strict)
+}
+
+/// Copy the plan, marking each requirement that failed grounding as PatternUngrounded.
+fn mark_ungrounded(plan: &PlanIR, outcomes: &[grounding::GroundingOutcome]) -> PlanIR {
+    let mut updated = plan.clone();
+    for outcome in outcomes.iter().filter(|o| o.failed) {
+        if let Some(req) = updated
+            .requirements
+            .iter_mut()
+            .find(|r| r.id == outcome.requirement_id)
+        {
+            req.category = crate::ir::ConstraintCategory::PatternUngrounded;
+        }
+    }
+    updated
+}
+
 pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> (ConvertibilityReport, PlanIR) {
     let mut blockers = Vec::new();
     let mut warnings = Vec::new();
@@ -34,47 +81,17 @@ pub fn check_convertibility(plan: &PlanIR, is_openspec: bool) -> (Convertibility
 
     // Identify requirement IDs that failed T4.2 (bad task references)
     // so we can skip grounding for them (no point grounding if task IDs don't exist)
-    let failed_ref_ids: std::collections::HashSet<String> = blockers
-        .iter()
-        .filter(|b| b.check == "bad_task_reference")
-        .map(|b| {
-            // Extract requirement ID from element string "Requirement 'R1'"
-            b.element
-                .strip_prefix("Requirement '")
-                .and_then(|s| s.strip_suffix('\''))
-                .unwrap_or("")
-                .to_string()
-        })
-        .collect();
+    let failed_ref_ids = failed_reference_ids(&blockers);
 
     // Check 4: Grounding check (between T4.2 and T4.4)
     // Skip grounding for requirements that already failed T4.2
-    let (g_blockers, g_warnings, g_info, g_outcomes) = if failed_ref_ids.is_empty() {
-        grounding::check_grounding(plan, &crate::input::StrictnessProfile::Strict)
-    } else {
-        // Create a filtered plan excluding requirements with bad references
-        let mut filtered = plan.clone();
-        filtered
-            .requirements
-            .retain(|r| !failed_ref_ids.contains(&r.id));
-        grounding::check_grounding(&filtered, &crate::input::StrictnessProfile::Strict)
-    };
+    let (g_blockers, g_warnings, g_info, g_outcomes) = grounding_for(plan, &failed_ref_ids);
     blockers.extend(g_blockers);
     warnings.extend(g_warnings);
     info.extend(g_info);
 
     // Populate PatternUngrounded on requirements that failed grounding
-    let mut updated_plan = plan.clone();
-    for outcome in &g_outcomes {
-        if outcome.failed
-            && let Some(req) = updated_plan
-                .requirements
-                .iter_mut()
-                .find(|r| r.id == outcome.requirement_id)
-        {
-            req.category = crate::ir::ConstraintCategory::PatternUngrounded;
-        }
-    }
+    let updated_plan = mark_ungrounded(plan, &g_outcomes);
 
     // Check 4b: Every constraint clause of a body must be modelled.
     // classify() reads one clause, so a body with two silently loses the second. Reporting it

@@ -31,15 +31,10 @@ fn initialize_lsp(
     let project_root = std::env::current_dir().context("Failed to get cwd")?;
     eprintln!("[veriplan-lsp] Project root: {}", project_root.display());
 
-    let openspec_dir = project_root.join("openspec");
-    if !openspec_dir.exists() {
-        eprintln!("[veriplan-lsp] Warning: No openspec/ directory found at project root");
-    }
+    warn_if_no_openspec(&project_root);
 
     let store = Arc::new(RwLock::new(ChangeStore::new(&project_root)));
-    let capabilities = build_server_capabilities();
-    let server_capabilities =
-        serde_json::to_value(&capabilities).context("Failed to serialize server capabilities")?;
+    let server_capabilities = server_capabilities()?;
 
     let init_params = connection
         .initialize(server_capabilities)
@@ -51,6 +46,19 @@ fn initialize_lsp(
         .send(Message::Notification(initialized_notif))?;
 
     Ok((store, init_params))
+}
+
+/// Say so once, rather than silently serving nothing, when there is no openspec/ to serve.
+fn warn_if_no_openspec(project_root: &std::path::Path) {
+    if !project_root.join("openspec").exists() {
+        eprintln!("[veriplan-lsp] Warning: No openspec/ directory found at project root");
+    }
+}
+
+/// The server's capabilities as the JSON the protocol expects.
+fn server_capabilities() -> Result<serde_json::Value> {
+    serde_json::to_value(build_server_capabilities())
+        .context("Failed to serialize server capabilities")
 }
 
 fn build_server_capabilities() -> ServerCapabilities {

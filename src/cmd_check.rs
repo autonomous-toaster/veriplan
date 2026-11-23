@@ -37,6 +37,50 @@ fn resolve_backend(checker: Option<String>) -> anyhow::Result<checker::CheckerBa
         .map_err(|e| anyhow::anyhow!("{}", e))
 }
 
+/// Sources that are not a single plan to check: several changes, or nothing to verify at all.
+///
+/// Returns true when the source was handled here and the caller should stop.
+fn handle_special_source(
+    source: &input::InputSource,
+    format: &str,
+    verbose: bool,
+    pre_commit: bool,
+    strictness: input::StrictnessProfile,
+    backend: checker::CheckerBackend,
+) -> anyhow::Result<bool> {
+    match source {
+        input::InputSource::MultiOpenSpec {
+            changes,
+            project_root,
+        } => {
+            cli::check_all_changes(
+                changes,
+                project_root,
+                format,
+                verbose,
+                pre_commit,
+                strictness,
+                backend,
+            )?;
+            Ok(true)
+        }
+        input::InputSource::Empty { path, reason } => {
+            let message = match reason {
+                input::EmptyReason::NoContent => format!(
+                    "No verifiable content found in {} — skipping verification",
+                    path.display()
+                ),
+                input::EmptyReason::NoActiveChanges => format!(
+                    "No active changes found in {} — skipping verification",
+                    path.display()
+                ),
+            };
+            println!("{message}");
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
 #[allow(clippy::too_many_arguments)]
 /// Drive a single `veriplan check` run: resolve input, verify, optionally apply `--fix`, render,
 /// and set the process exit code.
@@ -69,37 +113,14 @@ pub(crate) fn run_check(
     // Detect PRE_COMMIT env var for auto-enabling pre-commit mode
     let pre_commit = pre_commit || std::env::var("PRE_COMMIT").as_deref() == Ok("1");
 
-    // Handle MultiOpenSpec case
-    if let input::InputSource::MultiOpenSpec {
-        changes,
-        project_root,
-    } = source
-    {
-        cli::check_all_changes(
-            &changes,
-            &project_root,
-            format.unwrap_or("human"),
-            verbose,
-            pre_commit,
-            strictness,
-            backend,
-        )?;
-        return Ok(());
-    }
-
-    // Handle Empty case - graceful success with informational message
-    if let input::InputSource::Empty { path, reason } = source {
-        let message = match reason {
-            input::EmptyReason::NoContent => format!(
-                "No verifiable content found in {} — skipping verification",
-                path.display()
-            ),
-            input::EmptyReason::NoActiveChanges => format!(
-                "No active changes found in {} — skipping verification",
-                path.display()
-            ),
-        };
-        println!("{}", message);
+    if handle_special_source(
+        &source,
+        format.unwrap_or("human"),
+        verbose,
+        pre_commit,
+        strictness,
+        backend,
+    )? {
         return Ok(());
     }
 
@@ -145,14 +166,16 @@ pub(crate) fn run_check(
             &plan,
             &result,
             &annotated,
-            &label,
-            no_model,
-            pre_commit,
-            strictness,
-            is_openspec,
-            backend,
-            format.unwrap_or("human"),
-            verbose,
+            Revalidate {
+                label: &label,
+                no_model,
+                pre_commit,
+                strictness,
+                is_openspec,
+                backend,
+                format: format.unwrap_or("human"),
+                verbose,
+            },
         )?
     {
         return Ok(());
@@ -217,84 +240,171 @@ fn apply_fixes(
     plan: &veriplan::ir::PlanIR,
     result: &checker::VerificationResult,
     annotated: &[annotator::AnnotatedViolation],
+    revalidate: Revalidate<'_>,
+) -> anyhow::Result<bool> {
+    let findings = annotator::findings(result, annotated);
+    let report = veriplan::fix::fix_plan(plan, &findings, &base_dir_for(source));
+
+    if !report.applied.is_empty() {
+        println!(
+            "Applied {} machine-applicable fix(es):",
+            report.applied.len()
+        );
+        for e in &report.applied {
+            println!("  - [{}] {}", e.kind, e.description);
+        }
+        finish_after_fixes(source, revalidate)?;
+        return Ok(true);
+    }
+    if !report.left_as_suggestions.is_empty() {
+        println!(
+            "{} finding(s) left as suggestions (structural/judgment):",
+            report.left_as_suggestions.len()
+        );
+    }
+    Ok(false)
+}
+
+/// What is needed to verify the plan again after edits have been written.
+#[derive(Clone, Copy)]
+struct Revalidate<'a> {
+    label: &'a str,
+    no_model: bool,
+    pre_commit: bool,
+    strictness: input::StrictnessProfile,
+    is_openspec: bool,
+    backend: checker::CheckerBackend,
+    format: &'a str,
+    verbose: bool,
+}
+
+/// The directory relative finding paths are resolved against.
+fn base_dir_for(source: &input::InputSource) -> std::path::PathBuf {
+    match source {
+        input::InputSource::OpenSpec { change_dir, .. } => change_dir.clone(),
+        input::InputSource::Directory { path, .. } => path.clone(),
+        input::InputSource::SingleFile { path } => path
+            .parent()
+            .map_or_else(std::env::current_dir, |p| Ok(p.to_path_buf()))
+            .unwrap_or_default(),
+        _ => std::env::current_dir().unwrap_or_default(),
+    }
+}
+
+/// Reload the edited plan, verify it again, print the report and exit on its verdict.
+fn finish_after_fixes(source: &input::InputSource, v: Revalidate<'_>) -> anyhow::Result<()> {
+    let reloaded = input::load_plan(source).map_err(|e| anyhow::anyhow!("{}", e))?;
+    let plans = vec![(v.label.to_string(), reloaded)];
+    let result = checker::verify_with_strictness(
+        &plans[0].1,
+        v.label,
+        v.no_model,
+        v.pre_commit,
+        v.strictness,
+        v.is_openspec,
+        v.backend,
+    );
+    let annotated = annotator::annotate(&result, &plans);
+    let rendered = match v.format {
+        "json" => annotator::format_json(&result, &annotated, &plans, v.verbose),
+        _ => annotator::format_human(&result, &annotated, &plans, v.verbose),
+    };
+    print!("{rendered}");
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    if let Some(code) = exit_code(&result, v.pre_commit, false) {
+        cli::flush_exit(code);
+    }
+    Ok(())
+}
+
+/// Verify with one backend, and say how long it took.
+#[allow(clippy::too_many_arguments)]
+fn run_backend(
+    plan: &veriplan::ir::PlanIR,
     label: &str,
     no_model: bool,
     pre_commit: bool,
     strictness: input::StrictnessProfile,
     is_openspec: bool,
     backend: checker::CheckerBackend,
-    format: &str,
-    verbose: bool,
-) -> anyhow::Result<bool> {
-    let all_findings = annotator::findings(result, annotated);
-    // Resolve the change directory for relative file paths.
-    let base_dir = match &source {
-        input::InputSource::OpenSpec { change_dir, .. } => change_dir.clone(),
-        input::InputSource::Directory { path, .. } => path.clone(),
-        input::InputSource::SingleFile { path } => path
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
-        _ => std::env::current_dir().unwrap_or_default(),
-    };
-    let fix_report = veriplan::fix::fix_plan(plan, &all_findings, &base_dir);
-    if !fix_report.applied.is_empty() {
+) -> (checker::VerificationResult, std::time::Duration) {
+    let started = std::time::Instant::now();
+    let result = checker::verify_with_strictness(
+        plan,
+        label,
+        no_model,
+        pre_commit,
+        strictness,
+        is_openspec,
+        backend,
+    );
+    (result, started.elapsed())
+}
+
+/// Compare one constraint and print its row, counting it when both backends decided it.
+fn compare_one(
+    c: &checker::ConstraintSummary,
+    peer_result: &checker::VerificationResult,
+    tally: &mut (u32, u32),
+) {
+    let peer = peer_result
+        .constraints_summary
+        .iter()
+        .find(|sc| sc.requirement_id == c.requirement_id);
+    let unverified = peer.map_or(peer_result.valid.is_none(), |sc| sc.unchecked);
+    if unverified {
         println!(
-            "Applied {} machine-applicable fix(es):",
-            fix_report.applied.len()
+            "{:<30} {:<10} {:<10} {:<8}",
+            veriplan::util::truncate(&c.requirement_id, 30),
+            if c.satisfied { "pass" } else { "FAIL" },
+            "unverified",
+            "—"
         );
-        for e in &fix_report.applied {
-            println!("  - [{}] {}", e.kind, e.description);
-        }
-        // Revalidate the plan after applying edits.
-        let reloaded = input::load_plan(source).map_err(|e| anyhow::anyhow!("{}", e))?;
-        let re_result = checker::verify_with_strictness(
-            &reloaded,
-            label,
-            no_model,
-            pre_commit,
-            strictness,
-            is_openspec,
-            backend,
-        );
-        let re_annotated =
-            annotator::annotate(&re_result, &[(label.to_string(), reloaded.clone())]);
-        match format {
-            "json" => println!(
-                "{}",
-                annotator::format_json(
-                    &re_result,
-                    &re_annotated,
-                    &[(label.to_string(), reloaded)],
-                    verbose
-                )
-            ),
-            _ => print!(
-                "{}",
-                annotator::format_human(
-                    &re_result,
-                    &re_annotated,
-                    &[(label.to_string(), reloaded.clone())],
-                    verbose
-                )
-            ),
-        }
-        let _ = std::io::stdout().flush();
-        let _ = std::io::stderr().flush();
-        if !re_result.convertible {
-            cli::flush_exit(2);
-        } else if re_result.valid == Some(false) {
-            cli::flush_exit(1);
-        }
-        return Ok(true);
+        return;
     }
-    if !fix_report.left_as_suggestions.is_empty() {
-        println!(
-            "{} finding(s) left as suggestions (structural/judgment):",
-            fix_report.left_as_suggestions.len()
-        );
+    let peer_satisfied = peer.is_some_and(|sc| sc.satisfied);
+    let matched = c.satisfied == peer_satisfied;
+    if !matched {
+        tally.1 += 1;
     }
-    Ok(false)
+    tally.0 += 1;
+    println!(
+        "{:<30} {:<10} {:<10} {:<8}",
+        veriplan::util::truncate(&c.requirement_id, 28),
+        if c.satisfied { "pass" } else { "FAIL" },
+        if peer_satisfied { "pass" } else { "FAIL" },
+        if matched { "✓" } else { "✗" }
+    );
+}
+
+/// Print one row per constraint and tally how many the two backends agree on.
+///
+/// A backend that produced no verdict for a constraint did not match anything; calling that a
+/// mismatch would be as wrong as calling it a match, so it is printed as unverified and left out of
+/// the tally.
+fn compare_rows(
+    spin_result: &checker::VerificationResult,
+    spin_rs_result: &checker::VerificationResult,
+) -> (u32, u32) {
+    println!();
+    println!(
+        "{:<30} {:<10} {:<10} {:<8}",
+        "Constraint", "spin", "spin-rs", "Match?"
+    );
+    println!("{}", "-".repeat(60));
+    if spin_rs_result.valid.is_none() {
+        println!("  spin-rs produced no verdict for this plan:");
+        if let Some(reason) = &spin_rs_result.skip_reason {
+            println!("    {reason}");
+        }
+        println!();
+    }
+    let mut tally = (0u32, 0u32);
+    for c in &spin_result.constraints_summary {
+        compare_one(c, spin_rs_result, &mut tally);
+    }
+    tally
 }
 
 /// Run both backends and compare results.
@@ -309,11 +419,7 @@ fn run_compare(
     _format: &str,
     _verbose: bool,
 ) -> anyhow::Result<()> {
-    use std::time::Instant;
-
-    // Run spin backend
-    let spin_start = Instant::now();
-    let spin_result = checker::verify_with_strictness(
+    let (spin_result, spin_elapsed) = run_backend(
         plan,
         label,
         no_model,
@@ -322,11 +428,7 @@ fn run_compare(
         is_openspec,
         checker::CheckerBackend::Spin,
     );
-    let spin_elapsed = spin_start.elapsed();
-
-    // Run spin-rs backend
-    let spin_rs_start = Instant::now();
-    let spin_rs_result = checker::verify_with_strictness(
+    let (spin_rs_result, spin_rs_elapsed) = run_backend(
         plan,
         label,
         no_model,
@@ -335,7 +437,6 @@ fn run_compare(
         is_openspec,
         checker::CheckerBackend::SpinRs,
     );
-    let spin_rs_elapsed = spin_rs_start.elapsed();
 
     // Build comparison table
     let _spin_summary: std::collections::HashMap<&str, bool> = spin_result
@@ -344,66 +445,7 @@ fn run_compare(
         .map(|c| (c.requirement_id.as_str(), c.satisfied))
         .collect();
 
-    let mut mismatches = 0u32;
-    let mut total = 0u32;
-
-    println!("═══ Backend Comparison: {} ═══", label);
-    println!();
-    println!(
-        "{:<30} {:<10} {:<10} {:<8}",
-        "Constraint", "spin", "spin-rs", "Match?"
-    );
-    println!("{}", "-".repeat(60));
-
-    // A backend that produced no verdict for a constraint did not "match" anything, and calling it
-    // a mismatch would be as wrong as calling it a match. Say unverified and leave it out of the tally.
-    if spin_rs_result.valid.is_none() {
-        println!("  spin-rs produced no verdict for this plan:");
-        if let Some(reason) = &spin_rs_result.skip_reason {
-            println!("    {reason}");
-        }
-        println!();
-    }
-
-    for c in &spin_result.constraints_summary {
-        let peer = spin_rs_result
-            .constraints_summary
-            .iter()
-            .find(|sc| sc.requirement_id == c.requirement_id);
-        let unverified = match peer {
-            None => spin_rs_result.valid.is_none(),
-            Some(sc) => sc.unchecked,
-        };
-        if unverified {
-            println!(
-                "{:<30} {:<10} {:<10} {:<8}",
-                veriplan::util::truncate(&c.requirement_id, 30),
-                if c.satisfied { "pass" } else { "FAIL" },
-                "unverified",
-                "—"
-            );
-            continue;
-        }
-        let spin_rs_satisfied = peer.map(|sc| sc.satisfied).unwrap_or(false);
-
-        let matched = c.satisfied == spin_rs_satisfied;
-        if !matched {
-            mismatches += 1;
-        }
-        total += 1;
-
-        let spin_status = if c.satisfied { "pass" } else { "FAIL" };
-        let spin_rs_status = if spin_rs_satisfied { "pass" } else { "FAIL" };
-        let match_icon = if matched { "✓" } else { "✗" };
-
-        println!(
-            "{:<30} {:<10} {:<10} {:<8}",
-            veriplan::util::truncate(&c.requirement_id, 28),
-            spin_status,
-            spin_rs_status,
-            match_icon,
-        );
-    }
+    let (total, mismatches) = compare_rows(&spin_result, &spin_rs_result);
 
     println!();
     println!(

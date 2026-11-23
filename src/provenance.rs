@@ -39,48 +39,68 @@ pub fn resolve(plan: &PlanIR, archive_dir: &Path) -> Provenance {
     if !archive_dir.is_dir() {
         return out;
     }
-    let mut changes: Vec<PathBuf> = match std::fs::read_dir(archive_dir) {
-        Ok(entries) => entries
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .collect(),
-        Err(_) => return out,
+    let mut changes: Vec<PathBuf> = match archived_changes(archive_dir) {
+        Some(c) => c,
+        None => return out,
     };
     changes.sort();
 
     for req in &plan.requirements {
-        let Some((capability, _)) = req.id.split_once("::") else {
-            continue;
-        };
-        let cited = task_ids_in(&req.statement);
-        if cited.is_empty() {
-            continue;
-        }
-        // Walk the chronology backwards: the latest owner is the one that wrote the published body.
-        for change in changes.iter().rev() {
-            let Some(delta) = read_delta(change, capability) else {
-                continue;
-            };
-            let name = req.id.split_once("::").map(|(_, n)| n).unwrap_or("");
-            if !delta.names.iter().any(|n| n == name) {
-                continue;
-            }
-            if cited.iter().all(|id| delta.tasks.iter().any(|t| t == id)) {
-                if let Some(owner) = change.file_name().and_then(|n| n.to_str()) {
-                    out.insert(
-                        req.id.clone(),
-                        crate::ir::Grounding {
-                            change: owner.to_string(),
-                            tasks: delta.tasks.clone(),
-                        },
-                    );
-                }
-                break;
-            }
+        if let Some((owner, tasks)) = owner_of(req, &changes) {
+            out.insert(
+                req.id.clone(),
+                crate::ir::Grounding {
+                    change: owner,
+                    tasks,
+                },
+            );
         }
     }
     out
+}
+
+/// The change directories under the archive, or None when the archive cannot be read at all.
+fn archived_changes(archive_dir: &Path) -> Option<Vec<PathBuf>> {
+    let entries = std::fs::read_dir(archive_dir).ok()?;
+    Some(
+        entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect(),
+    )
+}
+
+/// The archived change that wrote this requirement's body, and the tasks it defined.
+///
+/// Walks the chronology backwards: the latest owner is the one whose delta contains the requirement
+/// and whose task list defines every id the body cites.
+fn owner_of(req: &crate::ir::Requirement, changes: &[PathBuf]) -> Option<(String, Vec<String>)> {
+    let (capability, name) = req.id.split_once("::")?;
+    let cited = task_ids_in(&req.statement);
+    if cited.is_empty() {
+        return None;
+    }
+    for change in changes.iter().rev() {
+        let Some(delta) = read_delta(change, capability) else {
+            continue;
+        };
+        if delta_owns(&delta, name, &cited) {
+            return change
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|owner| (owner.to_string(), delta.tasks.clone()));
+        }
+    }
+    None
+}
+
+/// Whether this delta is the one that wrote the body: it contains the requirement and defines every id
+/// the body cites.
+fn delta_owns(delta: &Delta, name: &str, cited: &[String]) -> bool {
+    let contains = delta.names.iter().any(|n| n == name);
+    let defines = cited.iter().all(|id| delta.tasks.iter().any(|t| t == id));
+    contains && defines
 }
 
 fn read_delta(change: &Path, capability: &str) -> Option<Delta> {

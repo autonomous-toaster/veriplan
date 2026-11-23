@@ -31,18 +31,7 @@ pub(crate) fn run_spin_check(
             } else {
                 unmodelled += 1;
             }
-            constraints_summary.push(ConstraintSummary {
-                requirement_id: c.requirement_id.clone(),
-                statement: c.statement.clone(),
-                category,
-                satisfied: false,
-                unchecked: false,
-                modelled: false,
-                unchecked_reason: None,
-                historical: c.historical.is_some(),
-                historical_owner: c.historical.clone(),
-                unmodelled_reason: c.unmodelled_reason.clone(),
-            });
+            constraints_summary.push(unmodelled_summary(c, category));
             continue;
         }
 
@@ -50,38 +39,16 @@ pub(crate) fn run_spin_check(
         claim_index += 1;
         let outcome = run_one_claim(&pan_path, &label, c.ltl_string().contains("<>"));
 
-        let (is_satisfied, is_unchecked) = match outcome {
-            PanOutcome::Passed => {
-                satisfied += 1;
-                (true, false)
-            }
-            PanOutcome::Violated => {
-                let fix = super::bfs::suggest_fix(
-                    &c.category,
-                    c.ltl_string().as_str(),
-                    &c.requirement_id,
-                    &c.statement,
-                );
-                violations.push(Violation {
-                    constraint_id: c.requirement_id.clone(),
-                    requirement_statement: c.statement.clone(),
-                    ltl: c.ltl_string(),
-                    category: category.clone(),
-                    state: format!("(violated in property {})", label),
-                    task_source: None,
-                    req_source: None,
-                    suggested_fix: fix,
-                    plan: plan_name.to_string(),
-                    kind: crate::ir::kind_of(&category),
-                    op: crate::ir::Op::ReplaceBody,
-                });
-                (false, false)
-            }
-            PanOutcome::Unchecked | PanOutcome::Empty => {
-                unchecked += 1;
-                (false, true)
-            }
-        };
+        let (is_satisfied, is_unchecked) = claim_status_into(
+            outcome,
+            c,
+            plan_name,
+            &label,
+            &category,
+            &mut satisfied,
+            &mut unchecked,
+            &mut violations,
+        );
 
         constraints_summary.push(ConstraintSummary {
             requirement_id: c.requirement_id.clone(),
@@ -100,18 +67,7 @@ pub(crate) fn run_spin_check(
 
     // A verdict that nothing supports is not a verdict. If no constraint was satisfied and
     // none was refuted, the run proved nothing, whatever the engine printed.
-    let nothing_proved = satisfied == 0 && violations.is_empty();
-    let (valid, skip_reason) = if nothing_proved && !constraints.is_empty() {
-        (
-            None,
-            Some(format!(
-                "no constraint was proved or refuted ({} unmodelled, {} unchecked)",
-                unmodelled, unchecked
-            )),
-        )
-    } else {
-        (Some(violations.is_empty()), None)
-    };
+    let (valid, skip_reason) = verdict(satisfied, unmodelled, unchecked, &violations);
 
     VerificationResult {
         plan_name: plan_name.to_string(),
@@ -166,6 +122,87 @@ fn prepare_pan(
 
     let pan = dir.join("pan");
     pan.exists().then_some(pan)
+}
+
+/// A verdict that nothing supports is not a verdict: when no constraint was satisfied and none was
+/// refuted, the run proved nothing whatever the engine printed.
+fn verdict(
+    satisfied: usize,
+    unmodelled: usize,
+    unchecked: usize,
+    violations: &[Violation],
+) -> (Option<bool>, Option<String>) {
+    if satisfied == 0 && violations.is_empty() {
+        return (
+            None,
+            Some(format!(
+                "no constraint was proved or refuted ({unmodelled} unmodelled, {unchecked} unchecked)"
+            )),
+        );
+    }
+    (Some(violations.is_empty()), None)
+}
+
+/// The summary of a constraint that carries no formula, counted as unmodelled or as historical.
+fn unmodelled_summary(c: &translator::TranslatedConstraint, category: String) -> ConstraintSummary {
+    ConstraintSummary {
+        requirement_id: c.requirement_id.clone(),
+        statement: c.statement.clone(),
+        category,
+        satisfied: false,
+        unchecked: false,
+        modelled: false,
+        unchecked_reason: None,
+        historical: c.historical.is_some(),
+        historical_owner: c.historical.clone(),
+        unmodelled_reason: c.unmodelled_reason.clone(),
+    }
+}
+
+/// Record what a claim's run established and say whether it counted as satisfied or unchecked.
+#[allow(clippy::too_many_arguments)]
+fn claim_status_into(
+    outcome: PanOutcome,
+    c: &translator::TranslatedConstraint,
+    plan_name: &str,
+    label: &str,
+    category: &str,
+    satisfied: &mut usize,
+    unchecked: &mut usize,
+    violations: &mut Vec<Violation>,
+) -> (bool, bool) {
+    match outcome {
+        PanOutcome::Passed => {
+            *satisfied += 1;
+            (true, false)
+        }
+        PanOutcome::Violated => {
+            let fix = super::bfs::suggest_fix(
+                &c.category,
+                c.ltl_string().as_str(),
+                &c.requirement_id,
+                &c.statement,
+            );
+            violations.push(Violation {
+                constraint_id: c.requirement_id.clone(),
+                requirement_statement: c.statement.clone(),
+                ltl: c.ltl_string(),
+                category: category.to_string(),
+                state: format!("(violated in property {label})"),
+                task_source: None,
+                req_source: None,
+                suggested_fix: fix,
+                plan: plan_name.to_string(),
+                kind: crate::ir::kind_of(category),
+                op: crate::ir::Op::ReplaceBody,
+            });
+            (false, false)
+        }
+        PanOutcome::Unchecked | PanOutcome::Empty => {
+            *unchecked += 1;
+            (false, true)
+        }
+    }
 }
 
 /// Run one claim and say what the run established.

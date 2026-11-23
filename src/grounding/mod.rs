@@ -43,12 +43,158 @@ pub(super) fn looks_like_task_id(s: &str) -> bool {
     digit1
 }
 
-/// Run the grounding check on a plan.
+/// The report item for a body that cites a task id this signature does not declare.
 ///
-/// For each requirement, builds a Signature from PlanIR and calls
-/// `RuleGrounder::ground()` on the requirement's SHALL statement.
-/// Returns (blockers, warnings, info, outcomes) — same pattern as checks in checks.rs,
-/// plus the per-requirement outcomes for downstream use (e.g., populating PatternUngrounded).
+/// A cited id the change does not own is a different diagnosis from an under-filled predicate: the
+/// author already named a task. When nothing records the requirement either, the ids belong to neither,
+/// and the finding says so rather than blaming the id.
+fn absent_task_item(
+    req: &crate::ir::Requirement,
+    result: &groundcontrol::types::GroundingResult,
+    strictness: &StrictnessProfile,
+) -> Option<CheckItem> {
+    if result.absent_identifiers.is_empty() {
+        return None;
+    }
+    let missing = result.absent_identifiers.join(", ");
+    let detail = if req.grounded_in.is_none() {
+        format!(
+            "Requirement '{}' cites {} — not a task of this change, and no archived change records this requirement, so the ids belong to neither",
+            truncate(&req.statement, 80),
+            missing,
+        )
+    } else {
+        format!(
+            "Requirement '{}' cites {} — not a task of this change",
+            truncate(&req.statement, 80),
+            missing,
+        )
+    };
+    Some(make_item(
+        severity_label(strictness),
+        "grounding_absent_task",
+        format!("Requirement '{}'", req.id),
+        format!("{}:{}", req.source.file, req.source.start_line),
+        detail,
+        Some("Cite a task this change defines, or add the task to tasks.md".to_string()),
+    ))
+}
+
+/// The severity string a strictness profile reports under.
+fn severity_label(strictness: &StrictnessProfile) -> &'static str {
+    match strictness {
+        StrictnessProfile::Strict => "blocker",
+        StrictnessProfile::Moderate => "warning",
+        StrictnessProfile::Lax => "info",
+    }
+}
+
+/// Push a report item into the bucket its severity names.
+fn push_by_severity(
+    strictness: &StrictnessProfile,
+    item: CheckItem,
+    blockers: &mut Vec<CheckItem>,
+    warnings: &mut Vec<CheckItem>,
+    info: &mut Vec<CheckItem>,
+) {
+    match strictness {
+        StrictnessProfile::Strict => blockers.push(item),
+        StrictnessProfile::Moderate => warnings.push(item),
+        StrictnessProfile::Lax => info.push(item),
+    }
+}
+
+/// The predicates a statement matched above half confidence, sorted, deduplicated.
+fn strong_predicates(result: &groundcontrol::types::GroundingResult) -> Vec<&str> {
+    let mut names: Vec<&str> = result
+        .candidates
+        .iter()
+        .filter(|c| c.confidence > 0.5)
+        .map(|c| c.predicate.as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    names.sort();
+    names
+}
+
+/// Statuses that mean the body could not be grounded into a single constraint.
+fn is_failure(status: &GroundingStatus) -> bool {
+    matches!(
+        status,
+        GroundingStatus::Ungroundable
+            | GroundingStatus::Ambiguous
+            | GroundingStatus::Incomplete
+            | GroundingStatus::Contradictory
+    )
+}
+
+/// The report item for a statement that matches more than one temporal keyword.
+///
+/// The suggested split is only useful when the body really does hold several clauses; a single sentence
+/// that happens to match two keywords gets told to split into separate requirements.
+fn ambiguous_item(
+    req: &crate::ir::Requirement,
+    matched: &[&str],
+    strictness: &StrictnessProfile,
+) -> CheckItem {
+    let keywords = matched.join(" and ");
+    let clauses = split_constraint_clauses(&req.statement);
+    let clause_list: Vec<String> = clauses
+        .iter()
+        .enumerate()
+        .map(|(idx, c)| format!("  Requirement {idx}: {}", crate::util::truncate(c, 90)))
+        .collect();
+    let detail = format!(
+        "GROUNDING AMBIGUITY: statement matches multiple temporal keywords ({keywords}).          Split into separate requirements, one temporal keyword per requirement."
+    );
+    let fix = if clauses.len() > 1 {
+        format!(
+            "Split into one requirement per temporal constraint. Suggested split:\n{}\nEach must use exactly one of: {keywords}",
+            clause_list.join("\n")
+        )
+    } else {
+        format!(
+            "Split the requirement into separate statements, each using only one of: {keywords}"
+        )
+    };
+    let severity = match strictness {
+        StrictnessProfile::Strict => "blocker",
+        StrictnessProfile::Moderate => "warning",
+        StrictnessProfile::Lax => "info",
+    };
+    make_item(
+        severity,
+        "grounding_ambiguous_multi_keyword",
+        format!("Requirement '{}'", req.id),
+        format!("{}:{}", req.source.file, req.source.start_line),
+        detail,
+        Some(fix),
+    )
+}
+
+/// Requirements that state permission or information rather than an obligation to verify.
+fn is_informational(req: &crate::ir::Requirement) -> bool {
+    req.strength == Rfc2119Strength::May
+        || crate::translator::classify(&req.statement)
+            == crate::ir::ConstraintCategory::Informational
+}
+
+/// The signature a requirement's body is grounded against: this change's tasks plus the tasks of the
+/// change that wrote the body, built once per owning change and reused.
+fn signature_for<'a>(
+    req: &crate::ir::Requirement,
+    base: &'a Signature,
+    cache: &'a mut std::collections::BTreeMap<String, Signature>,
+) -> &'a Signature {
+    match &req.grounded_in {
+        None => base,
+        Some(history) => cache
+            .entry(history.change.clone())
+            .or_insert_with(|| with_history_tasks(base, &history.tasks)),
+    }
+}
+
 pub fn check_grounding(
     plan: &PlanIR,
     strictness: &StrictnessProfile,
@@ -86,10 +232,7 @@ pub fn check_grounding(
     for req in &plan.requirements {
         // Skip MAY and Informational requirements — they are informational
         // and don't need grounding.
-        if req.strength == Rfc2119Strength::May
-            || crate::translator::classify(&req.statement)
-                == crate::ir::ConstraintCategory::Informational
-        {
+        if is_informational(req) {
             info.push(make_item(
                 "info",
                 "grounding_may_skipped",
@@ -105,79 +248,18 @@ pub fn check_grounding(
             continue;
         }
 
-        let sig = match &req.grounded_in {
-            None => &base_sig,
-            Some(history) => history_sigs
-                .entry(history.change.clone())
-                .or_insert_with(|| with_history_tasks(&base_sig, &history.tasks)),
-        };
+        let sig = signature_for(req, &base_sig, &mut history_sigs);
         let result = grounder.ground(&req.statement, sig);
 
-        // Multi-keyword pre-check: detect if multiple predicates matched
-        let mut matched_predicates: Vec<&str> = result
-            .candidates
-            .iter()
-            .filter(|c| c.confidence > 0.5)
-            .map(|c| c.predicate.as_str())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-        matched_predicates.sort();
+        let matched_predicates = strong_predicates(&result);
 
         if matched_predicates.len() > 1 {
-            let keywords = matched_predicates.join(" and ");
-            let clauses = split_constraint_clauses(&req.statement);
-            let clause_list: Vec<String> = clauses
-                .iter()
-                .enumerate()
-                .map(|(idx, c)| format!("  Requirement {idx}: {}", crate::util::truncate(c, 90)))
-                .collect();
-            let detail = format!(
-                "GROUNDING AMBIGUITY: statement matches multiple temporal keywords ({}). \
-                 Split into separate requirements, one temporal keyword per requirement.",
-                keywords,
-            );
-            let fix = if clauses.len() > 1 {
-                format!(
-                    "Split into one requirement per temporal constraint. Suggested split:\n{}\nEach must use exactly one of: {}",
-                    clause_list.join("\n"),
-                    keywords,
-                )
-            } else {
-                format!(
-                    "Split the requirement into separate statements, each using only one of: {}",
-                    keywords,
-                )
-            };
-
+            let item = ambiguous_item(req, &matched_predicates, strictness);
             match strictness {
-                StrictnessProfile::Strict => blockers.push(make_item(
-                    "blocker",
-                    "grounding_ambiguous_multi_keyword",
-                    format!("Requirement '{}'", req.id),
-                    format!("{}:{}", req.source.file, req.source.start_line),
-                    detail,
-                    Some(fix),
-                )),
-                StrictnessProfile::Moderate => warnings.push(make_item(
-                    "warning",
-                    "grounding_ambiguous_multi_keyword",
-                    format!("Requirement '{}'", req.id),
-                    format!("{}:{}", req.source.file, req.source.start_line),
-                    detail,
-                    Some(fix),
-                )),
-                StrictnessProfile::Lax => info.push(make_item(
-                    "info",
-                    "grounding_ambiguous_multi_keyword",
-                    format!("Requirement '{}'", req.id),
-                    format!("{}:{}", req.source.file, req.source.start_line),
-                    detail,
-                    Some(fix),
-                )),
+                StrictnessProfile::Strict => blockers.push(item),
+                StrictnessProfile::Moderate => warnings.push(item),
+                StrictnessProfile::Lax => info.push(item),
             }
-
-            // Still record the outcome for downstream use
             outcomes.push(GroundingOutcome {
                 requirement_id: req.id.clone(),
                 failed: true,
@@ -186,13 +268,7 @@ pub fn check_grounding(
             continue;
         }
 
-        let failed = matches!(
-            result.status,
-            GroundingStatus::Ungroundable
-                | GroundingStatus::Ambiguous
-                | GroundingStatus::Incomplete
-                | GroundingStatus::Contradictory
-        );
+        let failed = is_failure(&result.status);
 
         outcomes.push(GroundingOutcome {
             requirement_id: req.id.clone(),
@@ -223,49 +299,8 @@ pub fn check_grounding(
                 // A task id cited by the text that this signature does not declare is a
                 // different diagnosis from an under-filled predicate: the author already
                 // named a task, the change simply does not own it.
-                if !result.absent_identifiers.is_empty() {
-                    let missing = result.absent_identifiers.join(", ");
-                    let detail = if req.grounded_in.is_none() {
-                        format!(
-                            "Requirement '{}' cites {} — not a task of this change, and no archived change records this requirement, so the ids belong to neither",
-                            truncate(&req.statement, 80),
-                            missing,
-                        )
-                    } else {
-                        format!(
-                            "Requirement '{}' cites {} — not a task of this change",
-                            truncate(&req.statement, 80),
-                            missing,
-                        )
-                    };
-                    let fix =
-                        "Cite a task this change defines, or add the task to tasks.md".to_string();
-                    match strictness {
-                        StrictnessProfile::Strict => blockers.push(make_item(
-                            "blocker",
-                            "grounding_absent_task",
-                            element,
-                            location,
-                            detail,
-                            Some(fix),
-                        )),
-                        StrictnessProfile::Moderate => warnings.push(make_item(
-                            "warning",
-                            "grounding_absent_task",
-                            element,
-                            location,
-                            detail,
-                            Some(fix),
-                        )),
-                        StrictnessProfile::Lax => info.push(make_item(
-                            "info",
-                            "grounding_absent_task",
-                            element,
-                            location,
-                            detail,
-                            Some(fix),
-                        )),
-                    }
+                if let Some(item) = absent_task_item(req, &result, strictness) {
+                    push_by_severity(strictness, item, &mut blockers, &mut warnings, &mut info);
                     continue;
                 }
 

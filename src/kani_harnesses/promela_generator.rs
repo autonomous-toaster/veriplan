@@ -194,6 +194,9 @@ fn build_test_constraints(plan: &PlanIR) -> Vec<translator::TranslatedConstraint
             ))),
         ))),
         is_hard: true,
+        historical: None,
+        foreign_tasks: Vec::new(),
+        unmodelled_reason: None,
     }]
 }
 
