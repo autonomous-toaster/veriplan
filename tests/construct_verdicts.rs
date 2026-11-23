@@ -51,6 +51,12 @@ const MODELS: &[(&str, Option<usize>)] = &[
     ("twofield_message.pml", Some(0)),
     // The oracle for run(): the process count is named while a child is alive, and the control claims one
     // process instead of two. Both are refused today, so neither asserts yet.
+    // Arrays and indexed process instantiation decide today. They are here because a histogram bucket
+    // labelled "array" turned out to name the item containing a failure rather than the construct, and a
+    // regression in either would otherwise be visible only as a refused shipped example.
+    ("array_element.pml", Some(0)),
+    ("array_element_control.pml", Some(1)),
+    ("active_n_proctype.pml", Some(0)),
     ("nrpr_child_alive.pml", Some(0)),
     ("nrpr_child_count_off.pml", Some(1)),
     ("evalrecv_waits.pml", Some(1)),
