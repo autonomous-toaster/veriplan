@@ -56,6 +56,11 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // regression in either would otherwise be visible only as a refused shipped example.
     // Two declarators in one statement inside a body: pan accepts, the parser stops at the comma.
     // mtype numbering: values start at 1 and run in reverse declaration order, so a = 3 for { a, b, c }.
+    // A process looping through a label whose two assignments a second process can observe between. This
+    // pair did NOT reproduce the reduction unsoundness found in ex_3c - both members decide 1 at v0.5.23 and
+    // at v0.5.24, though the explored-state counts differ - so it is a coarse guard on the verdict only.
+    ("goto_loop_partial.pml", Some(1)),
+    ("goto_loop_control.pml", Some(1)),
     ("mtype_numbering.pml", Some(0)),
     ("mtype_numbering_control.pml", Some(1)),
     // Refused since v0.5.21 - an empty state space is an error whatever claims are present - so it no
