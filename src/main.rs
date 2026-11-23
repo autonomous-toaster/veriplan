@@ -177,58 +177,73 @@ fn is_veriplan_disabled() -> bool {
 
 #[cfg(test)]
 mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
+
+    /// Every test here writes the same process-wide variable, so one test's value is another's reading.
+    /// Serialising them is what makes this module trustworthy under cargo's default parallelism.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn test_disabled_unset() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::remove_var("VERIPLAN_DISABLE") };
         assert!(!is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_empty() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "") };
         assert!(!is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_zero() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "0") };
         assert!(!is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_false() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "false") };
         assert!(!is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_no() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "no") };
         assert!(!is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_one() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "1") };
         assert!(is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_true() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "true") };
         assert!(is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_yes() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "yes") };
         assert!(is_veriplan_disabled());
     }
 
     #[test]
     fn test_disabled_arbitrary() {
+        let _guard = ENV_LOCK.lock().unwrap();
         unsafe { std::env::set_var("VERIPLAN_DISABLE", "anything") };
         assert!(is_veriplan_disabled());
     }

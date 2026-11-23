@@ -9,9 +9,37 @@ use veriplan::input;
 
 use crate::cli;
 
-/// Drive a single `veriplan check` run: resolve input, verify, optionally
-/// apply `--fix`, render, and set the process exit code.
+/// The output format, refusing an unknown one rather than silently printing human.
+fn resolve_format(format: Option<&str>) -> anyhow::Result<&str> {
+    match format.unwrap_or("human") {
+        v @ ("openspec" | "human" | "json") => Ok(v),
+        other => anyhow::bail!("unknown format '{}'. Supported formats: openspec", other),
+    }
+}
+
+/// Lax and moderate are explicit flags; strict is what remains.
+fn resolve_strictness(lax: bool, moderate: bool) -> input::StrictnessProfile {
+    if lax {
+        input::StrictnessProfile::Lax
+    } else if moderate {
+        input::StrictnessProfile::Moderate
+    } else {
+        input::StrictnessProfile::Strict
+    }
+}
+
+/// The CLI flag wins over the environment variable; spin is the default.
+fn resolve_backend(checker: Option<String>) -> anyhow::Result<checker::CheckerBackend> {
+    let name = checker
+        .or_else(|| std::env::var("VERIPLAN_CHECKER").ok())
+        .unwrap_or_else(|| "spin".to_string());
+    name.parse::<checker::CheckerBackend>()
+        .map_err(|e| anyhow::anyhow!("{}", e))
+}
+
 #[allow(clippy::too_many_arguments)]
+/// Drive a single `veriplan check` run: resolve input, verify, optionally apply `--fix`, render,
+/// and set the process exit code.
 pub(crate) fn run_check(
     change_name: Option<String>,
     phase: Option<&str>,
@@ -26,32 +54,10 @@ pub(crate) fn run_check(
     compare: bool,
     fix: bool,
 ) -> anyhow::Result<()> {
-    // Validate plan format if provided
-    let format_val = format.unwrap_or("human");
-    if format_val != "openspec" && format_val != "human" && format_val != "json" {
-        anyhow::bail!(
-            "unknown format '{}'. Supported formats: openspec",
-            format_val
-        );
-    }
-
-    // Resolve strictness profile
-    let strictness = if lax {
-        input::StrictnessProfile::Lax
-    } else if moderate {
-        input::StrictnessProfile::Moderate
-    } else {
-        input::StrictnessProfile::Strict // default
-    };
-
-    // Resolve checker backend: CLI flag overrides env var, default is spin
-    let backend_str = checker
-        .or_else(|| std::env::var("VERIPLAN_CHECKER").ok())
-        .unwrap_or_else(|| "spin".to_string());
-    let backend = backend_str
-        .parse::<checker::CheckerBackend>()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
+    // Validated here so an unknown format fails before any work is done; the value is read below.
+    resolve_format(format)?;
+    let strictness = resolve_strictness(lax, moderate);
+    let backend = resolve_backend(checker)?;
     let project_root = std::env::current_dir()?;
 
     // Resolve input source
@@ -133,75 +139,23 @@ pub(crate) fn run_check(
     // `--fix`: apply machine-applicable (`local`) findings, then revalidate
     // (design D3, task 6.3). Structural/judgment findings are left as
     // suggestions.
-    if fix {
-        let all_findings = annotator::findings(&result, &annotated);
-        // Resolve the change directory for relative file paths.
-        let base_dir = match &source {
-            input::InputSource::OpenSpec { change_dir, .. } => change_dir.clone(),
-            input::InputSource::Directory { path, .. } => path.clone(),
-            input::InputSource::SingleFile { path } => path
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
-            _ => std::env::current_dir().unwrap_or_default(),
-        };
-        let fix_report = veriplan::fix::fix_plan(&plan, &all_findings, &base_dir);
-        if !fix_report.applied.is_empty() {
-            println!(
-                "Applied {} machine-applicable fix(es):",
-                fix_report.applied.len()
-            );
-            for e in &fix_report.applied {
-                println!("  - [{}] {}", e.kind, e.description);
-            }
-            // Revalidate the plan after applying edits.
-            let reloaded = input::load_plan(&source).map_err(|e| anyhow::anyhow!("{}", e))?;
-            let re_result = checker::verify_with_strictness(
-                &reloaded,
-                &label,
-                no_model,
-                pre_commit,
-                strictness,
-                is_openspec,
-                backend,
-            );
-            let re_annotated =
-                annotator::annotate(&re_result, &[(label.clone(), reloaded.clone())]);
-            match format.unwrap_or("human") {
-                "json" => println!(
-                    "{}",
-                    annotator::format_json(
-                        &re_result,
-                        &re_annotated,
-                        &[(label, reloaded)],
-                        verbose
-                    )
-                ),
-                _ => print!(
-                    "{}",
-                    annotator::format_human(
-                        &re_result,
-                        &re_annotated,
-                        &[(label, reloaded.clone())],
-                        verbose
-                    )
-                ),
-            }
-            let _ = std::io::stdout().flush();
-            let _ = std::io::stderr().flush();
-            if !re_result.convertible {
-                cli::flush_exit(2);
-            } else if re_result.valid == Some(false) {
-                cli::flush_exit(1);
-            }
-            return Ok(());
-        }
-        if !fix_report.left_as_suggestions.is_empty() {
-            println!(
-                "{} finding(s) left as suggestions (structural/judgment):",
-                fix_report.left_as_suggestions.len()
-            );
-        }
+    if fix
+        && apply_fixes(
+            &source,
+            &plan,
+            &result,
+            &annotated,
+            &label,
+            no_model,
+            pre_commit,
+            strictness,
+            is_openspec,
+            backend,
+            format.unwrap_or("human"),
+            verbose,
+        )?
+    {
+        return Ok(());
     }
 
     match format.unwrap_or("human") {
@@ -219,54 +173,128 @@ pub(crate) fn run_check(
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
 
-    // Exit codes depend on mode:
-    //   Normal:      0 = valid, 1 = violations, 2 = not convertible / missing SPIN
-    //   Pre-commit:  0 = valid/warnings/missing-SPIN, 1 = blockers/violations
-    if !result.convertible {
-        if pre_commit {
-            // In pre-commit mode, blockers exit 1 (not 2)
-            eprintln!(
-                "\nCommit blocked. Fix blockers above, or skip with: VERIPLAN_SKIP=1 git commit"
-            );
-            cli::flush_exit(1);
-        } else {
-            cli::flush_exit(2);
-        }
-    } else if result.valid == Some(false) {
-        if pre_commit {
-            eprintln!(
-                "\nCommit blocked. Fix violations above, or skip with: VERIPLAN_SKIP=1 git commit"
-            );
-        }
-        cli::flush_exit(1);
-    } else if result.valid == Some(true)
-        && annotator::findings(&result, &annotated)
-            .iter()
-            .any(|f| f.severity == "blocker")
-    {
-        // Prose blockers (Strict only) are convertible + valid but carry a
-        // `blocker` finding. Exit non-zero so a blocker is a blocker everywhere,
-        // including pre-commit (consistent with other blockers).
-        if pre_commit {
+    let has_blocker = annotator::findings(&result, &annotated)
+        .iter()
+        .any(|f| f.severity == "blocker");
+    if let Some(code) = exit_code(&result, pre_commit, has_blocker) {
+        if pre_commit && code == 1 {
             eprintln!(
                 "\nCommit blocked. Fix blockers above, or skip with: VERIPLAN_SKIP=1 git commit"
             );
         }
-        cli::flush_exit(1);
-    } else if let Some(_reason) = &result.skip_reason {
-        // Missing SPIN or other non-blocking skip: plan is convertible,
-        // just can't model-check. Exit 0 since the plan is valid.
-        return Ok(());
-    } else if no_model
-        && !result
-            .convertibility_report
-            .as_ref()
-            .is_none_or(|r| r.warnings.is_empty())
-    {
-        cli::flush_exit(0);
+        cli::flush_exit(code);
     }
 
     Ok(())
+}
+
+/// The exit code a finished check implies, or None when the run exits zero.
+///
+/// Normal mode distinguishes "not convertible" (2) from "has findings" (1); pre-commit collapses
+/// both onto 1 so a commit is blocked the same way whichever it hit.
+fn exit_code(
+    result: &veriplan::checker::VerificationResult,
+    pre_commit: bool,
+    has_blocker: bool,
+) -> Option<i32> {
+    if !result.convertible {
+        return Some(if pre_commit { 1 } else { 2 });
+    }
+    if result.valid == Some(false) {
+        return Some(1);
+    }
+    if result.valid == Some(true) && has_blocker {
+        return Some(1);
+    }
+    None
+}
+
+/// Apply machine-applicable findings, revalidate and report. Returns true when the run is finished
+/// (fixes were applied) so the caller stops, false when there was nothing to apply.
+#[allow(clippy::too_many_arguments)]
+fn apply_fixes(
+    source: &input::InputSource,
+    plan: &veriplan::ir::PlanIR,
+    result: &checker::VerificationResult,
+    annotated: &[annotator::AnnotatedViolation],
+    label: &str,
+    no_model: bool,
+    pre_commit: bool,
+    strictness: input::StrictnessProfile,
+    is_openspec: bool,
+    backend: checker::CheckerBackend,
+    format: &str,
+    verbose: bool,
+) -> anyhow::Result<bool> {
+    let all_findings = annotator::findings(result, annotated);
+    // Resolve the change directory for relative file paths.
+    let base_dir = match &source {
+        input::InputSource::OpenSpec { change_dir, .. } => change_dir.clone(),
+        input::InputSource::Directory { path, .. } => path.clone(),
+        input::InputSource::SingleFile { path } => path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+        _ => std::env::current_dir().unwrap_or_default(),
+    };
+    let fix_report = veriplan::fix::fix_plan(plan, &all_findings, &base_dir);
+    if !fix_report.applied.is_empty() {
+        println!(
+            "Applied {} machine-applicable fix(es):",
+            fix_report.applied.len()
+        );
+        for e in &fix_report.applied {
+            println!("  - [{}] {}", e.kind, e.description);
+        }
+        // Revalidate the plan after applying edits.
+        let reloaded = input::load_plan(source).map_err(|e| anyhow::anyhow!("{}", e))?;
+        let re_result = checker::verify_with_strictness(
+            &reloaded,
+            label,
+            no_model,
+            pre_commit,
+            strictness,
+            is_openspec,
+            backend,
+        );
+        let re_annotated =
+            annotator::annotate(&re_result, &[(label.to_string(), reloaded.clone())]);
+        match format {
+            "json" => println!(
+                "{}",
+                annotator::format_json(
+                    &re_result,
+                    &re_annotated,
+                    &[(label.to_string(), reloaded)],
+                    verbose
+                )
+            ),
+            _ => print!(
+                "{}",
+                annotator::format_human(
+                    &re_result,
+                    &re_annotated,
+                    &[(label.to_string(), reloaded.clone())],
+                    verbose
+                )
+            ),
+        }
+        let _ = std::io::stdout().flush();
+        let _ = std::io::stderr().flush();
+        if !re_result.convertible {
+            cli::flush_exit(2);
+        } else if re_result.valid == Some(false) {
+            cli::flush_exit(1);
+        }
+        return Ok(true);
+    }
+    if !fix_report.left_as_suggestions.is_empty() {
+        println!(
+            "{} finding(s) left as suggestions (structural/judgment):",
+            fix_report.left_as_suggestions.len()
+        );
+    }
+    Ok(false)
 }
 
 /// Run both backends and compare results.
