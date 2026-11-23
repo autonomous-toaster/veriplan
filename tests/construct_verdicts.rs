@@ -54,6 +54,8 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // Arrays and indexed process instantiation decide today. They are here because a histogram bucket
     // labelled "array" turned out to name the item containing a failure rather than the construct, and a
     // regression in either would otherwise be visible only as a refused shipped example.
+    // Two declarators in one statement inside a body: pan accepts, the parser stops at the comma.
+    ("multi_declarator_body.pml", Some(0)),
     ("array_element.pml", Some(0)),
     ("array_element_control.pml", Some(1)),
     ("active_n_proctype.pml", Some(0)),
