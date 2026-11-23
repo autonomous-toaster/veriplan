@@ -56,6 +56,8 @@ pub fn code_actions_for_diagnostics(
 
 #[cfg(test)]
 mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use lsp_types::{Position, Range, Url};
     use serde_json::json;

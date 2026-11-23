@@ -103,6 +103,8 @@ pub fn fail_var(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::generate_promela;
     use crate::ir::ltl::{LtlCondition, LtlFormula};
     use crate::ir::*;

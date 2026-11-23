@@ -1,5 +1,8 @@
 //! Integration tests for flexible input modes and strictness profiles.
 
+// Tests fail by panicking; the crate denies these three lints for code that ships.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use std::env;
 use std::fs;
 use std::process::Command;

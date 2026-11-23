@@ -9,45 +9,9 @@ pub(crate) fn run_spin_check(
     constraints: &[translator::TranslatedConstraint],
     conv_report: ConvertibilityReport,
 ) -> VerificationResult {
-    let promela = generate_promela(plan, constraints);
-    let promela_path = format!("/tmp/veriplan_{}.pml", plan_name.replace('/', "_"));
-
-    if std::fs::write(&promela_path, &promela).is_err() {
+    let Some(pan_path) = prepare_pan(plan, constraints, plan_name) else {
         return super::bfs::simple_result(plan_name, conv_report, vec![]);
-    }
-
-    // Phase 1: generate verifier source with spin -a (no search run)
-    let promela_dir = std::path::Path::new(&promela_path)
-        .parent()
-        .unwrap_or(std::path::Path::new("/tmp"))
-        .to_path_buf();
-    let _pan_path = promela_dir.join("pan");
-
-    let out_gen = std::process::Command::new("spin")
-        .args(["-a", &promela_path])
-        .current_dir(&promela_dir)
-        .output();
-    let pan_path = promela_dir.join("pan");
-
-    if out_gen.is_err() {
-        return super::bfs::simple_result(plan_name, conv_report, vec![]);
-    }
-
-    // Phase 2: compile pan.c into pan binary
-    let pan_c = promela_dir.join("pan.c");
-    if !pan_c.exists() {
-        return super::bfs::simple_result(plan_name, conv_report, vec![]);
-    }
-
-    let compile = std::process::Command::new("gcc")
-        .args(["-w", "-o", "pan", "pan.c"])
-        .stdin(std::process::Stdio::null())
-        .current_dir(promela_dir.clone())
-        .output();
-
-    if compile.is_err() || !pan_path.exists() {
-        return super::bfs::simple_result(plan_name, conv_report, vec![]);
-    }
+    };
 
     // Phase 2: run pan once per property, named explicitly. A default pan run evaluates
     // only the first claim, so a plan with several properties would be under-reported.
@@ -84,25 +48,7 @@ pub(crate) fn run_spin_check(
 
         let label = format!("p{}", claim_index);
         claim_index += 1;
-        let has_liveness = c.ltl_string().contains("<>");
-        let mut pan_args = vec!["-N", &label, "-n"];
-        if has_liveness {
-            pan_args.push("-a");
-        }
-
-        let output = super::bfs::timeout_command(&pan_path, &pan_args, 5);
-        let outcome = match output {
-            Ok(out) => {
-                let combined = format!(
-                    "{}\n{}",
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                );
-                pan_outcome(&combined)
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => PanOutcome::Unchecked,
-            Err(_) => PanOutcome::Unchecked,
-        };
+        let outcome = run_one_claim(&pan_path, &label, c.ltl_string().contains("<>"));
 
         let (is_satisfied, is_unchecked) = match outcome {
             PanOutcome::Passed => {
@@ -185,6 +131,65 @@ pub(crate) fn run_spin_check(
     }
 }
 
+/// Write the model, generate the verifier with `spin -a` and compile it, returning the `pan` binary.
+///
+/// None means the toolchain could not produce a checker, which is the same "no verdict" the caller
+/// already reports for a missing engine.
+fn prepare_pan(
+    plan: &PlanIR,
+    constraints: &[translator::TranslatedConstraint],
+    plan_name: &str,
+) -> Option<std::path::PathBuf> {
+    let promela = generate_promela(plan, constraints);
+    let promela_path = format!("/tmp/veriplan_{}.pml", plan_name.replace('/', "_"));
+    std::fs::write(&promela_path, &promela).ok()?;
+
+    let dir = std::path::Path::new(&promela_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("/tmp"))
+        .to_path_buf();
+    std::process::Command::new("spin")
+        .args(["-a", &promela_path])
+        .current_dir(&dir)
+        .output()
+        .ok()?;
+
+    if !dir.join("pan.c").exists() {
+        return None;
+    }
+    std::process::Command::new("gcc")
+        .args(["-w", "-o", "pan", "pan.c"])
+        .stdin(std::process::Stdio::null())
+        .current_dir(dir.clone())
+        .output()
+        .ok()?;
+
+    let pan = dir.join("pan");
+    pan.exists().then_some(pan)
+}
+
+/// Run one claim and say what the run established.
+///
+/// A liveness claim needs the acceptance-cycle search; a safety claim does not, and asking for it
+/// would cost the whole state space for nothing.
+fn run_one_claim(pan_path: &std::path::Path, label: &str, has_liveness: bool) -> PanOutcome {
+    let mut args = vec!["-N", label, "-n"];
+    if has_liveness {
+        args.push("-a");
+    }
+    match super::bfs::timeout_command(pan_path, &args, 5) {
+        Ok(out) => {
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            pan_outcome(&combined)
+        }
+        Err(_) => PanOutcome::Unchecked,
+    }
+}
+
 /// Whether pan's summary reports a refutation. Any non-zero error count counts.
 pub(crate) fn pan_found_error(combined: &str) -> bool {
     int_after(combined, "errors:")
@@ -247,4 +252,48 @@ fn int_before(hay: &str, marker: &str) -> Option<usize> {
         .rev()
         .collect();
     digits.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+
+    /// Every count above zero is a refutation, not only the ones a hand-written match would name.
+    #[test]
+    fn any_error_count_refutes() {
+        for n in [1, 2, 3, 17] {
+            let text = format!("pan: wrote foo.trail\nerrors: {n}\n");
+            assert!(
+                matches!(pan_outcome(&text), PanOutcome::Violated),
+                "errors: {n}"
+            );
+        }
+    }
+
+    /// A run that stopped early examined less than the state space, so it decides nothing.
+    #[test]
+    fn an_incomplete_search_is_unchecked() {
+        for marker in ["Search not completed", "depth limit reached"] {
+            assert!(
+                matches!(pan_outcome(marker), PanOutcome::Unchecked),
+                "{marker}"
+            );
+        }
+    }
+
+    /// A single state with no transitions is pan running without checking anything.
+    #[test]
+    fn a_single_state_with_no_transitions_is_empty() {
+        let text = "errors: 0\n\t1 states, stored\n\t     0 transitions\n";
+        assert!(matches!(pan_outcome(text), PanOutcome::Empty));
+    }
+
+    /// Otherwise the search closed and the claim held.
+    #[test]
+    fn a_closed_search_passes() {
+        let text = "errors: 0\n\t8 states, stored\n\t    11 transitions\n";
+        assert!(matches!(pan_outcome(text), PanOutcome::Passed));
+    }
 }

@@ -196,6 +196,8 @@ fn yaml_merge(
 
 #[cfg(test)]
 mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use std::collections::BTreeMap;
 
@@ -377,5 +379,21 @@ mod tests {
         let content = std::fs::read_to_string(&gitignore).unwrap();
         assert!(content.contains("target/"));
         assert!(content.contains("veriplan init"));
+    }
+
+    /// The whole entry point, not only its helpers: init prepares openspec/, merges the config and adds the
+    /// trail-file entries to .gitignore, and running it twice must merge rather than fail.
+    #[test]
+    fn run_init_writes_config_and_gitignore_twice_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        run_init(Some(root)).unwrap();
+        assert!(dir.path().join("openspec/config.yaml").exists());
+        assert!(dir.path().join(".gitignore").exists());
+        run_init(Some(root)).unwrap();
+        let config = std::fs::read_to_string(dir.path().join("openspec/config.yaml")).unwrap();
+        assert!(config.contains("machine-verified"));
+        let ignore = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(ignore.contains("veriplan init"));
     }
 }

@@ -246,6 +246,8 @@ fn parse_property_index(name: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
 
     /// A claim the engine both refuted and reported as not fully explored is decided. The

@@ -56,99 +56,104 @@ pub enum Kind {
     ProseOther,
 }
 
+/// Every kind with the identifier it reports and any accepted aliases.
+///
+/// One table, two derived functions: a kind's identifier and a name's kind cannot drift
+/// apart if both are read from this list. An alias is a spelling a check may still emit.
+pub const KIND_NAMES: &[(Kind, &str, &[&str])] = &[
+    (Kind::NoTasks, "no_tasks", &[]),
+    (Kind::DuplicateTaskId, "duplicate_task_id", &[]),
+    (Kind::NoRequirements, "no_requirements", &[]),
+    (Kind::NoPhaseGrouping, "no_phase_grouping", &[]),
+    (Kind::NoRfc2119Keyword, "no_rfc2119_keyword", &[]),
+    (Kind::NoRfc2119Any, "no_rfc2119_any", &[]),
+    (Kind::BadTaskReference, "bad_task_reference", &[]),
+    (Kind::BareCapability, "bare_capability", &[]),
+    (Kind::VagueAction, "vague_action", &[]),
+    (Kind::VagueQuality, "vague_quality", &[]),
+    (
+        Kind::UnknownNonFormalizable,
+        "unknown_non_formalizable",
+        &[],
+    ),
+    (Kind::PatternMultiClause, "pattern_multi_clause", &[]),
+    (Kind::PatternUngrounded, "pattern_ungrounded", &[]),
+    (Kind::NoFormalizable, "no_formalizable", &[]),
+    (
+        Kind::GroundingMultiKeyword,
+        "grounding_multi_keyword",
+        &["grounding_ambiguous_multi_keyword"],
+    ),
+    (Kind::GroundingAmbiguous, "grounding_ambiguous", &[]),
+    (Kind::GroundingUngroundable, "grounding_ungroundable", &[]),
+    (Kind::GroundingAbsentTask, "grounding_absent_task", &[]),
+    (Kind::GroundingHistorical, "grounding_historical", &[]),
+    (Kind::GroundingMixed, "grounding_mixed", &[]),
+    (Kind::GroundingIncomplete, "grounding_incomplete", &[]),
+    (Kind::GroundingContradictory, "grounding_contradictory", &[]),
+    (Kind::ScenarioNoWhen, "scenario_no_when", &[]),
+    (Kind::ScenarioNoThen, "scenario_no_then", &[]),
+    (Kind::ThenNoShall, "then_no_shall", &[]),
+    (Kind::TaskNotCovered, "task_not_covered", &[]),
+    (Kind::LowDiversity, "low_diversity", &[]),
+    (Kind::MayRequirement, "may_requirement", &[]),
+    (
+        Kind::InformationalRequirement,
+        "informational_requirement",
+        &[],
+    ),
+    (
+        Kind::ViolationSequential,
+        "violation_sequential",
+        &["SequentialOrder"],
+    ),
+    (
+        Kind::ViolationConcurrent,
+        "violation_concurrent",
+        &["ConcurrentEvents"],
+    ),
+    (
+        Kind::ViolationConditional,
+        "violation_conditional",
+        &["Conditional"],
+    ),
+    (
+        Kind::ViolationExclusive,
+        "violation_exclusive",
+        &["Exclusive"],
+    ),
+    (Kind::ViolationGlobal, "violation_global", &["Global"]),
+    (
+        Kind::ViolationFixedTime,
+        "violation_fixed_time",
+        &["FixedTime"],
+    ),
+    (Kind::ProseSlopWord, "prose_slop_word", &["SlopWord"]),
+    (Kind::ProseOther, "prose_other", &[]),
+];
+
 impl Kind {
     /// The stable string identifier for this kind.
     pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::NoTasks => "no_tasks",
-            Self::DuplicateTaskId => "duplicate_task_id",
-            Self::NoRequirements => "no_requirements",
-            Self::NoPhaseGrouping => "no_phase_grouping",
-            Self::NoRfc2119Keyword => "no_rfc2119_keyword",
-            Self::NoRfc2119Any => "no_rfc2119_any",
-            Self::BadTaskReference => "bad_task_reference",
-            Self::BareCapability => "bare_capability",
-            Self::VagueAction => "vague_action",
-            Self::VagueQuality => "vague_quality",
-            Self::UnknownNonFormalizable => "unknown_non_formalizable",
-            Self::PatternMultiClause => "pattern_multi_clause",
-            Self::PatternUngrounded => "pattern_ungrounded",
-            Self::NoFormalizable => "no_formalizable",
-            Self::GroundingMultiKeyword => "grounding_multi_keyword",
-            Self::GroundingAmbiguous => "grounding_ambiguous",
-            Self::GroundingUngroundable => "grounding_ungroundable",
-            Self::GroundingAbsentTask => "grounding_absent_task",
-            Self::GroundingHistorical => "grounding_historical",
-            Self::GroundingMixed => "grounding_mixed",
-            Self::GroundingIncomplete => "grounding_incomplete",
-            Self::GroundingContradictory => "grounding_contradictory",
-            Self::ScenarioNoWhen => "scenario_no_when",
-            Self::ScenarioNoThen => "scenario_no_then",
-            Self::ThenNoShall => "then_no_shall",
-            Self::TaskNotCovered => "task_not_covered",
-            Self::LowDiversity => "low_diversity",
-            Self::MayRequirement => "may_requirement",
-            Self::InformationalRequirement => "informational_requirement",
-            Self::ViolationSequential => "violation_sequential",
-            Self::ViolationConcurrent => "violation_concurrent",
-            Self::ViolationConditional => "violation_conditional",
-            Self::ViolationExclusive => "violation_exclusive",
-            Self::ViolationGlobal => "violation_global",
-            Self::ViolationFixedTime => "violation_fixed_time",
-            Self::ProseSlopWord => "prose_slop_word",
-            Self::ProseOther => "prose_other",
-        }
+        KIND_NAMES
+            .iter()
+            .find(|(kind, _, _)| kind == self)
+            .map_or("prose_other", |(_, name, _)| *name)
     }
 }
 
 /// Map a `check`/`category` value to its curated [`Kind`] (design D2).
 ///
-/// `kind` is a pure function of the problem identifier and never encodes
-/// severity, so it is stable across strictness profiles.
+/// `kind` is a pure function of the problem identifier and never encodes severity, so it is
+/// stable across strictness profiles. Both the snake_case check name and the CamelCase category
+/// name are accepted, because callers supply whichever they have.
 pub fn kind_of(check_or_category: &str) -> Kind {
-    match check_or_category {
-        "no_tasks" => Kind::NoTasks,
-        "duplicate_task_id" => Kind::DuplicateTaskId,
-        "no_requirements" => Kind::NoRequirements,
-        "no_phase_grouping" => Kind::NoPhaseGrouping,
-        "no_rfc2119_keyword" => Kind::NoRfc2119Keyword,
-        "no_rfc2119_any" => Kind::NoRfc2119Any,
-        "bad_task_reference" => Kind::BadTaskReference,
-        "bare_capability" => Kind::BareCapability,
-        "vague_action" => Kind::VagueAction,
-        "vague_quality" => Kind::VagueQuality,
-        "unknown_non_formalizable" => Kind::UnknownNonFormalizable,
-        "pattern_multi_clause" => Kind::PatternMultiClause,
-        "pattern_ungrounded" => Kind::PatternUngrounded,
-        "no_formalizable" => Kind::NoFormalizable,
-        "grounding_ambiguous_multi_keyword" | "grounding_multi_keyword" => {
-            Kind::GroundingMultiKeyword
-        }
-        "grounding_ambiguous" => Kind::GroundingAmbiguous,
-        "grounding_ungroundable" => Kind::GroundingUngroundable,
-        "grounding_absent_task" => Kind::GroundingAbsentTask,
-        "grounding_historical" => Kind::GroundingHistorical,
-        "grounding_mixed" => Kind::GroundingMixed,
-        "grounding_incomplete" => Kind::GroundingIncomplete,
-        "grounding_contradictory" => Kind::GroundingContradictory,
-        "scenario_no_when" => Kind::ScenarioNoWhen,
-        "scenario_no_then" => Kind::ScenarioNoThen,
-        "then_no_shall" => Kind::ThenNoShall,
-        "task_not_covered" => Kind::TaskNotCovered,
-        "low_diversity" => Kind::LowDiversity,
-        "may_requirement" => Kind::MayRequirement,
-        "informational_requirement" => Kind::InformationalRequirement,
-        "SequentialOrder" => Kind::ViolationSequential,
-        "ConcurrentEvents" => Kind::ViolationConcurrent,
-        "Conditional" => Kind::ViolationConditional,
-        "Exclusive" => Kind::ViolationExclusive,
-        "Global" => Kind::ViolationGlobal,
-        "FixedTime" => Kind::ViolationFixedTime,
-        "SlopWord" => Kind::ProseSlopWord,
-        // Prose rules use steve's slashed ids (e.g. "verb/passive") or the
-        // bare rule name; any unknown value is a prose/other finding.
-        _ => Kind::ProseOther,
-    }
+    KIND_NAMES
+        .iter()
+        .find(|(_, name, aliases)| {
+            *name == check_or_category || aliases.contains(&check_or_category)
+        })
+        .map_or(Kind::ProseOther, |(kind, _, _)| *kind)
 }
 
 #[cfg(test)]

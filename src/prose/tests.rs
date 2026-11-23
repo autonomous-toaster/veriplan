@@ -1,3 +1,6 @@
+// Tests fail by panicking; the crate denies these three lints for code that ships.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 use crate::ir::{
     PlanIR, Requirement, Rfc2119Strength, Scenario, ScenarioStep, SourceLocation, StepKind, Task,

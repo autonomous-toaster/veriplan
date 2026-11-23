@@ -395,3 +395,7 @@ pub(crate) fn simple_result(
 #[cfg(test)]
 #[path = "bfs_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "bfs_model_tests.rs"]
+mod model_tests;

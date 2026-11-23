@@ -1,3 +1,6 @@
+// Tests fail by panicking; the crate denies these three lints for code that ships.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 mod tests {
     use crate::checker::checks::*;
     use crate::ir::*;
@@ -250,7 +253,6 @@ mod tests {
 
 #[test]
 fn informational_requirement_does_not_block() {
-    use crate::input::StrictnessProfile;
     use crate::ir::*;
     use crate::parser::extract_shall_statement;
 

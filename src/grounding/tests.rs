@@ -1,3 +1,6 @@
+// Tests fail by panicking; the crate denies these three lints for code that ships.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use crate::grounding::{check_grounding, signature_from_planir};
 use crate::input::StrictnessProfile;
 use crate::ir::*;
@@ -331,7 +334,7 @@ fn split_constraint_clauses_does_not_split_mid_sentence() {
     let clauses = split_constraint_clauses(stmt);
     // First sentence has no task ref start, so it stays with... actually the
     // second sentence starts with T2.1, so it should split into two.
-    assert!(clauses.len() >= 1);
+    assert!(!clauses.is_empty());
     // Verify the second clause is the task-ID one.
     assert!(
         clauses.last().unwrap().starts_with("T2.1"),

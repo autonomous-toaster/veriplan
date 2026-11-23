@@ -99,6 +99,8 @@ fn keyword_item(label: &str, detail: &str, insert: &str) -> CompletionItem {
 
 #[cfg(test)]
 mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use crate::ir::*;
 

@@ -262,10 +262,12 @@ pub fn explore_node<'a>(node: &tree_sitter::Node<'a>, source: &'a [u8], indent: 
 
 #[cfg(test)]
 mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     /// A scenario step carries its own line in the file, not an index into the body.
     #[test]
     fn step_source_is_file_absolute() {
-        let lines = vec![
+        let lines = [
             "T1.1 SHALL complete BEFORE T1.2 SHALL start.",
             "",
             "#### Scenario: s",

@@ -6,6 +6,9 @@
 //! changes and assert the verdict (convertible/valid, blocker kinds) is
 //! correct for each.
 
+// Tests fail by panicking; the crate denies these three lints for code that ships.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;

@@ -1,5 +1,8 @@
 //! Integration tests for multi-change check behavior.
 
+// Tests fail by panicking; the crate denies these three lints for code that ships.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;

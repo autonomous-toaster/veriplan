@@ -1,6 +1,9 @@
 //! Integration tests for prose-guidance (curated steve rules) and its
 //! correlation with grounding.
 
+// Tests fail by panicking; the crate denies these three lints for code that ships.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use std::process::Command;
 
 fn veriplan_bin() -> String {
