@@ -53,7 +53,11 @@ fn check_item_to_finding(item: &CheckItem) -> Finding {
         fixability: item.fixability,
         op: item.op,
         requirement_id: extract_requirement_id(&item.element),
-        advisory: item.severity == "info" || item.kind == crate::ir::Kind::ProseOther,
+        // No model formula backs a convertibility or prose finding. The flag describes the
+        // model, so a prose blocker keeps `advisory: true` and still blocks the verdict.
+        advisory: true,
+        element: item.element.clone(),
+        excerpt: item.excerpt.clone(),
     }
 }
 /// Convert an annotated model-check violation to a `Finding`.
@@ -82,6 +86,8 @@ fn violation_to_finding(v: &AnnotatedViolation) -> Finding {
         op: v.violation.op,
         requirement_id: Some(v.violation.constraint_id.clone()),
         advisory: false,
+        element: v.violation.constraint_id.clone(),
+        excerpt: None,
     }
 }
 /// Parse a "file:line" location string into (file, line).
@@ -102,10 +108,20 @@ fn extract_requirement_id(element: &str) -> Option<String> {
 }
 /// Group identical findings by `kind` for compact human output (design D6).
 /// Returns a list of (count, representative finding).
-pub fn group_by_kind(findings: &[Finding]) -> Vec<(usize, &Finding)> {
+/// Group findings that prescribe one remedy, keeping one true member of each group.
+///
+/// Grouping by `kind` alone treated two findings as interchangeable when they named different
+/// sites, and then printed one member's location for the whole group — a substitution that
+/// deleted the other members from the report. A group is now a summary of members that share
+/// a remedy, and the members it does not print are counted, never described.
+pub fn group_by_remedy(findings: &[Finding]) -> Vec<(usize, &Finding)> {
     let mut groups: Vec<(usize, &Finding)> = Vec::new();
     for f in findings {
-        if let Some((count, _)) = groups.iter_mut().find(|(_, g)| g.kind == f.kind) {
+        let remedy = f.suggestion.as_deref().unwrap_or(&f.message);
+        let same = groups.iter_mut().find(|(_, g)| {
+            g.kind == f.kind && g.suggestion.as_deref().unwrap_or(&g.message) == remedy
+        });
+        if let Some((count, _)) = same {
             *count += 1;
         } else {
             groups.push((1, f));
@@ -218,34 +234,67 @@ pub fn format_human(
 
     output
 }
-/// Render findings, grouping identical ones by `kind` at default verbosity and
-/// expanding them under `--verbose` (design D6).
+/// Render findings. A report holding one finding shows the whole identity; a report holding
+/// several shows one line per kind and remedy (design D6). `--verbose` lists every finding.
 fn format_findings(output: &mut String, all_findings: &[Finding], verbose: bool) {
-    if verbose {
-        // Expand every finding individually.
+    if verbose || all_findings.len() == 1 {
         for f in all_findings {
-            output.push_str(&format!(
-                "  [{}] {} at {}:{} — {}\n",
-                f.severity.to_uppercase(),
-                f.kind,
-                f.file,
-                f.line,
-                f.message
-            ));
-            if let Some(s) = &f.suggestion {
-                output.push_str(&format!("        Fix: {}\n", s));
-            }
+            format_one(output, f);
         }
         return;
     }
-    // Default: group identical findings by `kind` ("N× <kind>: <rephrase>").
-    let groups = group_by_kind(all_findings);
-    for (count, f) in groups {
-        let rephrase = f.suggestion.as_deref().unwrap_or(&f.message);
+    for (count, f) in group_by_remedy(all_findings) {
+        let remedy = f.suggestion.as_deref().unwrap_or(&f.message);
+        let pointer = pointer_of(f);
+        let mut line = format!("  {}× {}: {}", count, f.kind, remedy);
+        if !pointer.is_empty() {
+            line.push_str(&format!("  {pointer}"));
+        }
+        if count > 1 {
+            line.push_str(&format!("  +{} more (--verbose)", count - 1));
+        }
+        output.push_str(&line);
+        output.push('\n');
+    }
+}
+
+/// One finding, with the element that owns the finding and the offending text.
+fn format_one(output: &mut String, f: &Finding) {
+    let pointer = pointer_of(f);
+    if pointer.is_empty() {
+        output.push_str(&format!("  [{}] {}\n", f.severity.to_uppercase(), f.kind));
+    } else {
         output.push_str(&format!(
-            "  {}× {}: {} (e.g. {}:{})\n",
-            count, f.kind, rephrase, f.file, f.line
+            "  [{}] {}  {}\n",
+            f.severity.to_uppercase(),
+            f.kind,
+            pointer
         ));
+    }
+    if !f.element.is_empty() {
+        output.push_str(&format!("    {}\n", f.element));
+    }
+    output.push_str(&format!("    {}\n", f.message));
+    if let Some(excerpt) = &f.excerpt
+        && !excerpt.trim().is_empty()
+    {
+        output.push_str(&format!("    \"{}\"\n", excerpt.trim()));
+    }
+    if let Some(s) = &f.suggestion {
+        output.push_str(&format!("        Fix: {}\n", s));
+    }
+}
+
+/// `path:line`, or empty when the finding carries no address. A plan-scoped kind has no
+/// single site, so a pointer would name a place the finding is not about.
+fn pointer_of(f: &Finding) -> String {
+    if f.file.is_empty() || crate::ir::kind_of(&f.kind).arity() == crate::ir::Arity::Plan {
+        return String::new();
+    }
+    if f.line == 0 {
+        f.file.clone()
+    } else {
+        format!("{}:{}", f.file, f.line)
     }
 }
 fn status_label(

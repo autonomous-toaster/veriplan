@@ -341,6 +341,7 @@ pub fn verify_with_strictness(
             // onto the emitted CheckItem and tag prose findings advisory
             // (design D7 / task 4.4). Prose findings never block.
             let item = crate::ir::CheckItem {
+                excerpt: Some(f.snippet.clone()),
                 severity: f.severity.clone(),
                 check: f.rule.clone(),
                 element: f.element.clone(),

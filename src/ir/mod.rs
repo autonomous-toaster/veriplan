@@ -172,6 +172,9 @@ pub struct CheckItem {
     pub location: String,
     pub detail: String,
     pub fix: Option<String>,
+    /// The offending text, when the constructor had it in hand. The formatter renders it and
+    /// never reconstructs it from a location.
+    pub excerpt: Option<String>,
     /// The curated problem kind (stable across strictness).
     pub kind: Kind,
     /// The remedy this finding prescribes (drives `--fix`).
@@ -235,7 +238,7 @@ pub enum Op {
 }
 
 mod kind;
-pub use kind::{Kind, kind_of};
+pub use kind::{Arity, Kind, kind_of};
 /// A canonical, machine-readable finding (design D1).
 ///
 /// This is the unified output contract shared by convertibility blockers,
@@ -272,8 +275,15 @@ pub struct Finding {
     pub op: Op,
     /// The requirement this finding belongs to, if any.
     pub requirement_id: Option<String>,
-    /// Whether this finding is advisory (prose) and never blocks.
+    /// Whether no model formula backs this finding. This flag describes the model, not the
+    /// consequence: a prose finding that blocks the verdict still reports `advisory: true`.
     pub advisory: bool,
+    /// The element that owns the finding (requirement, scenario step, task). Empty for a
+    /// plan-scoped finding.
+    pub element: String,
+    /// The offending text, when the constructor had it in hand. The formatter renders it and
+    /// never reconstructs it from a location.
+    pub excerpt: Option<String>,
 }
 
 /// Feedback report from the convertibility check.

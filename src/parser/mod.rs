@@ -31,7 +31,11 @@ pub fn parse_plan(change_dir: &Path) -> Result<PlanIR, String> {
 
     let tasks_source =
         std::fs::read_to_string(&tasks_path).map_err(|e| format!("Cannot read tasks.md: {}", e))?;
-    let (tasks, phases) = parse_tasks(&mut parser_instance, &tasks_source, &tasks_path)?;
+    let (tasks, phases) = parse_tasks(
+        &mut parser_instance,
+        &tasks_source,
+        &helpers::display_path(&tasks_path, change_dir),
+    )?;
 
     let mut requirements = Vec::new();
     let mut scenarios = Vec::new();
@@ -48,7 +52,7 @@ pub fn parse_plan(change_dir: &Path) -> Result<PlanIR, String> {
             let (reqs, standalone_scenarios) = parse_spec(
                 &mut parser_instance,
                 &source,
-                &spec_file.path,
+                &helpers::display_path(&spec_file.path, change_dir),
                 &spec_file.capability,
             )?;
             requirements.extend(reqs);
@@ -124,7 +128,7 @@ fn explore_tree<'a>(
 pub fn parse_tasks(
     parser: &mut tree_sitter::Parser,
     source: &str,
-    path: &Path,
+    file: &str,
 ) -> Result<(Vec<crate::ir::Task>, Vec<crate::ir::Phase>), String> {
     let tree = parser
         .parse(source, None)
@@ -139,7 +143,6 @@ pub fn parse_tasks(
         std::collections::HashMap::new();
     let mut concurrent_phases: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let file_name = helpers::file_name_str(path);
     let bytes = source.as_bytes();
 
     let mut cursor = root.walk();
@@ -199,7 +202,7 @@ pub fn parse_tasks(
                         let (id, desc) = helpers::extract_task_id(text);
                         if !id.is_empty() {
                             let loc = crate::ir::SourceLocation {
-                                file: file_name.clone(),
+                                file: file.to_string(),
                                 start_byte: node.byte_range().start,
                                 end_byte: node.byte_range().end,
                                 start_line: helpers::find_line_for_byte(
@@ -264,7 +267,7 @@ pub fn parse_tasks(
 pub fn parse_spec(
     parser: &mut tree_sitter::Parser,
     source: &str,
-    path: &Path,
+    file: &str,
     capability: &str,
 ) -> Result<(Vec<crate::ir::Requirement>, Vec<Scenario>), String> {
     let tree = parser
@@ -275,7 +278,6 @@ pub fn parse_spec(
     let mut requirements = Vec::new();
     let mut standalone_scenarios = Vec::new();
 
-    let file_name = helpers::file_name_str(path);
     let bytes = source.as_bytes();
 
     let mut cursor = root.walk();
@@ -315,9 +317,10 @@ pub fn parse_spec(
         // Find the body paragraphs after this heading
         let mut body = String::new();
         let mut end_line = start_line;
-        // File line of the body's first line. Scenario steps are located relative to it,
-        // because a body index is not a file line.
+        // File position of the body's first line. The requirement source and every prose
+        // anchor point here, because the heading line does not hold the statement.
         let mut body_start_line: Option<usize> = None;
+        let mut body_start_byte: Option<usize> = None;
 
         let mut sibling = node.next_sibling();
         while let Some(sib) = sibling {
@@ -328,6 +331,7 @@ pub fn parse_spec(
                     if body.is_empty() {
                         body_start_line =
                             Some(helpers::find_line_for_byte(source, sib.byte_range().start));
+                        body_start_byte = Some(sib.byte_range().start);
                     } else {
                         body.push('\n');
                     }
@@ -335,18 +339,18 @@ pub fn parse_spec(
                     end_line = helpers::find_line_for_byte(source, sib.byte_range().end);
                 }
             } else if sib.kind() == "section" {
-                // A `section` wraps a level-4 "#### Scenario:" heading and its
-                // step list. Capture its text so extract_scenarios can parse it.
-                if let Ok(text) = helpers::node_text(&sib, bytes) {
-                    if body.is_empty() {
-                        body_start_line =
-                            Some(helpers::find_line_for_byte(source, sib.byte_range().start));
-                    } else {
-                        body.push('\n');
-                    }
-                    body.push_str(text);
-                    end_line = helpers::find_line_for_byte(source, sib.byte_range().end);
+                // A `section` wraps a level-4 "#### Scenario:" heading and its step list.
+                // Parse the scenario from this node, so each step carries the span of its own
+                // block. The joined body cannot address a file line.
+                if let Some(scenario) = helpers::parse_scenario_section(&sib, source, bytes, file) {
+                    standalone_scenarios.push(scenario);
                 }
+                if body_start_line.is_none() {
+                    body_start_line =
+                        Some(helpers::find_line_for_byte(source, sib.byte_range().start));
+                    body_start_byte = Some(sib.byte_range().start);
+                }
+                end_line = helpers::find_line_for_byte(source, sib.byte_range().end);
             } else if sib.kind() == "atx_heading" {
                 // Stop at the next level-3 heading (a new requirement). A
                 // level-4 "#### Scenario:" heading is part of THIS requirement;
@@ -371,7 +375,7 @@ pub fn parse_spec(
             sibling = sib.next_sibling();
         }
 
-        let statement = helpers::extract_shall_statement(&body, &file_name);
+        let statement = helpers::extract_shall_statement(&body, file);
         let strength = helpers::detect_rfc2119(&statement);
         let category = crate::translator::classify(&statement);
 
@@ -388,27 +392,111 @@ pub fn parse_spec(
             ltl: None,
             scenarios: Vec::new(),
             source: crate::ir::SourceLocation {
-                file: file_name.clone(),
-                start_byte: node.byte_range().start,
+                file: file.to_string(),
+                // The body line, not the heading line: a prose finding belongs to the
+                // statement, and the heading describes the heading.
+                start_byte: body_start_byte.unwrap_or(node.byte_range().start),
                 end_byte: node.byte_range().end,
-                start_line,
+                start_line: body_start_line.unwrap_or(start_line),
                 end_line,
             },
         });
-
-        // Extract scenarios from body
-        let body_start = body_start_line.unwrap_or(start_line + 1);
-        let (req_scenarios, _) = helpers::extract_scenarios(&body, bytes, &file_name, body_start);
-        for mut sc in req_scenarios {
-            sc.source.file = file_name.clone();
-            standalone_scenarios.push(sc);
-        }
     });
 
     Ok((requirements, standalone_scenarios))
 }
 
 pub use helpers::{
-    detect_rfc2119, explore_node, extract_scenarios, extract_shall_statement, extract_task_id,
-    file_name_str, find_child, find_line_for_byte, node_text, parse_step,
+    detect_rfc2119, display_path, explore_node, extract_shall_statement, extract_task_id,
+    file_name_str, find_child, find_line_for_byte, node_text, parse_scenario_section, parse_step,
 };
+
+#[cfg(test)]
+mod tests {
+    // Tests fail by panicking; the crate denies these three lints for code that ships.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    fn parser() -> tree_sitter::Parser {
+        let mut p = tree_sitter::Parser::new();
+        let lang = tree_sitter_language_pack::get_language("markdown").unwrap();
+        p.set_language(&lang).unwrap();
+        p
+    }
+
+    const FOUR_SCENARIOS: &str = "## ADDED Requirements
+
+### Requirement: The reader reads
+
+T1.1 SHALL read the file BEFORE T1.2 SHALL write the result.
+
+#### Scenario: The first
+- **WHEN** T1.1 reads
+- **THEN** T1.2 SHALL write
+
+#### Scenario: The second
+- **WHEN** T1.1 reads again
+- **THEN** T1.2 SHALL write again
+
+#### Scenario: The third
+- **WHEN** T1.1 reads a third time
+- **THEN** T1.2 SHALL write a third time
+
+#### Scenario: The fourth
+- **WHEN** T1.1 reads a fourth time
+- **THEN** T1.2 SHALL write a fourth time
+";
+
+    /// A step line is the line of the step in the file. Index arithmetic over the joined
+    /// requirement body drifted by one line for each preceding scenario.
+    #[test]
+    fn every_step_reports_its_own_file_line() {
+        let (reqs, scenarios) =
+            parse_spec(&mut parser(), FOUR_SCENARIOS, "specs/demo/spec.md", "demo").unwrap();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(scenarios.len(), 4);
+
+        let lines: Vec<&str> = FOUR_SCENARIOS.lines().collect();
+        for scenario in &scenarios {
+            let expected: Vec<usize> = scenario.steps.iter().map(|s| s.source.start_line).collect();
+            for (step, line) in scenario.steps.iter().zip(expected) {
+                let text = lines[line - 1];
+                assert!(
+                    text.starts_with("- **"),
+                    "step at line {line} points at {text:?} for step {:?}",
+                    step.text
+                );
+                assert_eq!(step.source.file, "specs/demo/spec.md");
+                assert_eq!(
+                    &FOUR_SCENARIOS[step.source.start_byte..step.source.end_byte],
+                    step.text,
+                    "start/end must address the step text in the file"
+                );
+            }
+        }
+    }
+
+    /// The heading describes the heading. The requirement source is the body line, because
+    /// that is the line that carries the statement a prose finding belongs to.
+    #[test]
+    fn requirement_source_is_the_body_line() {
+        let (reqs, _) =
+            parse_spec(&mut parser(), FOUR_SCENARIOS, "specs/demo/spec.md", "demo").unwrap();
+        assert_eq!(reqs[0].source.start_line, 5);
+        assert_eq!(reqs[0].source.file, "specs/demo/spec.md");
+    }
+
+    /// A path relative to the change directory is unique inside the change; a basename is not.
+    #[test]
+    fn display_path_is_relative_to_the_change() {
+        let base = Path::new("/repo/openspec/changes/demo");
+        assert_eq!(
+            display_path(&base.join("specs/alpha/spec.md"), base),
+            "specs/alpha/spec.md"
+        );
+        assert_eq!(display_path(&base.join("tasks.md"), base), "tasks.md");
+        // No shared prefix: the basename is the fallback.
+        assert_eq!(display_path(Path::new("/elsewhere/x.md"), base), "x.md");
+    }
+}

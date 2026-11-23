@@ -47,6 +47,7 @@ fn make_result(
 fn test_drain_by_severity() {
     let mut items = vec![
         CheckItem {
+            excerpt: None,
             check: "test".into(),
             element: "e1".into(),
             location: "l1".into(),
@@ -61,6 +62,7 @@ fn test_drain_by_severity() {
             replacement: None,
         },
         CheckItem {
+            excerpt: None,
             check: "test".into(),
             element: "e2".into(),
             location: "l2".into(),
@@ -75,6 +77,7 @@ fn test_drain_by_severity() {
             replacement: None,
         },
         CheckItem {
+            excerpt: None,
             check: "test".into(),
             element: "e3".into(),
             location: "l3".into(),

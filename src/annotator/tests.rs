@@ -138,13 +138,13 @@ fn test_format_json_not_verbose_still_has_findings() {
     assert!(!json.contains("convertibility_report"));
 }
 #[test]
-fn test_group_by_kind_groups_identical() {
+fn test_group_by_remedy_groups_identical() {
     let result = make_result();
     let plans = make_plans();
     let annotated = annotate(&result, &plans);
     let all = findings(&result, &annotated);
-    let groups = group_by_kind(&all);
-    // All findings here share one kind, so they collapse to one group.
+    let groups = group_by_remedy(&all);
+    // All findings here share one kind and one remedy, so they collapse to one group.
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].0, all.len());
 }
@@ -188,6 +188,7 @@ fn verdict_not_valid_when_blocker_finding_present() {
     result.convertibility_report = Some(ConvertibilityReport {
         status: crate::ir::ConvertibilityStatus::Convertible,
         blockers: vec![CheckItem {
+            excerpt: None,
             severity: "blocker".into(),
             check: "style/pronoun-ambiguity".into(),
             element: "Task 1.1".into(),
@@ -212,5 +213,151 @@ fn verdict_not_valid_when_blocker_finding_present() {
         !human.contains("✓ VALID"),
         "verdict must not be VALID when a blocker finding is present: {}",
         human
+    );
+}
+
+fn prose_item(file: &str, line: usize, kind: crate::ir::Kind) -> CheckItem {
+    CheckItem {
+        excerpt: Some("keep the identifier it is given".into()),
+        severity: "blocker".into(),
+        check: "style/pronoun-ambiguity".into(),
+        element: "Scenario 'A client registers itself' (Then step)".into(),
+        location: format!("{file}:{line}"),
+        detail: "pronoun \"it\" is ambiguous; it could refer to \"loopback\" or \"identifier\""
+            .into(),
+        fix: Some("replace the pronoun with the specific noun it refers to".into()),
+        kind,
+        op: Op::None,
+        fixability: Fixability::Structural,
+        start: 0,
+        end: 0,
+        replacement: None,
+    }
+}
+
+fn result_with_items(items: Vec<CheckItem>) -> VerificationResult {
+    let mut result = make_result();
+    result.valid = Some(true);
+    result.violations = vec![];
+    result.convertibility_report = Some(ConvertibilityReport {
+        status: crate::ir::ConvertibilityStatus::Blocking,
+        blockers: items,
+        warnings: vec![],
+        info: vec![],
+        rephrase_directives: vec![],
+    });
+    result
+}
+
+/// A single finding shows the whole identity: kind, pointer, element, reason and the
+/// offending text. This is the report an agent reads when it has one thing to fix.
+#[test]
+fn singleton_finding_shows_element_and_excerpt() {
+    let result = result_with_items(vec![prose_item(
+        "specs/chevron-cli/spec.md",
+        23,
+        crate::ir::Kind::ProsePronounAmbiguity,
+    )]);
+    let plans = make_plans();
+    let annotated = annotate(&result, &plans);
+    let human = format_human(&result, &annotated, &plans, false);
+
+    assert!(human.contains("prose_pronoun_ambiguity"), "{human}");
+    assert!(human.contains("specs/chevron-cli/spec.md:23"), "{human}");
+    assert!(human.contains("A client registers itself"), "{human}");
+    assert!(
+        human.contains("\"keep the identifier it is given\""),
+        "{human}"
+    );
+}
+
+/// A digest line names one true member and counts the rest. The other members are
+/// retrievable with `--verbose`, never described by the representative location.
+#[test]
+fn digest_names_one_member_and_counts_the_rest() {
+    let result = result_with_items(vec![
+        prose_item(
+            "specs/alpha/spec.md",
+            8,
+            crate::ir::Kind::ProsePronounAmbiguity,
+        ),
+        prose_item(
+            "specs/beta/spec.md",
+            12,
+            crate::ir::Kind::ProsePronounAmbiguity,
+        ),
+    ]);
+    let plans = make_plans();
+    let annotated = annotate(&result, &plans);
+    let human = format_human(&result, &annotated, &plans, false);
+
+    assert!(human.contains("2× prose_pronoun_ambiguity"), "{human}");
+    assert!(human.contains("+1 more (--verbose)"), "{human}");
+    let alpha = human.contains("specs/alpha/spec.md:8");
+    let beta = human.contains("specs/beta/spec.md:12");
+    assert!(
+        alpha != beta,
+        "the digest must print exactly one real member: {human}"
+    );
+}
+
+#[test]
+fn verbose_lists_every_member_with_its_own_pointer() {
+    let result = result_with_items(vec![
+        prose_item(
+            "specs/alpha/spec.md",
+            8,
+            crate::ir::Kind::ProsePronounAmbiguity,
+        ),
+        prose_item(
+            "specs/beta/spec.md",
+            12,
+            crate::ir::Kind::ProsePronounAmbiguity,
+        ),
+    ]);
+    let plans = make_plans();
+    let annotated = annotate(&result, &plans);
+    let human = format_human(&result, &annotated, &plans, true);
+
+    assert!(human.contains("specs/alpha/spec.md:8"), "{human}");
+    assert!(human.contains("specs/beta/spec.md:12"), "{human}");
+}
+
+/// A plan-scoped kind has no single site, so it prints no pointer.
+#[test]
+fn plan_scoped_finding_prints_no_pointer() {
+    let mut item = prose_item("specs/x/spec.md", 4, crate::ir::Kind::NoTasks);
+    item.location = "specs:0".into();
+    let result = result_with_items(vec![item]);
+    let plans = make_plans();
+    let annotated = annotate(&result, &plans);
+    let human = format_human(&result, &annotated, &plans, false);
+
+    assert!(!human.contains(":0"), "{human}");
+}
+
+/// `advisory` describes the model, not the consequence: a prose finding that blocks the
+/// verdict still carries it, and a model-check violation does not.
+#[test]
+fn advisory_means_not_model_backed() {
+    let result = result_with_items(vec![prose_item(
+        "specs/x/spec.md",
+        4,
+        crate::ir::Kind::ProsePronounAmbiguity,
+    )]);
+    let plans = make_plans();
+    let annotated = annotate(&result, &plans);
+    let all = findings(&result, &annotated);
+    assert!(
+        all.iter().all(|f| f.advisory),
+        "prose findings are not model-backed"
+    );
+
+    let result = make_result();
+    let annotated = annotate(&result, &make_plans());
+    let all = findings(&result, &annotated);
+    assert!(
+        all.iter().any(|f| !f.advisory),
+        "a model-check violation is backed by a formula"
     );
 }

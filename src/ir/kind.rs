@@ -52,84 +52,213 @@ pub enum Kind {
     ViolationFixedTime,
     /// Prose findings from steve rules (e.g. `prose_slop_word`).
     ProseSlopWord,
+    /// An ambiguous pronoun: the reader cannot tell which noun the pronoun names.
+    ProsePronounAmbiguity,
+    /// Passive voice: the sentence names no actor.
+    ProsePassiveVoice,
+    /// Hedging: the sentence weakens its own claim.
+    ProseHedging,
+    /// More than one instruction in one sentence.
+    ProseOneInstruction,
+    /// A sentence longer than the writing standard allows.
+    ProseSentenceLength,
+    /// One concept named two ways in the same text.
+    ProseSynonymInconsistency,
     /// A prose finding from a steve rule not otherwise enumerated.
     ProseOther,
 }
 
-/// Every kind with the identifier it reports and any accepted aliases.
+/// Whether a kind describes the whole plan or one site that needs one edit.
+///
+/// A plan fact can be summarised once. A site fact cannot: two sites of the same kind are two
+/// edits, so a group line that keeps one of them deletes the others from the report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Arity {
+    /// One fact about the plan.
+    Plan,
+    /// One place that needs one edit.
+    Site,
+}
+
+/// Every kind with the identifier it reports, any accepted aliases, and its arity.
 ///
 /// One table, two derived functions: a kind's identifier and a name's kind cannot drift
 /// apart if both are read from this list. An alias is a spelling a check may still emit.
-pub const KIND_NAMES: &[(Kind, &str, &[&str])] = &[
-    (Kind::NoTasks, "no_tasks", &[]),
-    (Kind::DuplicateTaskId, "duplicate_task_id", &[]),
-    (Kind::NoRequirements, "no_requirements", &[]),
-    (Kind::NoPhaseGrouping, "no_phase_grouping", &[]),
-    (Kind::NoRfc2119Keyword, "no_rfc2119_keyword", &[]),
-    (Kind::NoRfc2119Any, "no_rfc2119_any", &[]),
-    (Kind::BadTaskReference, "bad_task_reference", &[]),
-    (Kind::BareCapability, "bare_capability", &[]),
-    (Kind::VagueAction, "vague_action", &[]),
-    (Kind::VagueQuality, "vague_quality", &[]),
+pub const KIND_NAMES: &[(Kind, &str, &[&str], Arity)] = &[
+    (Kind::NoTasks, "no_tasks", &[], Arity::Plan),
+    (Kind::DuplicateTaskId, "duplicate_task_id", &[], Arity::Site),
+    (Kind::NoRequirements, "no_requirements", &[], Arity::Plan),
+    (Kind::NoPhaseGrouping, "no_phase_grouping", &[], Arity::Plan),
+    (
+        Kind::NoRfc2119Keyword,
+        "no_rfc2119_keyword",
+        &[],
+        Arity::Site,
+    ),
+    (Kind::NoRfc2119Any, "no_rfc2119_any", &[], Arity::Site),
+    (
+        Kind::BadTaskReference,
+        "bad_task_reference",
+        &[],
+        Arity::Site,
+    ),
+    (Kind::BareCapability, "bare_capability", &[], Arity::Site),
+    (Kind::VagueAction, "vague_action", &[], Arity::Site),
+    (Kind::VagueQuality, "vague_quality", &[], Arity::Site),
     (
         Kind::UnknownNonFormalizable,
         "unknown_non_formalizable",
         &[],
+        Arity::Site,
     ),
-    (Kind::PatternMultiClause, "pattern_multi_clause", &[]),
-    (Kind::PatternUngrounded, "pattern_ungrounded", &[]),
-    (Kind::NoFormalizable, "no_formalizable", &[]),
+    (
+        Kind::PatternMultiClause,
+        "pattern_multi_clause",
+        &[],
+        Arity::Site,
+    ),
+    (
+        Kind::PatternUngrounded,
+        "pattern_ungrounded",
+        &[],
+        Arity::Site,
+    ),
+    (Kind::NoFormalizable, "no_formalizable", &[], Arity::Plan),
     (
         Kind::GroundingMultiKeyword,
         "grounding_multi_keyword",
         &["grounding_ambiguous_multi_keyword"],
+        Arity::Site,
     ),
-    (Kind::GroundingAmbiguous, "grounding_ambiguous", &[]),
-    (Kind::GroundingUngroundable, "grounding_ungroundable", &[]),
-    (Kind::GroundingAbsentTask, "grounding_absent_task", &[]),
-    (Kind::GroundingHistorical, "grounding_historical", &[]),
-    (Kind::GroundingMixed, "grounding_mixed", &[]),
-    (Kind::GroundingIncomplete, "grounding_incomplete", &[]),
-    (Kind::GroundingContradictory, "grounding_contradictory", &[]),
-    (Kind::ScenarioNoWhen, "scenario_no_when", &[]),
-    (Kind::ScenarioNoThen, "scenario_no_then", &[]),
-    (Kind::ThenNoShall, "then_no_shall", &[]),
-    (Kind::TaskNotCovered, "task_not_covered", &[]),
-    (Kind::LowDiversity, "low_diversity", &[]),
-    (Kind::MayRequirement, "may_requirement", &[]),
+    (
+        Kind::GroundingAmbiguous,
+        "grounding_ambiguous",
+        &[],
+        Arity::Site,
+    ),
+    (
+        Kind::GroundingUngroundable,
+        "grounding_ungroundable",
+        &[],
+        Arity::Site,
+    ),
+    (
+        Kind::GroundingAbsentTask,
+        "grounding_absent_task",
+        &[],
+        Arity::Site,
+    ),
+    (
+        Kind::GroundingHistorical,
+        "grounding_historical",
+        &[],
+        Arity::Site,
+    ),
+    (Kind::GroundingMixed, "grounding_mixed", &[], Arity::Site),
+    (
+        Kind::GroundingIncomplete,
+        "grounding_incomplete",
+        &[],
+        Arity::Site,
+    ),
+    (
+        Kind::GroundingContradictory,
+        "grounding_contradictory",
+        &[],
+        Arity::Site,
+    ),
+    (Kind::ScenarioNoWhen, "scenario_no_when", &[], Arity::Site),
+    (Kind::ScenarioNoThen, "scenario_no_then", &[], Arity::Site),
+    (Kind::ThenNoShall, "then_no_shall", &[], Arity::Site),
+    (Kind::TaskNotCovered, "task_not_covered", &[], Arity::Site),
+    (Kind::LowDiversity, "low_diversity", &[], Arity::Plan),
+    (Kind::MayRequirement, "may_requirement", &[], Arity::Site),
     (
         Kind::InformationalRequirement,
         "informational_requirement",
         &[],
+        Arity::Site,
     ),
     (
         Kind::ViolationSequential,
         "violation_sequential",
         &["SequentialOrder"],
+        Arity::Site,
     ),
     (
         Kind::ViolationConcurrent,
         "violation_concurrent",
         &["ConcurrentEvents"],
+        Arity::Site,
     ),
     (
         Kind::ViolationConditional,
         "violation_conditional",
         &["Conditional"],
+        Arity::Site,
     ),
     (
         Kind::ViolationExclusive,
         "violation_exclusive",
         &["Exclusive"],
+        Arity::Site,
     ),
-    (Kind::ViolationGlobal, "violation_global", &["Global"]),
+    (
+        Kind::ViolationGlobal,
+        "violation_global",
+        &["Global"],
+        Arity::Site,
+    ),
     (
         Kind::ViolationFixedTime,
         "violation_fixed_time",
         &["FixedTime"],
+        Arity::Site,
     ),
-    (Kind::ProseSlopWord, "prose_slop_word", &["SlopWord"]),
-    (Kind::ProseOther, "prose_other", &[]),
+    (
+        Kind::ProseSlopWord,
+        "prose_slop_word",
+        &["SlopWord", "style/slop-word"],
+        Arity::Site,
+    ),
+    (
+        Kind::ProsePronounAmbiguity,
+        "prose_pronoun_ambiguity",
+        &["style/pronoun-ambiguity"],
+        Arity::Site,
+    ),
+    (
+        Kind::ProsePassiveVoice,
+        "prose_passive_voice",
+        &["verb/passive"],
+        Arity::Site,
+    ),
+    (
+        Kind::ProseHedging,
+        "prose_hedging",
+        &["style/hedging"],
+        Arity::Site,
+    ),
+    (
+        Kind::ProseOneInstruction,
+        "prose_one_instruction",
+        &["structure/one-instruction"],
+        Arity::Site,
+    ),
+    (
+        Kind::ProseSentenceLength,
+        "prose_sentence_length",
+        &["length/sentence"],
+        Arity::Site,
+    ),
+    (
+        Kind::ProseSynonymInconsistency,
+        "prose_synonym_inconsistency",
+        &["style/synonym-consistency"],
+        Arity::Site,
+    ),
+    (Kind::ProseOther, "prose_other", &[], Arity::Site),
 ];
 
 impl Kind {
@@ -137,8 +266,31 @@ impl Kind {
     pub fn as_str(&self) -> &'static str {
         KIND_NAMES
             .iter()
-            .find(|(kind, _, _)| kind == self)
-            .map_or("prose_other", |(_, name, _)| *name)
+            .find(|(kind, _, _, _)| kind == self)
+            .map_or("prose_other", |(_, name, _, _)| *name)
+    }
+
+    /// Whether the kind describes the whole plan or one site.
+    pub fn arity(&self) -> Arity {
+        KIND_NAMES
+            .iter()
+            .find(|(kind, _, _, _)| kind == self)
+            .map_or(Arity::Site, |(_, _, _, arity)| *arity)
+    }
+
+    /// Whether the kind comes from the prose pass rather than from a model-checked rule.
+    pub fn is_prose(&self) -> bool {
+        matches!(
+            self,
+            Kind::ProseSlopWord
+                | Kind::ProsePronounAmbiguity
+                | Kind::ProsePassiveVoice
+                | Kind::ProseHedging
+                | Kind::ProseOneInstruction
+                | Kind::ProseSentenceLength
+                | Kind::ProseSynonymInconsistency
+                | Kind::ProseOther
+        )
     }
 }
 
@@ -150,10 +302,10 @@ impl Kind {
 pub fn kind_of(check_or_category: &str) -> Kind {
     KIND_NAMES
         .iter()
-        .find(|(_, name, aliases)| {
+        .find(|(_, name, aliases, _)| {
             *name == check_or_category || aliases.contains(&check_or_category)
         })
-        .map_or(Kind::ProseOther, |(kind, _, _)| *kind)
+        .map_or(Kind::ProseOther, |(kind, _, _, _)| *kind)
 }
 
 #[cfg(test)]
@@ -254,5 +406,44 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), kinds.len(), "kind ids must be unique");
+    }
+}
+
+#[cfg(test)]
+mod prose_kind_tests {
+    use super::*;
+
+    /// A prose kind names the rule that produced it, so the finding says what to fix.
+    #[test]
+    fn prose_rules_map_to_named_kinds() {
+        assert_eq!(
+            kind_of("style/pronoun-ambiguity"),
+            Kind::ProsePronounAmbiguity
+        );
+        assert_eq!(kind_of("verb/passive"), Kind::ProsePassiveVoice);
+        assert_eq!(kind_of("style/hedging"), Kind::ProseHedging);
+        assert_eq!(
+            kind_of("structure/one-instruction"),
+            Kind::ProseOneInstruction
+        );
+        assert_eq!(kind_of("length/sentence"), Kind::ProseSentenceLength);
+        assert_eq!(
+            kind_of("style/synonym-consistency"),
+            Kind::ProseSynonymInconsistency
+        );
+        assert_eq!(kind_of("style/slop-word"), Kind::ProseSlopWord);
+        // Unmapped rule: the fallback keeps the kind honest instead of guessing.
+        assert_eq!(kind_of("style/units-format"), Kind::ProseOther);
+    }
+
+    /// A plan fact can be summarised once; a site fact cannot.
+    #[test]
+    fn arity_separates_plan_facts_from_sites() {
+        assert_eq!(Kind::NoTasks.arity(), Arity::Plan);
+        assert_eq!(Kind::LowDiversity.arity(), Arity::Plan);
+        assert_eq!(Kind::ProsePronounAmbiguity.arity(), Arity::Site);
+        assert_eq!(Kind::ViolationSequential.arity(), Arity::Site);
+        assert!(Kind::ProsePronounAmbiguity.is_prose());
+        assert!(!Kind::ViolationSequential.is_prose());
     }
 }

@@ -48,7 +48,11 @@ fn load_tasks_into_plan(
     let tasks_path = path.join("tasks.md");
     let tasks_source = std::fs::read_to_string(&tasks_path)
         .map_err(|e| format!("Cannot read {}: {}", tasks_path.display(), e))?;
-    let (tasks, phases) = parser::parse_tasks(parser_instance, &tasks_source, &tasks_path)?;
+    let (tasks, phases) = parser::parse_tasks(
+        parser_instance,
+        &tasks_source,
+        &parser::display_path(&tasks_path, path),
+    )?;
     plan.tasks = tasks;
     plan.phases = phases;
     Ok(())
@@ -71,7 +75,7 @@ fn load_specs_into_plan(
         let (reqs, standalone_scenarios) = parser::parse_spec(
             parser_instance,
             &source,
-            &spec_file.path,
+            &parser::display_path(&spec_file.path, path),
             &spec_file.capability,
         )?;
         plan.requirements.extend(reqs);
@@ -124,9 +128,12 @@ pub fn parse_content(source: &str, filename: &str) -> Result<PlanIR, String> {
     let mut parser_instance = make_markdown_parser()?;
 
     let file_path = Path::new(filename);
+    // Arbitrary content has no change directory to be relative to, so the caller's path is
+    // kept as given: it is already unambiguous.
+    let display = filename;
 
     // Try parsing as tasks
-    let tasks_result = parser::parse_tasks(&mut parser_instance, source, file_path);
+    let tasks_result = parser::parse_tasks(&mut parser_instance, source, display);
     let (tasks, phases) = tasks_result.unwrap_or_default();
 
     // Try parsing as spec (use filename as capability name for better IDs)
@@ -137,7 +144,7 @@ pub fn parse_content(source: &str, filename: &str) -> Result<PlanIR, String> {
         .unwrap_or("standalone");
 
     let (requirements, standalone_scenarios) =
-        match parser::parse_spec(&mut parser_instance, source, file_path, capability) {
+        match parser::parse_spec(&mut parser_instance, source, display, capability) {
             Ok((reqs, scenarios)) => (reqs, scenarios),
             Err(_) => (Vec::new(), Vec::new()),
         };

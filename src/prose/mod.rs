@@ -194,23 +194,47 @@ fn scenario_ste(mode: &StrictnessProfile) -> Result<Ste, steve::ConfigError> {
 
 /// Strip `**GIVEN**`/`**WHEN**`/`**THEN**`/`**AND**` markers and inline code
 /// spans from a scenario step before prose checking (spec R1.2).
-fn strip_scenario_step(text: &str) -> String {
-    let mut s = text.trim().to_string();
-    for m in ["**GIVEN**", "**WHEN**", "**THEN**", "**AND**"] {
-        s = s.replace(m, "");
-    }
+/// Strip the scenario scaffolding and keep a map back to the step text.
+///
+/// steve reports offsets into the stripped text. The map carries each stripped byte back to
+/// the byte of the step text it came from, so a finding addresses the sentence in the file
+/// rather than an offset in a rewritten copy of it.
+fn strip_scenario_step_mapped(text: &str) -> (String, Vec<usize>) {
+    const MARKERS: [&str; 4] = ["**GIVEN**", "**WHEN**", "**THEN**", "**AND**"];
     let mut out = String::new();
+    let mut map: Vec<usize> = Vec::new();
+    let mut i = 0usize;
     let mut in_code = false;
-    for c in s.chars() {
+    while i < text.len() {
+        if let Some(marker) = MARKERS.iter().find(|m| text[i..].starts_with(**m)) {
+            i += marker.len();
+            continue;
+        }
+        let Some(c) = text[i..].chars().next() else {
+            break;
+        };
         if c == '`' {
             in_code = !in_code;
+            i += 1;
             continue;
         }
         if !in_code {
             out.push(c);
+            for k in 0..c.len_utf8() {
+                map.push(i + k);
+            }
         }
+        i += c.len_utf8();
     }
-    out.trim().to_string()
+    // Sentinel: an end offset one past the last kept byte maps to the end of the step text.
+    map.push(text.len());
+
+    let trimmed_start = out.len() - out.trim_start().len();
+    let trimmed_end = out.trim_end().len();
+    (
+        out.trim().to_string(),
+        map[trimmed_start..=trimmed_end].to_vec(),
+    )
 }
 
 /// Convert a steve severity to a veriplan CheckItem severity, downgrading to
@@ -307,7 +331,7 @@ pub fn check_prose(
         }
         let file = req.source.file.clone();
         let element = format!("Requirement '{}'", req.id);
-        findings.extend(check_snippet(
+        let mut req_findings = check_snippet(
             &ste_spec,
             &req.statement,
             &file,
@@ -316,7 +340,13 @@ pub fn check_prose(
             req.source.start_line,
             0,
             req.source.start_byte,
-        ));
+        );
+        // Quote the sentence, not the offending word: a reader needs enough text to see
+        // which pronoun is meant.
+        for f in &mut req_findings {
+            f.snippet = req.statement.clone();
+        }
+        findings.extend(req_findings);
     }
 
     // spec.md: scenario step content (safe subset). Scenarios are parsed and
@@ -327,12 +357,12 @@ pub fn check_prose(
     };
     for scenario in &plan.scenarios {
         for step in &scenario.steps {
-            let stripped = strip_scenario_step(&step.text);
+            let (stripped, map) = strip_scenario_step_mapped(&step.text);
             if stripped.is_empty() {
                 continue;
             }
             let element = format!("Scenario '{}' ({:?} step)", scenario.name, step.kind);
-            findings.extend(check_snippet(
+            let mut step_findings = check_snippet(
                 &ste_scenario,
                 &stripped,
                 &scenario.source.file,
@@ -341,7 +371,22 @@ pub fn check_prose(
                 step.source.start_line,
                 0,
                 step.source.start_byte,
-            ));
+            );
+            // Re-anchor: steve reports offsets into the stripped text, so the map carries
+            // each one back to the step text in the file.
+            let anchor = step.source.start_byte;
+            for f in &mut step_findings {
+                f.snippet = step.text.clone();
+                // `check_snippet` has already added the anchor, so the stripped offset is
+                // the distance from it.
+                let rel_start = f.start.saturating_sub(anchor);
+                let rel_end = f.end.saturating_sub(anchor);
+                let start = map.get(rel_start).copied().unwrap_or(0);
+                let end = map.get(rel_end).copied().unwrap_or(start);
+                f.start = anchor + start;
+                f.end = anchor + end;
+            }
+            findings.extend(step_findings);
         }
     }
 

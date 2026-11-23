@@ -48,6 +48,7 @@ pub(crate) fn make_item(
         _ => (Op::None, Fixability::Structural),
     };
     CheckItem {
+        excerpt: None,
         severity: severity.into(),
         check: check.into(),
         element,

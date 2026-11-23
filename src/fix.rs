@@ -319,6 +319,8 @@ mod tests {
             op,
             requirement_id: Some("cap::Test".into()),
             advisory: true,
+            element: "cap::Test".into(),
+            excerpt: None,
         }
     }
 

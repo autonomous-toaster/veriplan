@@ -314,10 +314,11 @@ fn real_corpus_clear_scenarios_not_flagged() {
 fn scenario_scaffolding_stripped_before_checking() {
     // The **THEN** marker and inline code spans must be stripped before
     // checking, so they don't produce structural noise (spec R1.2).
-    let stripped = strip_scenario_step("**THEN** the engine does not flag `check` or `verify`");
+    let stripped =
+        strip_scenario_step_mapped("**THEN** the engine does not flag `check` or `verify`").0;
     // Code spans are removed entirely (their content is not prose).
     assert_eq!(stripped, "the engine does not flag  or");
-    let stripped2 = strip_scenario_step("**GIVEN** the system is initialized");
+    let stripped2 = strip_scenario_step_mapped("**GIVEN** the system is initialized").0;
     assert_eq!(stripped2, "the system is initialized");
     // The **THEN** marker is removed.
     assert!(!stripped.starts_with("**THEN**"));
@@ -473,6 +474,7 @@ fn prose_fields_survive_to_checkitem_boundary() {
     };
     // Mirror the CheckItem construction in `verify_with_strictness`.
     let item = crate::ir::CheckItem {
+        excerpt: Some(pf.snippet.clone()),
         severity: pf.severity.clone(),
         check: pf.rule.clone(),
         element: pf.element.clone(),

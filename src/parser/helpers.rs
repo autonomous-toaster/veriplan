@@ -19,138 +19,43 @@ pub fn extract_shall_statement(body: &str, _file: &str) -> String {
         .to_string()
 }
 
-/// Extract scenarios from requirement body.
-pub fn extract_scenarios(
-    body: &str,
-    _bytes: &[u8],
-    file: &str,
-    body_start_line: usize,
-) -> (Vec<crate::ir::Scenario>, Vec<crate::ir::Scenario>) {
-    let mut scenarios = Vec::new();
-    let standalone_scenarios = Vec::new();
-
-    let lines: Vec<&str> = body.lines().collect();
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if (line.starts_with("#### Scenario:") || line.starts_with("#### scenario:"))
-            && let Some((scenario, consumed)) = parse_one_scenario(&lines, i, file, body_start_line)
-        {
-            scenarios.push(scenario);
-            i += consumed;
-            continue;
-        }
-        i += 1;
-    }
-
-    (scenarios, standalone_scenarios)
+/// A file path relative to the change directory, used as a finding pointer.
+///
+/// A basename is not an address: every spec delta in a change is named `spec.md`, so
+/// `spec.md:24` cannot be resolved. The basename remains the fallback for input that has no
+/// change directory (single file and stdin).
+pub fn display_path(path: &Path, base: &Path) -> String {
+    path.strip_prefix(base)
+        .ok()
+        .and_then(|p| p.to_str())
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| file_name_str(path))
 }
 
-/// Parse a single scenario starting at the given line index.
-fn parse_one_scenario(
-    lines: &[&str],
-    start: usize,
-    file: &str,
-    body_start_line: usize,
-) -> Option<(crate::ir::Scenario, usize)> {
-    let line = lines[start].trim();
-    let name = line
-        .strip_prefix("#### Scenario:")
-        .or_else(|| line.strip_prefix("#### scenario:"))
-        .unwrap_or("")
-        .trim();
-
-    let mut steps = Vec::new();
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let step_line = lines[i].trim();
-        // A new heading (e.g. "### Requirement:" or the next "#### Scenario:")
-        // ends this scenario. Blank lines are skipped so a scenario whose
-        // heading is followed by a blank line still parses its steps.
-        if step_line.starts_with('#') {
-            break;
+/// Split a step line into its kind and its text, with or without a leading list marker.
+fn step_parts(text: &str) -> Option<(crate::ir::StepKind, &str)> {
+    let text = text.trim();
+    let text = text.strip_prefix('-').unwrap_or(text).trim();
+    for (marker, kind) in [
+        ("**WHEN**", crate::ir::StepKind::When),
+        ("**when**", crate::ir::StepKind::When),
+        ("**THEN**", crate::ir::StepKind::Then),
+        ("**then**", crate::ir::StepKind::Then),
+        ("**GIVEN**", crate::ir::StepKind::Given),
+        ("**given**", crate::ir::StepKind::Given),
+        ("**AND**", crate::ir::StepKind::And),
+        ("**and**", crate::ir::StepKind::And),
+    ] {
+        if let Some(rest) = text.strip_prefix(marker) {
+            return Some((kind, rest.trim()));
         }
-        if step_line.is_empty() {
-            i += 1;
-            continue;
-        }
-
-        // The body's first line is a file line, so body index i is body_start_line + i.
-        // Reporting i + 1 pointed every step finding at the requirement body instead.
-        if let Some(step) = parse_step(step_line, file, body_start_line + i) {
-            steps.push(step);
-        }
-        i += 1;
     }
-
-    if steps.is_empty() {
-        return None;
-    }
-
-    let steps_len = steps.len();
-    Some((
-        crate::ir::Scenario {
-            name: name.to_string(),
-            steps,
-            source: crate::ir::SourceLocation {
-                file: file.to_string(),
-                start_byte: 0,
-                end_byte: 0,
-                start_line: body_start_line + (i - steps_len),
-                end_line: body_start_line + i,
-            },
-        },
-        i - start,
-    ))
+    None
 }
 
 /// Parse a single scenario step.
 pub fn parse_step(text: &str, file: &str, line: usize) -> Option<crate::ir::ScenarioStep> {
-    let text = text.trim();
-    if !text.starts_with('-') {
-        return None;
-    }
-
-    let text = text[1..].trim();
-
-    let (kind, step_text) = if text.starts_with("**WHEN**") || text.starts_with("**when**") {
-        (
-            crate::ir::StepKind::When,
-            text.strip_prefix("**WHEN**")
-                .or_else(|| text.strip_prefix("**when**"))
-                .unwrap_or("")
-                .trim(),
-        )
-    } else if text.starts_with("**THEN**") || text.starts_with("**then**") {
-        (
-            crate::ir::StepKind::Then,
-            text.strip_prefix("**THEN**")
-                .or_else(|| text.strip_prefix("**then**"))
-                .unwrap_or("")
-                .trim(),
-        )
-    } else if text.starts_with("**GIVEN**") || text.starts_with("**given**") {
-        (
-            crate::ir::StepKind::Given,
-            text.strip_prefix("**GIVEN**")
-                .or_else(|| text.strip_prefix("**given**"))
-                .unwrap_or("")
-                .trim(),
-        )
-    } else if text.starts_with("**AND**") || text.starts_with("**and**") {
-        (
-            crate::ir::StepKind::And,
-            text.strip_prefix("**AND**")
-                .or_else(|| text.strip_prefix("**and**"))
-                .unwrap_or("")
-                .trim(),
-        )
-    } else {
-        return None;
-    };
-
+    let (kind, step_text) = step_parts(text)?;
     Some(crate::ir::ScenarioStep {
         kind,
         text: step_text.to_string(),
@@ -162,6 +67,86 @@ pub fn parse_step(text: &str, file: &str, line: usize) -> Option<crate::ir::Scen
             end_line: line,
         },
     })
+}
+
+/// Parse one `#### Scenario:` section node, with file-absolute step spans.
+///
+/// The span comes from the step's own node. The requirement body is a concatenation of
+/// sibling blocks, so an index into the joined text does not address a line in the file;
+/// arithmetic over the join drifted by one line for each preceding scenario.
+pub fn parse_scenario_section(
+    node: &tree_sitter::Node,
+    source: &str,
+    bytes: &[u8],
+    file: &str,
+) -> Option<crate::ir::Scenario> {
+    let heading = find_child(node, "atx_heading")?;
+    let heading_text = node_text(&heading, bytes).ok()?.trim();
+    let name = heading_text
+        .strip_prefix("#### Scenario:")
+        .or_else(|| heading_text.strip_prefix("#### scenario:"))
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    let mut steps = Vec::new();
+    collect_steps(node, source, bytes, file, &mut steps);
+
+    if steps.is_empty() {
+        return None;
+    }
+
+    Some(crate::ir::Scenario {
+        name,
+        steps,
+        source: crate::ir::SourceLocation {
+            file: file.to_string(),
+            start_byte: node.byte_range().start,
+            end_byte: node.byte_range().end,
+            start_line: find_line_for_byte(source, node.byte_range().start),
+            end_line: find_line_for_byte(source, node.byte_range().end),
+        },
+    })
+}
+
+/// Collect the step list items of a scenario section, each with its file span.
+fn collect_steps(
+    node: &tree_sitter::Node,
+    source: &str,
+    bytes: &[u8],
+    file: &str,
+    steps: &mut Vec<crate::ir::ScenarioStep>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "atx_heading" {
+            continue;
+        }
+        if child.kind() == "list_item" {
+            if let Some(paragraph) = find_child(&child, "paragraph")
+                && let Ok(text) = node_text(&paragraph, bytes)
+                && let Some((kind, step_text)) = step_parts(text)
+            {
+                // The span covers the step text, not the list marker: a prose finding
+                // addresses the sentence a reader has to rewrite.
+                let offset = text.find(step_text).unwrap_or(0);
+                let start = paragraph.byte_range().start + offset;
+                steps.push(crate::ir::ScenarioStep {
+                    kind,
+                    text: step_text.to_string(),
+                    source: crate::ir::SourceLocation {
+                        file: file.to_string(),
+                        start_byte: start,
+                        end_byte: start + step_text.len(),
+                        start_line: find_line_for_byte(source, start),
+                        end_line: find_line_for_byte(source, start + step_text.len()),
+                    },
+                });
+            }
+            continue;
+        }
+        collect_steps(&child, source, bytes, file, steps);
+    }
 }
 
 /// Detect RFC 2119 keyword strength in a statement.
@@ -245,9 +230,14 @@ pub fn find_child<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Option<tree_s
         .find(|&child| child.kind() == kind)
 }
 
-/// Find line number for a byte offset.
+/// Find the 1-based line number of a byte offset.
+///
+/// Newlines are counted, not `lines()`: `lines()` counts the partial line a mid-line
+/// offset sits in, so an offset inside a line reported the following line. A paragraph node
+/// starts after its list marker, which is exactly that case.
 pub fn find_line_for_byte(source: &str, byte: usize) -> usize {
-    source[..byte].lines().count() + 1
+    let end = byte.min(source.len());
+    source[..end].matches('\n').count() + 1
 }
 
 /// Explore a tree-sitter node (debug helper).
@@ -264,23 +254,6 @@ pub fn explore_node<'a>(node: &tree_sitter::Node<'a>, source: &'a [u8], indent: 
 mod tests {
     // Tests fail by panicking; the crate denies these three lints for code that ships.
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-    /// A scenario step carries its own line in the file, not an index into the body.
-    #[test]
-    fn step_source_is_file_absolute() {
-        let lines = [
-            "T1.1 SHALL complete BEFORE T1.2 SHALL start.",
-            "",
-            "#### Scenario: s",
-            "- **WHEN** T1.1 runs",
-            "- **THEN** T1.2 SHALL follow",
-        ];
-        // The body starts on file line 4.
-        let (scenarios, _) = super::extract_scenarios(&lines.join("\n"), b"", "spec.md", 4);
-        let steps = &scenarios[0].steps;
-        assert_eq!(steps[0].source.start_line, 7);
-        assert_eq!(steps[1].source.start_line, 8);
-    }
-
     use super::*;
     use crate::ir::StepKind;
 
@@ -361,40 +334,14 @@ mod tests {
         assert_eq!(strength, crate::ir::Rfc2119Strength::None);
     }
 
+    /// A step arrives from a list item paragraph, without the list marker. The step kind
+    /// detection therefore runs on the paragraph text as well as on a whole line.
     #[test]
-    fn test_parse_one_scenario_simple() {
-        let lines = vec![
-            "#### Scenario: Test scenario",
-            "- **GIVEN** some condition",
-            "- **WHEN** action happens",
-            "- **THEN** result occurs",
-        ];
-        let result = parse_one_scenario(&lines, 0, "test.md", 1);
-        assert!(result.is_some());
-        let (scenario, consumed) = result.unwrap();
-        assert_eq!(scenario.name, "Test scenario");
-        assert_eq!(consumed, 4);
-        assert_eq!(scenario.steps.len(), 3);
-    }
-
-    #[test]
-    fn test_parse_one_scenario_no_steps() {
-        let lines = vec!["#### Scenario: Empty"];
-        let result = parse_one_scenario(&lines, 0, "test.md", 1);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_one_scenario_stops_at_heading() {
-        let lines = vec![
-            "#### Scenario: First",
-            "- **GIVEN** condition",
-            "#### Scenario: Second",
-        ];
-        let result = parse_one_scenario(&lines, 0, "test.md", 1);
-        assert!(result.is_some());
-        let (_, consumed) = result.unwrap();
-        assert_eq!(consumed, 2);
+    fn test_step_parts_without_marker() {
+        let (kind, text) = step_parts("**THEN** T1.2 SHALL follow").unwrap();
+        assert_eq!(kind, StepKind::Then);
+        assert_eq!(text, "T1.2 SHALL follow");
+        assert!(step_parts("plain prose").is_none());
     }
 
     #[test]
