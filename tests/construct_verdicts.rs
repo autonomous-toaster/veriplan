@@ -66,6 +66,14 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // only ever writes the wrapped one - which is why the corpus never met the shape.
     ("bare_implication.pml", Some(0)),
     ("boxed_implication.pml", Some(0)),
+    // Parameter binding on an active proctype, which lands before run() does: the default is zero, a
+    // channel parameter is a channel, and both refute a binding that invents a value or a shape.
+    ("active_param_zero.pml", Some(0)),
+    ("active_param_one.pml", Some(1)),
+    // No channel-parameter row here: a channel parameter cannot be bound on an active proctype, so the
+    // model that appeared to pass was 'ref to uninitialized chan name' in pan at depth 0 - a malformed
+    // model that happened to give the expected count. The channel case belongs with run(), where an
+    // argument can bind it.
     ("param_bound.pml", Some(0)),
     ("param_bound_control.pml", Some(1)),
     ("param_chan.pml", Some(0)),
