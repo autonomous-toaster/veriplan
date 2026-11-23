@@ -37,8 +37,15 @@ const MODELS: &[(&str, Option<usize>)] = &[
     ("poll_rendezvous.pml", Some(0)),
     ("poll_no_sender.pml", Some(1)), // pan -a; plain pan reports 0 for both files in this pair
     ("unless_multi_handler.pml", Some(1)),
+    // The handler armed at the body's second step, and the same body with no handler. The first pair of
+    // unless models only fixed the boundary at the first step, so a counter off by one later would pass it.
+    ("unless_second_step.pml", Some(0)),
+    ("unless_second_step_nohandler.pml", Some(1)),
     ("evalrecv_waits.pml", Some(1)),
     ("live_cmp_atom.pml", Some(0)),
+    // pan disables the model's own terminal state as an error whenever a claim is present, and with any
+    // claim the engine now does the same: this fixture was a known disagreement until v0.5.13.
+    ("blocked_true_claim.pml", Some(0)),
     ("unless.pml", Some(0)),
     ("unless_refutes.pml", Some(1)),
     // The handler is armed by the first statement of the body, so an encoding that checks the escape
@@ -61,11 +68,9 @@ const MODELS: &[(&str, Option<usize>)] = &[
 /// Models where the engine disagrees with pan today. Listed rather than deleted so the disagreement runs
 /// on demand and cannot be forgotten; kept out of the asserting table so the default suite does not fail
 /// for a defect this project cannot fix.
-const KNOWN_DISAGREEMENTS: &[(&str, usize)] = &[
-    // pan disables invalid-end-state checking whenever a claim is present, which for this tool is always,
-    // so a deadlock is never a pan violation here. The engine reports it as a violation of "model".
-    ("blocked_true_claim.pml", 0),
-];
+/// Empty since v0.5.13 fixed the last one. The machinery stays because the next divergence needs a home
+/// that runs, not a comment that rots.
+const KNOWN_DISAGREEMENTS: &[(&str, usize)] = &[];
 
 /// Keeps the disagreements above alive. Run with `cargo test -- --ignored`: it passes while each still
 /// disagrees with pan and fails the moment one is fixed, with the row to move. A list nobody runs is a
