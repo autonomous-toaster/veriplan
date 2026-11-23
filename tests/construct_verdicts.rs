@@ -47,8 +47,12 @@ const MODELS: &[(&str, Option<usize>)] = &[
     ("unless_last_step_loop.pml", Some(1)),
     // Which matching message a random receive takes: first from the head, or the last one.
     ("randrecv_first_match.pml", Some(0)),
-    // A multi-field message round trip. pan decides it; the engine refuses the receive by name.
+    // A multi-field message round trip, deciding since v0.5.17.
     ("twofield_message.pml", Some(0)),
+    // The oracle for run(): the process count is named while a child is alive, and the control claims one
+    // process instead of two. Both are refused today, so neither asserts yet.
+    ("nrpr_child_alive.pml", Some(0)),
+    ("nrpr_child_count_off.pml", Some(1)),
     ("evalrecv_waits.pml", Some(1)),
     ("live_cmp_atom.pml", Some(0)),
     // pan disables the model's own terminal state as an error whenever a claim is present, and with any
