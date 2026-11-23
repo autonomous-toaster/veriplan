@@ -21,6 +21,12 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // separates "acceptance condition" from "a claim is present".
     ("never.pml", Some(1)),
     ("never_unreachable.pml", Some(0)),
+    // The acceptance-cycle pair: spin's own automaton for <> ( got ), embedded verbatim, over a model
+    // where got is never set and one where a rendezvous handshake sets it. spin -f emits the negation
+    // automaton, so the refuting file is the one where the claim *accepts* - a naming trap that would
+    // invert the oracle, which is why pan's answers were measured rather than reasoned about.
+    ("never_accept_holds.pml", Some(0)),
+    ("never_accept_refutes.pml", Some(1)),
     ("unless.pml", Some(0)),
     ("unless_refutes.pml", Some(1)),
     // The handler is armed by the first statement of the body, so an encoding that checks the escape
