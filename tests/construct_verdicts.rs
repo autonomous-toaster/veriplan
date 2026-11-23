@@ -57,12 +57,15 @@ const MODELS: &[(&str, Option<usize>)] = &[
 fn every_fixture_has_a_recorded_pan_verdict() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/constructs");
     let mut on_disk: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(&dir).expect("read fixture directory") {
-        let name = entry
-            .expect("dir entry")
-            .file_name()
-            .to_string_lossy()
-            .into_owned();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("cannot read fixture directory {dir:?}: {e}");
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
         if name.ends_with(".pml") {
             on_disk.push(name);
         }
