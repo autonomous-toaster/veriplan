@@ -55,6 +55,9 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // labelled "array" turned out to name the item containing a failure rather than the construct, and a
     // regression in either would otherwise be visible only as a refused shipped example.
     // Two declarators in one statement inside a body: pan accepts, the parser stops at the comma.
+    // mtype numbering: values start at 1 and run in reverse declaration order, so a = 3 for { a, b, c }.
+    ("mtype_numbering.pml", Some(0)),
+    ("mtype_numbering_control.pml", Some(1)),
     ("multi_declarator_body.pml", Some(0)),
     ("array_element.pml", Some(0)),
     ("array_element_control.pml", Some(1)),
@@ -90,7 +93,11 @@ const MODELS: &[(&str, Option<usize>)] = &[
 /// for a defect this project cannot fix.
 /// Empty since v0.5.13 fixed the last one. The machinery stays because the next divergence needs a home
 /// that runs, not a comment that rots.
-const KNOWN_DISAGREEMENTS: &[(&str, usize)] = &[];
+const KNOWN_DISAGREEMENTS: &[(&str, usize)] = &[
+    // A silent pass: zero states explored, no violation, nothing reported as unverified, where pan
+    // refutes. Worse than a wrong verdict, because a caller cannot see that nothing was searched.
+    ("mtype_init_silent_pass.pml", 1),
+];
 
 /// Keeps the disagreements above alive. Run with `cargo test -- --ignored`: it passes while each still
 /// disagrees with pan and fails the moment one is fixed, with the row to move. A list nobody runs is a
