@@ -32,6 +32,11 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // cycles at all - so a reader who checks them with plain pan would conclude the pair is vacuous.
     ("never_cycle_accept.pml", Some(1)),
     ("never_cycle_unreachable.pml", Some(0)),
+    // The two shapes the engine refuses with a design rather than an unknown. Both are oracles for the
+    // next step: pan decides them, and neither is reachable by anything this tool emits.
+    ("poll_rendezvous.pml", Some(0)),
+    ("poll_no_sender.pml", Some(1)), // pan -a; plain pan reports 0 for both files in this pair
+    ("unless_multi_handler.pml", Some(1)),
     ("unless.pml", Some(0)),
     ("unless_refutes.pml", Some(1)),
     // The handler is armed by the first statement of the body, so an encoding that checks the escape
