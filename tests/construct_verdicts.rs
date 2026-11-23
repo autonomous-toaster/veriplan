@@ -73,6 +73,13 @@ const MODELS: &[(&str, Option<usize>)] = &[
     ("boxed_implication.pml", Some(0)),
     // Parameter binding on an active proctype, which lands before run() does: the default is zero, a
     // channel parameter is a channel, and both refute a binding that invents a value or a shape.
+    // The third half of the name family: a write must truncate to its declared width. 250 + 10 is 260,
+    // which is 4 in a byte, and the control asserts the untruncated value so the pair distinguishes the
+    // two readings rather than checking one. This is an executable oracle for a property of a write,
+    // which a scan over declarations cannot describe - it can only be asked of a model that writes.
+    ("wrap_assert.pml", Some(0)),
+    ("wrap_control.pml", Some(1)),
+    ("wrap_claim.pml", Some(0)),
     ("active_param_zero.pml", Some(0)),
     ("active_param_one.pml", Some(1)),
     // No channel-parameter row here: a channel parameter cannot be bound on an active proctype, so the
