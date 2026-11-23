@@ -30,7 +30,12 @@ def verdict(binary, path, timeout):
         out = subprocess.run([binary, path], capture_output=True, text=True, timeout=timeout).stdout
     except subprocess.TimeoutExpired:
         return 'timeout', ''
-    return out.split('\n')[0], ' '.join(re.sub(r'.*string "[^"]*"[^:]*:[0-9]*: ', '', out).split())
+    first = out.split('\n')[0]
+    text = ' '.join(re.sub(r'.*string "[^"]*"[^:]*:[0-9]*: ', '', out).split())
+    # A refusal carries no Lua prefix, so its text still starts with the harness wrapper. Stripping it here
+    # keeps every classifier below keyed on the engine's own words rather than on our output format.
+    text = re.sub(r'^spin-rs: refused \((.*)\)$', r'\1', text)
+    return first, text
 
 
 def family(first, text):
@@ -51,6 +56,7 @@ def family(first, text):
         ('_pid', 'local initialised from _pid'),
         ('declares parameters', 'proctype parameters'),
         ('provided', 'provided'),
+        ('a call to', 'unknown call'),
     ]:
         if key in t:
             return label
@@ -58,8 +64,8 @@ def family(first, text):
     # rather than dropping it into an "other" bucket that hides how many distinct constructs are there.
     # The list above is a convenience, not a definition, and it has already fallen behind once.
     if 'not implemented' in t or 'not supported' in t:
-        words = re.split(r'[:.]', t, 1)[0].split()
-        return 'refusal: ' + ' '.join(words[:4])
+        words = re.split(r'[:.]', t, maxsplit=1)[0].split()
+        return 'refusal: ' + ' '.join(words[:5])
     return 'other'
 
 
