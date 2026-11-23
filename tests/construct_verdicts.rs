@@ -45,6 +45,10 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // re-checked and the handler fires. pan 0 and 1.
     ("unless_last_step_block.pml", Some(0)),
     ("unless_last_step_loop.pml", Some(1)),
+    // Which matching message a random receive takes: first from the head, or the last one.
+    ("randrecv_first_match.pml", Some(0)),
+    // A multi-field message round trip. pan decides it; the engine refuses the receive by name.
+    ("twofield_message.pml", Some(0)),
     ("evalrecv_waits.pml", Some(1)),
     ("live_cmp_atom.pml", Some(0)),
     // pan disables the model's own terminal state as an error whenever a claim is present, and with any
