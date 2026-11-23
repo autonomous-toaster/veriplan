@@ -17,29 +17,21 @@ pub fn generate_ltl(
 
     match category {
         SequentialOrder => {
-            // Extract which task is before which
-            if let Some((before_id, after_id)) = find_sequential_pair(statement, &task_ids) {
-                Some(LtlFormula::Always(LtlCondition::Implies(
-                    Box::new(LtlCondition::Atom(format!(
-                        "active_{}",
-                        normalize_id(&after_id)
-                    ))),
-                    Box::new(LtlCondition::Atom(format!(
-                        "done_{}",
-                        normalize_id(&before_id)
-                    ))),
-                )))
-            } else if task_ids.len() >= 2 {
-                // General case: if A and B are referenced, A before B
-                let a = normalize_id(&task_ids[0]);
-                let b = normalize_id(&task_ids[1]);
-                Some(LtlFormula::Always(LtlCondition::Implies(
-                    Box::new(LtlCondition::Atom(format!("active_{}", b))),
-                    Box::new(LtlCondition::Atom(format!("done_{}", a))),
-                )))
-            } else {
-                None
-            }
+            // The keyword decides which task is earlier. Statement position is only the
+            // fallback, for a body naming three or more tasks, where no single pair exists.
+            let pair = match find_sequential_pair(statement, &task_ids) {
+                Some(pair) => Some(pair),
+                None if task_ids.len() >= 2 => {
+                    let (first, second) = (task_ids[0].clone(), task_ids[1].clone());
+                    if names_after_ordering(statement) {
+                        Some((second, first))
+                    } else {
+                        Some((first, second))
+                    }
+                }
+                None => None,
+            }?;
+            Some(ordering_formula(&pair.0, &pair.1))
         }
         Exclusive => {
             // Generate pairwise exclusions for all referenced task pairs
@@ -122,42 +114,70 @@ pub fn extract_task_refs_bare(statement: &str, task_ids: &[String]) -> Vec<Strin
     refs
 }
 
-/// Find which task is before which in a sequential constraint.
-pub fn find_sequential_pair(statement: &str, task_ids: &[String]) -> Option<(String, String)> {
-    let lower = statement.to_lowercase();
-
-    for id in task_ids {
-        let before_pattern = format!("{} before", id);
-        let after_pattern = format!("after {}", id);
-        let complete_before = format!("{} complete", id);
-
-        if (lower.contains(&before_pattern) || lower.contains(&complete_before))
-            && let Some(other) = find_matching_task(id, task_ids, &lower, statement)
-        {
-            return Some((id.clone(), other));
-        }
-        if lower.contains(&after_pattern)
-            && let Some(other) = find_matching_task(id, task_ids, &lower, statement)
-        {
-            return Some((other, id.clone()));
-        }
-    }
-    None
+/// The ordering formula: the later task may start only once the earlier task is done.
+fn ordering_formula(earlier: &str, later: &str) -> LtlFormula {
+    LtlFormula::Always(LtlCondition::Implies(
+        Box::new(LtlCondition::Atom(format!(
+            "active_{}",
+            normalize_id(later)
+        ))),
+        Box::new(LtlCondition::Atom(format!(
+            "done_{}",
+            normalize_id(earlier)
+        ))),
+    ))
 }
 
-/// Find a task ID that appears in the statement, different from the given ID.
-fn find_matching_task(
-    id: &str,
-    task_ids: &[String],
-    lower: &str,
-    statement: &str,
-) -> Option<String> {
-    for other in task_ids {
-        if other != id && (lower.contains(other) || statement.contains(&format!("T{}", other))) {
-            return Some(other.clone());
+/// The sequential keyword in a body: its byte position and whether the keyword is BEFORE.
+///
+/// A body carries one temporal keyword (the grammar forbids two), so the earliest of
+/// " before " and " after " is the keyword that decides the direction.
+fn sequential_keyword(lower: &str) -> Option<(usize, bool)> {
+    match (lower.find(" before "), lower.find(" after ")) {
+        (Some(b), Some(a)) if a < b => Some((a, false)),
+        (Some(b), _) => Some((b, true)),
+        (None, Some(a)) => Some((a, false)),
+        (None, None) => None,
+    }
+}
+
+/// Whether the body states the ordering with AFTER, which names the earlier task second.
+fn names_after_ordering(statement: &str) -> bool {
+    matches!(
+        sequential_keyword(&statement.to_lowercase()),
+        Some((_, false))
+    )
+}
+
+/// Find which task is earlier and which is later in a sequential constraint.
+///
+/// The body grammar puts an RFC 2119 verb between a task id and the keyword
+/// (`T1.1 SHALL complete BEFORE T2.1 SHALL start`), so the keyword is located first and
+/// the ids are split around it. BEFORE names the earlier task first; AFTER names the
+/// earlier task second. Statement position alone never decides the direction.
+pub fn find_sequential_pair(statement: &str, task_ids: &[String]) -> Option<(String, String)> {
+    let lower = statement.to_lowercase();
+    let (keyword_pos, is_before) = sequential_keyword(&lower)?;
+
+    let mut first_side: Option<String> = None;
+    let mut second_side: Option<String> = None;
+    for id in task_ids {
+        let Some(pos) = crate::util::find_task(&lower, id) else {
+            continue;
+        };
+        if pos < keyword_pos {
+            first_side.get_or_insert_with(|| id.clone());
+        } else {
+            second_side.get_or_insert_with(|| id.clone());
         }
     }
-    None
+
+    let (earlier_in_text, later_in_text) = (first_side?, second_side?);
+    if is_before {
+        Some((earlier_in_text, later_in_text))
+    } else {
+        Some((later_in_text, earlier_in_text))
+    }
 }
 
 /// Normalize a task ID (1.3 → t_1_3) for use in LTL variable names.

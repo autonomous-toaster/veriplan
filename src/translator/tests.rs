@@ -46,17 +46,42 @@ fn test_unencoded_categories_yield_no_formula() {
 
 #[test]
 fn test_find_sequential_pair_before() {
+    // A body the requirement grammar permits: T-prefixed ids and an RFC 2119 verb
+    // between the id and the keyword. Bare ids tested a shape no caller produces.
     let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
-    // The function looks for "1.1 before" as a contiguous substring
-    let result = find_sequential_pair("1.1 before 1.2", &task_ids);
-    assert_eq!(result, Some(("1.1".to_string(), "1.2".to_string())));
+    let body = "T1.1 SHALL complete BEFORE T1.2 SHALL start.";
+    assert_eq!(
+        find_sequential_pair(body, &task_ids),
+        Some(("1.1".to_string(), "1.2".to_string()))
+    );
 }
 #[test]
 fn test_find_sequential_pair_after() {
-    let task_ids = vec!["1.1".to_string(), "1.2".to_string()];
-    // AFTER returns (other, id) — the thing after "after" is the earlier task
-    let result = find_sequential_pair("1.2 after 1.1", &task_ids);
-    assert_eq!(result, Some(("1.2".to_string(), "1.1".to_string())));
+    let task_ids = vec!["1.1".to_string(), "2.1".to_string()];
+    let body = "T2.1 SHALL complete AFTER T1.1 SHALL complete.";
+    assert_eq!(
+        find_sequential_pair(body, &task_ids),
+        Some(("1.1".to_string(), "2.1".to_string())),
+        "AFTER names the earlier task second"
+    );
+}
+#[test]
+fn test_before_body_and_after_twin_produce_one_formula() {
+    let plan = make_test_plan();
+    let before = "T1.1 SHALL complete BEFORE T1.2 SHALL start.";
+    let after = "T1.2 SHALL start AFTER T1.1 SHALL complete.";
+    let render = |statement: &str| {
+        generate_ltl(&classify(statement), statement, &plan)
+            .map(|f| crate::ir::ltl::ltl_to_string(&f))
+            .unwrap_or_else(|| "<no formula>".to_string())
+    };
+    let b = render(before);
+    let a = render(after);
+    assert_eq!(a, b, "the two orderings of one pair must translate alike");
+    assert!(
+        b.contains("active_t1_2") && b.contains("done_t1_1"),
+        "expected active(later) -> done(earlier), got {b}"
+    );
 }
 #[test]
 fn test_find_sequential_pair_no_match() {
