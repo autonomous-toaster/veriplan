@@ -16,7 +16,11 @@ use std::path::Path;
 const MODELS: &[(&str, Option<usize>)] = &[
     ("priority.pml", Some(0)),
     ("priority_none.pml", Some(1)),
+    // A never claim over a model that terminates: `never { skip }` is refuted by pan, and the same
+    // model with an arm no reachable state satisfies is not. Only the claim body differs, which is what
+    // separates "acceptance condition" from "a claim is present".
     ("never.pml", Some(1)),
+    ("never_unreachable.pml", Some(0)),
     ("unless.pml", Some(0)),
     ("unless_refutes.pml", Some(1)),
     // The handler is armed by the first statement of the body, so an encoding that checks the escape
