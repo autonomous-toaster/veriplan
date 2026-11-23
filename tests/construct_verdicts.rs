@@ -64,6 +64,11 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // An implication with a liveness consequent, with and without an outer []. The wrapped form decides
     // here and the bare form is declined; spin's own petersonN uses the bare one, and this tool's emitter
     // only ever writes the wrapped one - which is why the corpus never met the shape.
+    // The same words, boxed and unboxed, on a model where the response never arrives: pan gives 1 for the
+    // boxed form and 0 for the unboxed one, because it evaluates an unwrapped formula at the initial state.
+    // They are different properties, so the unboxed row declines rather than being encoded as the boxed one.
+    ("response_boxed_refutes.pml", Some(1)),
+    ("response_bare_vacuous.pml", Some(0)),
     ("bare_implication.pml", Some(0)),
     ("boxed_implication.pml", Some(0)),
     // Parameter binding on an active proctype, which lands before run() does: the default is zero, a
