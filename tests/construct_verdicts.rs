@@ -37,6 +37,7 @@ const MODELS: &[(&str, Option<usize>)] = &[
     ("poll_rendezvous.pml", Some(0)),
     ("poll_no_sender.pml", Some(1)), // pan -a; plain pan reports 0 for both files in this pair
     ("unless_multi_handler.pml", Some(1)),
+    ("evalrecv_waits.pml", Some(1)),
     ("unless.pml", Some(0)),
     ("unless_refutes.pml", Some(1)),
     // The handler is armed by the first statement of the body, so an encoding that checks the escape
