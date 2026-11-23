@@ -41,6 +41,10 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // unless models only fixed the boundary at the first step, so a counter off by one later would pass it.
     ("unless_second_step.pml", Some(0)),
     ("unless_second_step_nohandler.pml", Some(1)),
+    // Same arming, two body shapes: a block that has already finished cannot be preempted, a loop is
+    // re-checked and the handler fires. pan 0 and 1.
+    ("unless_last_step_block.pml", Some(0)),
+    ("unless_last_step_loop.pml", Some(1)),
     ("evalrecv_waits.pml", Some(1)),
     ("live_cmp_atom.pml", Some(0)),
     // pan disables the model's own terminal state as an error whenever a claim is present, and with any
