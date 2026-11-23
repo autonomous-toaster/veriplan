@@ -58,6 +58,9 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // mtype numbering: values start at 1 and run in reverse declaration order, so a = 3 for { a, b, c }.
     ("mtype_numbering.pml", Some(0)),
     ("mtype_numbering_control.pml", Some(1)),
+    // Refused since v0.5.21 - an empty state space is an error whatever claims are present - so it no
+    // longer reports a silent pass. pan refutes it, so the row asserts when the initialiser is supported.
+    ("mtype_init_silent_pass.pml", Some(1)),
     ("multi_declarator_body.pml", Some(0)),
     ("array_element.pml", Some(0)),
     ("array_element_control.pml", Some(1)),
@@ -93,11 +96,7 @@ const MODELS: &[(&str, Option<usize>)] = &[
 /// for a defect this project cannot fix.
 /// Empty since v0.5.13 fixed the last one. The machinery stays because the next divergence needs a home
 /// that runs, not a comment that rots.
-const KNOWN_DISAGREEMENTS: &[(&str, usize)] = &[
-    // A silent pass: zero states explored, no violation, nothing reported as unverified, where pan
-    // refutes. Worse than a wrong verdict, because a caller cannot see that nothing was searched.
-    ("mtype_init_silent_pass.pml", 1),
-];
+const KNOWN_DISAGREEMENTS: &[(&str, usize)] = &[];
 
 /// Keeps the disagreements above alive. Run with `cargo test -- --ignored`: it passes while each still
 /// disagrees with pan and fails the moment one is fixed, with the row to move. A list nobody runs is a

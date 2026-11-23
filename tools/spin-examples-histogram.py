@@ -14,15 +14,22 @@ Usage:
     tools/spin-examples-histogram.py /path/to/spin/Examples [--binary ./target/debug/... ]
 
 Needs a small runner that takes a .pml path and prints the engine's verdict; this repo's guard
-harness (tests/construct_verdicts.rs) does that through spin_rs::verify, and any equivalent works.
+harness (tests/construct_verdicts.rs) does that through spin_rs::verify, and any equivalent works. A
+fourth argument overrides the per-model timeout in seconds, default 120; a model that runs past it is
+counted as a timeout rather than stopping the run.
 """
 import collections, os, re, subprocess, sys
 
 TOKEN = re.compile(r'(\d+) character\(s\) left unconsumed')
 
 
-def verdict(binary, path):
-    out = subprocess.run([binary, path], capture_output=True, text=True, timeout=120).stdout
+def verdict(binary, path, timeout):
+    """A model that runs past the timeout is a bucket, not a crash: the first version of this script died on
+    one and produced no histogram at all."""
+    try:
+        out = subprocess.run([binary, path], capture_output=True, text=True, timeout=timeout).stdout
+    except subprocess.TimeoutExpired:
+        return 'timeout', ''
     return out.split('\n')[0], ' '.join(re.sub(r'.*string "[^"]*"[^:]*:[0-9]*: ', '', out).split())
 
 
@@ -41,9 +48,18 @@ def family(first, text):
         ('timeout', 'timeout'), ('inline', 'inline call'),
         ('parse error', 'parse error'),
         ('transition evaluation failed', 'evaluation failure'),
+        ('_pid', 'local initialised from _pid'),
+        ('declares parameters', 'proctype parameters'),
+        ('provided', 'provided'),
     ]:
         if key in t:
             return label
+    # A named refusal this list does not know is still a named refusal: describe it from its own words
+    # rather than dropping it into an "other" bucket that hides how many distinct constructs are there.
+    # The list above is a convenience, not a definition, and it has already fallen behind once.
+    if 'not implemented' in t or 'not supported' in t:
+        words = re.split(r'[:.]', t, 1)[0].split()
+        return 'refusal: ' + ' '.join(words[:4])
     return 'other'
 
 
@@ -53,12 +69,16 @@ def main():
         return 2
     root = sys.argv[1]
     binary = sys.argv[3] if len(sys.argv) > 3 else 'target/debug/srs-diff'
+    timeout = int(sys.argv[4]) if len(sys.argv) > 4 else 120
     models = [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if f.endswith('.pml')]
     totals = collections.Counter()
     parse = collections.Counter()
     examples = {}
     for path in sorted(models):
-        first, text = verdict(binary, path)
+        first, text = verdict(binary, path, timeout)
+        if first == 'timeout':
+            totals['timeout (model ran past the limit)'] += 1
+            continue
         if 'errors=' in first and 'refused' not in first:
             totals['decided'] += 1
             continue
