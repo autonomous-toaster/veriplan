@@ -21,12 +21,17 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // separates "acceptance condition" from "a claim is present".
     ("never.pml", Some(1)),
     ("never_unreachable.pml", Some(0)),
-    // The acceptance-cycle pair: spin's own automaton for <> ( got ), embedded verbatim, over a model
-    // where got is never set and one where a rendezvous handshake sets it. spin -f emits the negation
-    // automaton, so the refuting file is the one where the claim *accepts* - a naming trap that would
-    // invert the oracle, which is why pan's answers were measured rather than reasoned about.
+    // spin's own automaton for <> ( got ), embedded verbatim. spin -f emits the negation automaton, so
+    // the refuting file is the one where the property holds. This pair exercises a claim's *assert*,
+    // not an acceptance cycle: pan's refutation is "assertion violated !(got)" and the accept state is
+    // unreachable behind a do-loop that never terminates. The cycle pair is below.
     ("never_accept_holds.pml", Some(0)),
     ("never_accept_refutes.pml", Some(1)),
+    // The acceptance-cycle pair, and the only rows here that test a cycle. These expectations are pan's
+    // answers under -a: plain pan reports 0 for both, because without -a it does not look for acceptance
+    // cycles at all - so a reader who checks them with plain pan would conclude the pair is vacuous.
+    ("never_cycle_accept.pml", Some(1)),
+    ("never_cycle_unreachable.pml", Some(0)),
     ("unless.pml", Some(0)),
     ("unless_refutes.pml", Some(1)),
     // The handler is armed by the first statement of the body, so an encoding that checks the escape
@@ -45,6 +50,31 @@ const MODELS: &[(&str, Option<usize>)] = &[
     ("assign_bool_literal.pml", Some(1)),
     ("assign_bool_to_bool.pml", Some(0)),
 ];
+
+/// A fixture without a row is a model nobody checks, which is how a guard quietly stops covering what
+/// it was built for. Every file in the directory must carry pan's answer.
+#[test]
+fn every_fixture_has_a_recorded_pan_verdict() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/constructs");
+    let mut on_disk: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("read fixture directory") {
+        let name = entry
+            .expect("dir entry")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if name.ends_with(".pml") {
+            on_disk.push(name);
+        }
+    }
+    on_disk.sort();
+    let mut listed: Vec<String> = MODELS.iter().map(|(f, _)| (*f).to_string()).collect();
+    listed.sort();
+    assert_eq!(
+        on_disk, listed,
+        "a fixture and the table of pan verdicts disagree about which models exist"
+    );
+}
 
 #[test]
 fn a_construct_is_never_decided_against_pan() {
