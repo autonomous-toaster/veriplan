@@ -61,6 +61,11 @@ const MODELS: &[(&str, Option<usize>)] = &[
     // at v0.5.24, though the explored-state counts differ - so it is a coarse guard on the verdict only.
     // Parameter binding: a run() argument must reach the callee, for a value and for a channel. All three
     // are refused today, so they assert the day parameterised proctypes and run land together.
+    // An implication with a liveness consequent, with and without an outer []. The wrapped form decides
+    // here and the bare form is declined; spin's own petersonN uses the bare one, and this tool's emitter
+    // only ever writes the wrapped one - which is why the corpus never met the shape.
+    ("bare_implication.pml", Some(0)),
+    ("boxed_implication.pml", Some(0)),
     ("param_bound.pml", Some(0)),
     ("param_bound_control.pml", Some(1)),
     ("param_chan.pml", Some(0)),
