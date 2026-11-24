@@ -204,11 +204,14 @@ fn with_claim(mut source: String, claim: &str) -> String {
 }
 /// The safety canary: a branch on every task, recorded exactly.
 ///
-/// These are the states the pinned engine spends when a claim names one flag and every task
-/// carries a branch. Dropping the flag from every task but the named one takes 694 to 92 at six
-/// tasks and 2 806 to 124 at eight, measured on the engine's next tree - which is this canary
-/// doing its job. A fall means the engine started projecting the state of a safety claim and the
-/// table must be lowered to match; a rise is a regression.
+/// The states the pinned engine spends when a claim names one flag and every task carries a
+/// branch. Engines that project claim-visible state take these to 92 and 124, measured on two later
+/// tags; neither is pinned. Each also stopped refuting a construct this pin refutes - an `unless`
+/// handler and a do-loop assertion - and the construct corpus refused both. A projection that loses
+/// a refutation is worth less than a count that stays high.
+///
+/// A fall here means a pin arrived that keeps the verdicts, and the table is then lowered
+/// deliberately; a rise is a regression.
 const BRANCHING_CANARY: &[(usize, usize)] = &[(6, 694), (8, 2_806)];
 
 /// The detector behind the gate reads a curve, so it is tested on recorded curves rather than on
@@ -250,8 +253,8 @@ fn the_branching_canary_matches_the_pinned_engine() {
                  regression"
         );
         // On this pin the fixture is exponential, and that is the defect the canary records. When a
-        // pin arrives that projects this claim the count above will fall and this becomes None; the
-        // assertion is then inverted deliberately, as part of lowering the table.
+        // pin arrives that projects this claim and keeps the verdicts, the count above falls and this
+        // becomes None; the assertion is then inverted as part of lowering the table.
         assert_eq!(
             first_non_linear(&[(tasks, measured)]),
             Some(tasks),
@@ -283,9 +286,9 @@ fn a_claim_blind_to_a_flag_another_claim_names_is_projected() {
             .states_stored;
         assert_eq!(
             measured, states,
-            "the blind-claim product for {tasks} tasks changed from {states} to {measured}; an \
-             engine that projects this claim takes these to 47 and 67, measured on spin-rs v0.5.37, \
-             so a fall means the projection arrived and the table needs lowering"
+            "the blind-claim product for {tasks} tasks changed from {states} to {measured}; at \
+             spin-rs v0.5.35 the same fixture explored 154 and 234, so a return to those numbers \
+             means the engine stopped projecting a claim that cannot see the flag"
         );
     }
 }
