@@ -214,6 +214,31 @@ pub fn format_human(
         output.push_str(&format!("\n  Model check skipped: {}\n", reason));
     }
 
+    // The run-level reason says the run was incomplete. This says which claim stopped, why, and
+    // what it cost: "used up" does not tell a caller whether the claim came four thousand states
+    // short or four million.
+    let stopped: Vec<_> = result
+        .constraints_summary
+        .iter()
+        .filter(|c| c.unchecked)
+        .collect();
+    if !stopped.is_empty() {
+        output.push_str("\n  Unchecked claims:\n");
+        for c in stopped {
+            output.push_str(&format!(
+                "    {}  {}",
+                c.requirement_id,
+                c.unchecked_reason
+                    .as_deref()
+                    .unwrap_or("no reason reported")
+            ));
+            if let (Some(used), Some(allowed)) = (c.states_used, c.states_allowed) {
+                output.push_str(&format!(" (states {used} of {allowed})"));
+            }
+            output.push('\n');
+        }
+    }
+
     if !all_findings.is_empty() {
         format_findings(&mut output, &all_findings, verbose);
     } else if result.convertible && result.valid == Some(true) {

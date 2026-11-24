@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use crate::ir::*;
@@ -6,6 +7,11 @@ use crate::translator;
 /// Generate Promela source from PlanIR and constraints.
 pub fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedConstraint]) -> String {
     let mut s = String::new();
+
+    // A failure branch exists only to satisfy an IF...THEN constraint, and only for the task that
+    // constraint names. Emitting it for every task doubles the branching at every step: a plan with
+    // one conditional constraint used to pay 2^tasks states for flags nothing reads.
+    let failing_tasks = tasks_naming_a_failure_flag(plan, constraints);
 
     // Header
     writeln!(s, "/* Promela model — task structure only */").ok();
@@ -19,18 +25,12 @@ pub fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedCons
     }
     writeln!(s).ok();
 
-    // Failed flags for conditional constraint LTL references
-    for task in &plan.tasks {
+    // Failed flags for conditional constraint LTL references. A flag a claim cannot read is not
+    // emitted at all: it would still occupy a field in the state vector every backend hashes.
+    for task in plan.tasks.iter().filter(|t| failing_tasks.contains(&t.id)) {
         writeln!(s, "bit {} = 0;", fail_var(&task.id)).ok();
     }
     writeln!(s).ok();
-
-    // A failure branch exists only to satisfy an IF...THEN constraint. Emitting it for every
-    // task doubles the branching at every step, and a plan with no conditional constraint pays
-    // 2^N states for a flag nothing reads.
-    let needs_failures = constraints
-        .iter()
-        .any(|c| c.ltl_string().contains("failed_"));
 
     // ── Task execution processes (phase-ordered only) ──
     for task in &plan.tasks {
@@ -61,7 +61,7 @@ pub fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedCons
         writeln!(s, "\t\t{} = 1;\t/* activate */", av).ok();
         writeln!(s, "\t\t{} = 0;\t/* deactivate */", av).ok();
 
-        if needs_failures {
+        if failing_tasks.contains(&task.id) {
             // Non-deterministic failure, only where a constraint reads the flag. Emitted before
             // the completion flag so that "done" means the failure status is decided.
             writeln!(s, "\t\tif").ok();
@@ -89,6 +89,26 @@ pub fn generate_promela(plan: &PlanIR, constraints: &[translator::TranslatedCons
     s
 }
 
+/// The tasks whose failure flag some constraint's formula names.
+///
+/// The decision is a walk over the formula's atoms, not a search of the rendered string. A task
+/// whose flag no formula names gets no branch, so the flag does not enter the state vector at all.
+fn tasks_naming_a_failure_flag(
+    plan: &PlanIR,
+    constraints: &[translator::TranslatedConstraint],
+) -> BTreeSet<String> {
+    let named: BTreeSet<&str> = constraints
+        .iter()
+        .filter_map(|c| c.ltl.as_ref())
+        .flat_map(|f| f.atoms())
+        .collect();
+    plan.tasks
+        .iter()
+        .filter(|t| named.contains(fail_var(&t.id).as_str()))
+        .map(|t| t.id.clone())
+        .collect()
+}
+
 pub fn active_var(id: &str) -> String {
     format!("active_t{}", id.replace('.', "_"))
 }
@@ -109,6 +129,183 @@ mod tests {
     use crate::ir::ltl::{LtlCondition, LtlFormula};
     use crate::ir::*;
     use crate::translator::TranslatedConstraint;
+
+    /// A conditional constraint: if the named task fails, the consequent eventually runs.
+    fn conditional_claim(failing: &str, consequent: &str) -> TranslatedConstraint {
+        TranslatedConstraint {
+            requirement_id: "cap::Recovers".into(),
+            statement: format!("IF T{failing} fails THEN T{consequent} SHALL run."),
+            strength: Rfc2119Strength::Must,
+            category: ConstraintCategory::Conditional,
+            ltl: Some(LtlFormula::Always(LtlCondition::Implies(
+                Box::new(LtlCondition::Atom(super::fail_var(failing))),
+                Box::new(LtlCondition::Eventually(Box::new(LtlCondition::Atom(
+                    format!("active_{}", crate::translator::normalize_id(consequent)),
+                )))),
+            ))),
+            is_hard: true,
+            historical: None,
+            foreign_tasks: Vec::new(),
+            unmodelled_reason: None,
+        }
+    }
+
+    /// A safety claim that names one failure flag and holds in every reachable state, so the space
+    /// closes instead of stopping at the first refutation.
+    fn one_flag_claim(task: &str) -> TranslatedConstraint {
+        let atom = LtlCondition::Atom(super::fail_var(task));
+        TranslatedConstraint {
+            requirement_id: "cap::NamesOneFlag".into(),
+            statement: "T1.1 SHALL complete BEFORE T1.1 SHALL complete.".into(),
+            strength: Rfc2119Strength::Must,
+            category: ConstraintCategory::Conditional,
+            ltl: Some(LtlFormula::Always(LtlCondition::Implies(
+                Box::new(atom.clone()),
+                Box::new(atom),
+            ))),
+            is_hard: true,
+            historical: None,
+            foreign_tasks: Vec::new(),
+            unmodelled_reason: None,
+        }
+    }
+
+    /// A safety claim of the ordering shape, from one task to another.
+    fn safety_claim(active: &str, done: &str) -> TranslatedConstraint {
+        TranslatedConstraint {
+            requirement_id: "cap::Safety".into(),
+            statement: "T1.1 SHALL complete BEFORE T1.2 SHALL start.".into(),
+            strength: Rfc2119Strength::Must,
+            category: ConstraintCategory::SequentialOrder,
+            ltl: Some(LtlFormula::Always(LtlCondition::Implies(
+                Box::new(LtlCondition::Atom(format!(
+                    "active_{}",
+                    crate::translator::normalize_id(active)
+                ))),
+                Box::new(LtlCondition::Atom(format!(
+                    "done_{}",
+                    crate::translator::normalize_id(done)
+                ))),
+            ))),
+            is_hard: true,
+            historical: None,
+            foreign_tasks: Vec::new(),
+            unmodelled_reason: None,
+        }
+    }
+
+    /// A failure flag exists for the tasks a constraint names, and only for those.
+    #[test]
+    fn a_task_no_claim_names_carries_no_failure_block() {
+        let plan = chain_plan(3);
+        let promela = generate_promela(&plan, &[conditional_claim("1.2", "1.3")]);
+        assert!(
+            promela.contains("bit failed_t1_2 = 0;"),
+            "the named task must carry its flag:\n{promela}"
+        );
+        assert!(
+            promela.contains(":: failed_t1_2 = 1;"),
+            "the named task must carry the branch:\n{promela}"
+        );
+        assert!(
+            !promela.contains("bit failed_t1_1 = 0;"),
+            "an unnamed task must carry no flag:\n{promela}"
+        );
+        assert!(
+            !promela.contains("bit failed_t1_3 = 0;"),
+            "an unnamed task must carry no flag:\n{promela}"
+        );
+    }
+
+    /// The flag of task 1.10 must not be read as naming task 1.1.
+    #[test]
+    fn a_failure_flag_is_not_matched_as_a_prefix() {
+        let plan = chain_plan(10);
+        let promela = generate_promela(&plan, &[conditional_claim("1.10", "1.9")]);
+        assert!(
+            promela.contains("bit failed_t1_10 = 0;"),
+            "the named task must carry its flag"
+        );
+        assert!(
+            !promela.contains("bit failed_t1_1 = 0;"),
+            "failed_t1_1 is a prefix of failed_t1_10 and must not be named by it:\n{promela}"
+        );
+    }
+
+    /// Sixteen more tasks that no constraint names must not multiply the space. Under the old
+    /// generator every one of them carried a branch, so the count doubled per task.
+    #[test]
+    fn the_state_count_does_not_follow_the_unnamed_tasks() {
+        // The budget is deliberately small, because a model that branches on every task needs
+        // millions of states and the default budget would take ten minutes to notice. But a cap
+        // alone defeats the test: both sides would stop at the ceiling and the ratio between two
+        // equal ceilings is one. So the budget being hit is itself the failure, and the absolute
+        // bound below is what discriminates. Measured: a linear chain of twenty-four tasks needs
+        // about two hundred states; the same chain branching on every task cannot fit in a million.
+        let measure = |plan: &PlanIR| {
+            let result = spin_rs::verify_with_config(
+                &generate_promela(plan, &[one_flag_claim("1.1")]),
+                &spin_rs::CheckerConfig {
+                    max_states: 5_000,
+                    ..Default::default()
+                },
+            )
+            .expect("the model must be checkable");
+            let starved = result
+                .unverified
+                .iter()
+                .any(|u| u.kind.as_str() == "state_budget");
+            (result.states_stored, starved)
+        };
+        let (eight, _) = measure(&chain_plan(8));
+        let (twentyfour, starved) = measure(&chain_plan(24));
+
+        assert!(
+            !starved,
+            "the twenty-four-task model stopped at the 5 000 state cap after {twentyfour} states: a \
+             linear chain needs about two hundred, so this fixture is not linear and the ratio \
+             below would be between two ceilings"
+        );
+        assert!(
+            twentyfour < 1_000,
+            "a twenty-four-task chain with one named flag explored {twentyfour} states"
+        );
+        assert!(
+            twentyfour < 4 * eight,
+            "eight tasks explored {eight} states and twenty-four explored {twentyfour}; the extra \
+             sixteen tasks are not free"
+        );
+    }
+
+    /// A claim that refutes near the root is not a state-count fixture.
+    #[test]
+    fn a_refuting_claim_is_not_a_state_count_fixture() {
+        let plan = chain_plan(8);
+        // 1.1 activates before 1.8 can be done, so this implication is false near the root.
+        let refuted = spin_rs::verify(&generate_promela(&plan, &[safety_claim("1.1", "1.8")]))
+            .expect("the refuting model must be checkable");
+        // 1.8 activates last, when 1.1 is already done, so this one holds in every reachable state.
+        let closed = spin_rs::verify(&generate_promela(&plan, &[safety_claim("1.8", "1.1")]))
+            .expect("the closing model must be checkable");
+
+        assert_eq!(
+            refuted.violations.len(),
+            1,
+            "the refuting fixture must refute, or it is not the fixture this test is about"
+        );
+        assert!(
+            closed.violations.is_empty(),
+            "the count fixture must hold in every reachable state, or the space never closes"
+        );
+        // Both claims are safety claims of the same shape, and the in-process engine explores the
+        // space whatever the verdicts, so the two counts coincide. That is why the count fixture has
+        // to be the closing one: against an engine that does stop early, a refuting model would
+        // report a handful of states and the comparison would read as parity.
+        assert_eq!(
+            refuted.states_stored, closed.states_stored,
+            "the in-process count is verdict-blind; if that ever changes, this fixture distinction needs re-reading"
+        );
+    }
 
     /// A plan of `n` tasks in one sequential phase, ids 1.1 .. 1.n.
     fn chain_plan(n: usize) -> PlanIR {

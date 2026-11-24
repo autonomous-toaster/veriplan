@@ -1,7 +1,16 @@
+use std::time::Duration;
+
 use super::promela::generate_promela;
 use crate::checker::{ConstraintSummary, VerificationResult, Violation};
 use crate::ir::*;
 use crate::translator;
+
+/// The wall-clock allowance given to one claim's external search.
+///
+/// pan has no state ceiling of its own, so this is the only bound the external backend has. It is
+/// reported with the claim it stopped, and under its own reason: a run that ran out of time is not
+/// a run that exhausted a budget.
+const PAN_WALL_CLOCK: Duration = Duration::from_secs(5);
 
 pub(crate) fn run_spin_check(
     plan: &PlanIR,
@@ -39,7 +48,7 @@ pub(crate) fn run_spin_check(
         claim_index += 1;
         let outcome = run_one_claim(&pan_path, &label, c.ltl_string().contains("<>"));
 
-        let (is_satisfied, is_unchecked) = claim_status_into(
+        let (is_satisfied, unchecked_reason) = claim_status_into(
             outcome,
             c,
             plan_name,
@@ -55,10 +64,11 @@ pub(crate) fn run_spin_check(
             statement: c.statement.clone(),
             category,
             satisfied: is_satisfied,
-            unchecked: is_unchecked,
+            unchecked: unchecked_reason.is_some(),
             modelled: true,
-            // The external backend reports a bare timeout, with no kind to relay.
-            unchecked_reason: is_unchecked.then(|| "state_budget: search timed out".to_string()),
+            unchecked_reason,
+            states_used: None,
+            states_allowed: None,
             historical: false,
             historical_owner: None,
             unmodelled_reason: None,
@@ -153,6 +163,8 @@ fn unmodelled_summary(c: &translator::TranslatedConstraint, category: String) ->
         unchecked: false,
         modelled: false,
         unchecked_reason: None,
+        states_used: None,
+        states_allowed: None,
         historical: c.historical.is_some(),
         historical_owner: c.historical.clone(),
         unmodelled_reason: c.unmodelled_reason.clone(),
@@ -162,7 +174,7 @@ fn unmodelled_summary(c: &translator::TranslatedConstraint, category: String) ->
 /// Record what a claim's run established and say whether it counted as satisfied or unchecked.
 #[allow(clippy::too_many_arguments)]
 fn claim_status_into(
-    outcome: PanOutcome,
+    outcome: (PanOutcome, Duration),
     c: &translator::TranslatedConstraint,
     plan_name: &str,
     label: &str,
@@ -170,11 +182,12 @@ fn claim_status_into(
     satisfied: &mut usize,
     unchecked: &mut usize,
     violations: &mut Vec<Violation>,
-) -> (bool, bool) {
+) -> (bool, Option<String>) {
+    let (outcome, elapsed) = outcome;
     match outcome {
         PanOutcome::Passed => {
             *satisfied += 1;
-            (true, false)
+            (true, None)
         }
         PanOutcome::Violated => {
             let fix = super::bfs::suggest_fix(
@@ -196,11 +209,17 @@ fn claim_status_into(
                 kind: crate::ir::kind_of(category),
                 op: crate::ir::Op::ReplaceBody,
             });
-            (false, false)
+            (false, None)
         }
-        PanOutcome::Unchecked | PanOutcome::Empty => {
+        // A claim the external backend did not decide is unchecked, and says why. It used to say
+        // "state_budget", which is the tag for a budget an engine consulted: pan has none.
+        PanOutcome::Unchecked(stop) => {
             *unchecked += 1;
-            (false, true)
+            (false, Some(stop.reason(elapsed)))
+        }
+        PanOutcome::Empty => {
+            *unchecked += 1;
+            (false, Some(PanStop::NothingExplored.reason(elapsed)))
         }
     }
 }
@@ -209,12 +228,17 @@ fn claim_status_into(
 ///
 /// A liveness claim needs the acceptance-cycle search; a safety claim does not, and asking for it
 /// would cost the whole state space for nothing.
-fn run_one_claim(pan_path: &std::path::Path, label: &str, has_liveness: bool) -> PanOutcome {
+fn run_one_claim(
+    pan_path: &std::path::Path,
+    label: &str,
+    has_liveness: bool,
+) -> (PanOutcome, Duration) {
     let mut args = vec!["-N", label, "-n"];
     if has_liveness {
         args.push("-a");
     }
-    match super::bfs::timeout_command(pan_path, &args, 5) {
+    let started = std::time::Instant::now();
+    let outcome = match super::bfs::timeout_command(pan_path, &args, PAN_WALL_CLOCK.as_secs()) {
         Ok(out) => {
             let combined = format!(
                 "{}\n{}",
@@ -223,8 +247,11 @@ fn run_one_claim(pan_path: &std::path::Path, label: &str, has_liveness: bool) ->
             );
             pan_outcome(&combined)
         }
-        Err(_) => PanOutcome::Unchecked,
-    }
+        Err(_) => PanOutcome::Unchecked(PanStop::WallClock {
+            allowed: PAN_WALL_CLOCK,
+        }),
+    };
+    (outcome, started.elapsed())
 }
 
 /// Whether pan's summary reports a refutation. Any non-zero error count counts.
@@ -234,14 +261,52 @@ pub(crate) fn pan_found_error(combined: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Why a claim got no verdict from the external backend.
+///
+/// The wall clock and the state budget are different facts. pan has no state budget, so a claim it
+/// stopped said "state_budget" and named a budget that nothing consulted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PanStop {
+    /// The search stopped at the wall-clock allowance.
+    WallClock { allowed: Duration },
+    /// The engine reported a search that did not complete.
+    NotCompleted,
+    /// The engine ran but explored a single state: it checked nothing.
+    NothingExplored,
+}
+
+impl PanStop {
+    /// The reason recorded against the claim, including the time it was allowed and the time it took.
+    fn reason(self, used: Duration) -> String {
+        match self {
+            PanStop::WallClock { allowed } => format!(
+                "wallclock: stopped at the {}s budget after {:.2}s",
+                allowed.as_secs(),
+                used.as_secs_f64()
+            ),
+            PanStop::NotCompleted => {
+                format!(
+                    "not_completed: the search did not complete ({:.2}s)",
+                    used.as_secs_f64()
+                )
+            }
+            PanStop::NothingExplored => format!(
+                "not_completed: the search explored one state and no transitions ({:.2}s)",
+                used.as_secs_f64()
+            ),
+        }
+    }
+}
+
 /// What a single pan run established.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PanOutcome {
     /// The claim held and the search completed.
     Passed,
     /// The engine refuted the claim.
     Violated,
-    /// The search did not complete, or explored nothing: no verdict.
-    Unchecked,
+    /// The search produced no verdict, and this is why.
+    Unchecked(PanStop),
     /// The engine ran but explored a single state: it checked nothing.
     Empty,
 }
@@ -255,7 +320,7 @@ fn pan_outcome(combined: &str) -> PanOutcome {
         return PanOutcome::Violated;
     }
     if combined.contains("Search not completed") || combined.contains("depth limit") {
-        return PanOutcome::Unchecked;
+        return PanOutcome::Unchecked(PanStop::NotCompleted);
     }
     let states = int_before(combined, " states, stored").unwrap_or(0);
     let transitions = int_before(combined, " transitions").unwrap_or(0);
@@ -314,7 +379,10 @@ mod tests {
     fn an_incomplete_search_is_unchecked() {
         for marker in ["Search not completed", "depth limit reached"] {
             assert!(
-                matches!(pan_outcome(marker), PanOutcome::Unchecked),
+                matches!(
+                    pan_outcome(marker),
+                    PanOutcome::Unchecked(PanStop::NotCompleted)
+                ),
                 "{marker}"
             );
         }
@@ -325,6 +393,32 @@ mod tests {
     fn a_single_state_with_no_transitions_is_empty() {
         let text = "errors: 0\n\t1 states, stored\n\t     0 transitions\n";
         assert!(matches!(pan_outcome(text), PanOutcome::Empty));
+    }
+
+    /// A stopped search and an exhausted budget are different facts, and only one of them is a
+    /// budget. pan has none, so no reason rendered from a pan outcome may name one.
+    #[test]
+    fn a_stopped_search_names_its_own_cause_and_its_own_cost() {
+        let allowed = Duration::from_secs(5);
+        let used = Duration::from_millis(5_010);
+        let wallclock = PanStop::WallClock { allowed }.reason(used);
+        let not_completed = PanStop::NotCompleted.reason(used);
+        let nothing = PanStop::NothingExplored.reason(used);
+
+        assert!(wallclock.starts_with("wallclock:"), "{wallclock}");
+        assert!(wallclock.contains("5s"), "{wallclock}");
+        assert!(wallclock.contains("5.01s"), "{wallclock}");
+        for reason in [&wallclock, &not_completed, &nothing] {
+            assert!(
+                !reason.contains("state_budget"),
+                "a pan outcome named a budget nothing consulted: {reason}"
+            );
+        }
+        assert!(
+            not_completed.starts_with("not_completed:"),
+            "{not_completed}"
+        );
+        assert!(nothing.starts_with("not_completed:"), "{nothing}");
     }
 
     /// Otherwise the search closed and the claim held.

@@ -342,22 +342,54 @@ fn run_backend(
     (result, started.elapsed())
 }
 
-/// Compare one constraint and print its row, counting it when both backends decided it.
+/// What a comparison established, including what it could not compare.
+///
+/// A claim one backend decided and the other did not was never compared. Leaving it out of the
+/// tally without saying so makes `N of M match` read as agreement when nothing was asked.
+#[derive(Default)]
+struct Tally {
+    compared: u32,
+    mismatches: u32,
+    not_compared: u32,
+    /// The first claim that could not be compared, and the side that stopped on it.
+    stopped: Option<(String, String, String)>,
+}
+
+/// Compare one constraint and print its row, counting it only when both backends decided it.
 fn compare_one(
     c: &checker::ConstraintSummary,
     peer_result: &checker::VerificationResult,
-    tally: &mut (u32, u32),
+    tally: &mut Tally,
 ) {
     let peer = peer_result
         .constraints_summary
         .iter()
         .find(|sc| sc.requirement_id == c.requirement_id);
-    let unverified = peer.map_or(peer_result.valid.is_none(), |sc| sc.unchecked);
-    if unverified {
+    let peer_unchecked = peer.map_or(peer_result.valid.is_none(), |sc| sc.unchecked);
+    // Either side stopping is enough to leave the claim uncompared. Counting this side's stop as a
+    // FAIL and the peer's verdict as the answer reported a disagreement that was never measured.
+    if c.unchecked || peer_unchecked {
+        let (side, cause) = if peer_unchecked {
+            (
+                "spin-rs",
+                peer.and_then(|sc| sc.unchecked_reason.clone())
+                    .or_else(|| peer_result.skip_reason.clone()),
+            )
+        } else {
+            ("spin", c.unchecked_reason.clone())
+        };
+        tally.not_compared += 1;
+        if tally.stopped.is_none() {
+            tally.stopped = Some((
+                side.to_string(),
+                c.requirement_id.clone(),
+                cause.unwrap_or_else(|| "no reason reported".to_string()),
+            ));
+        }
         println!(
             "{:<30} {:<10} {:<10} {:<8}",
             veriplan::util::truncate(&c.requirement_id, 30),
-            if c.satisfied { "pass" } else { "FAIL" },
+            if c.unchecked { "unverified" } else { "pass" },
             "unverified",
             "—"
         );
@@ -366,9 +398,9 @@ fn compare_one(
     let peer_satisfied = peer.is_some_and(|sc| sc.satisfied);
     let matched = c.satisfied == peer_satisfied;
     if !matched {
-        tally.1 += 1;
+        tally.mismatches += 1;
     }
-    tally.0 += 1;
+    tally.compared += 1;
     println!(
         "{:<30} {:<10} {:<10} {:<8}",
         veriplan::util::truncate(&c.requirement_id, 28),
@@ -380,13 +412,13 @@ fn compare_one(
 
 /// Print one row per constraint and tally how many the two backends agree on.
 ///
-/// A backend that produced no verdict for a constraint did not match anything; calling that a
-/// mismatch would be as wrong as calling it a match, so it is printed as unverified and left out of
-/// the tally.
+/// A claim either backend left undecided was never compared. Calling that a mismatch would be as
+/// wrong as calling it a match, so it is printed as unverified, left out of the match tally, and
+/// counted separately - and the backend that stopped is named with the claim and the cause.
 fn compare_rows(
     spin_result: &checker::VerificationResult,
     spin_rs_result: &checker::VerificationResult,
-) -> (u32, u32) {
+) -> Tally {
     println!();
     println!(
         "{:<30} {:<10} {:<10} {:<8}",
@@ -400,7 +432,7 @@ fn compare_rows(
         }
         println!();
     }
-    let mut tally = (0u32, 0u32);
+    let mut tally = Tally::default();
     for c in &spin_result.constraints_summary {
         compare_one(c, spin_rs_result, &mut tally);
     }
@@ -445,7 +477,7 @@ fn run_compare(
         .map(|c| (c.requirement_id.as_str(), c.satisfied))
         .collect();
 
-    let (total, mismatches) = compare_rows(&spin_result, &spin_rs_result);
+    let tally = compare_rows(&spin_result, &spin_rs_result);
 
     println!();
     println!(
@@ -462,14 +494,25 @@ fn run_compare(
     );
     println!();
     println!(
-        "{}/{} constraints match, {} mismatches",
-        total - mismatches,
-        total,
-        mismatches,
+        "{}/{} constraints match, {} mismatches, {} not compared",
+        tally.compared - tally.mismatches,
+        tally.compared,
+        tally.mismatches,
+        tally.not_compared,
     );
+    if let Some((side, claim, cause)) = &tally.stopped {
+        println!();
+        println!("  {side} stopped on {claim}: {cause}");
+        if tally.not_compared > 1 {
+            println!(
+                "  {} claim(s) could not be compared in total",
+                tally.not_compared
+            );
+        }
+    }
 
-    if mismatches > 0 {
-        eprintln!("⚠ Backends disagree on {} constraint(s)", mismatches);
+    if tally.mismatches > 0 {
+        eprintln!("⚠ Backends disagree on {} constraint(s)", tally.mismatches);
     }
 
     Ok(())

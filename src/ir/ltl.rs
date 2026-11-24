@@ -29,6 +29,35 @@ pub enum LtlCondition {
     Eventually(Box<LtlCondition>),
 }
 
+impl LtlFormula {
+    /// Every atom name this formula mentions, in declaration order.
+    ///
+    /// A caller deciding what a formula can observe needs the atoms, not the rendering. Matching
+    /// them against the rendered string is wrong in both directions: `failed_t1_1` is a prefix of
+    /// `failed_t1_10`, so a substring test names a task the formula never mentioned.
+    pub fn atoms(&self) -> Vec<&str> {
+        match self {
+            LtlFormula::Always(condition) => condition.atoms(),
+        }
+    }
+}
+
+impl LtlCondition {
+    /// Every atom name this condition mentions, in declaration order.
+    pub fn atoms(&self) -> Vec<&str> {
+        match self {
+            LtlCondition::Atom(name) => vec![name.as_str()],
+            LtlCondition::Not(inner) | LtlCondition::Eventually(inner) => inner.atoms(),
+            LtlCondition::And(terms) | LtlCondition::Or(terms) => {
+                terms.iter().flat_map(LtlCondition::atoms).collect()
+            }
+            LtlCondition::Implies(left, right) | LtlCondition::Iff(left, right) => {
+                left.atoms().into_iter().chain(right.atoms()).collect()
+            }
+        }
+    }
+}
+
 /// Serialize an LtlFormula to the string format expected by SPIN and the BFS checker.
 pub fn ltl_to_string(formula: &LtlFormula) -> String {
     match formula {
@@ -105,6 +134,37 @@ mod tests {
             "active_t2_1".into(),
         ))));
         assert_eq!(ltl_to_string(&f), "[] ( <> active_t2_1 )");
+    }
+
+    /// Every variant is reached, including one nested two levels deep: a variant added later
+    /// fails to compile rather than being silently skipped.
+    #[test]
+    fn the_atom_walk_reaches_every_variant() {
+        let f = LtlFormula::Always(LtlCondition::And(vec![
+            LtlCondition::Atom("a".into()),
+            LtlCondition::Not(Box::new(LtlCondition::Or(vec![
+                LtlCondition::Atom("b".into()),
+                LtlCondition::Implies(
+                    Box::new(LtlCondition::Atom("c".into())),
+                    Box::new(LtlCondition::Eventually(Box::new(LtlCondition::Atom(
+                        "d".into(),
+                    )))),
+                ),
+            ]))),
+            LtlCondition::Iff(
+                Box::new(LtlCondition::Atom("e".into())),
+                Box::new(LtlCondition::Atom("f".into())),
+            ),
+        ]));
+        assert_eq!(f.atoms(), vec!["a", "b", "c", "d", "e", "f"]);
+    }
+
+    /// A rendering is not a set of names: this is the prefix case that a substring test gets wrong.
+    #[test]
+    fn the_atom_walk_does_not_report_a_prefix_of_another_atom() {
+        let f = LtlFormula::Always(LtlCondition::Atom("failed_t1_10".into()));
+        assert_eq!(f.atoms(), vec!["failed_t1_10"]);
+        assert!(!f.atoms().contains(&"failed_t1_1"));
     }
 
     #[test]

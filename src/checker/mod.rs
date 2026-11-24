@@ -10,6 +10,8 @@ pub mod bfs;
 pub(crate) mod canary;
 pub(crate) mod checks;
 mod convertibility;
+#[cfg(test)]
+mod engine_gate;
 pub(crate) mod merge;
 pub mod promela;
 pub mod spin;
@@ -54,6 +56,15 @@ pub struct ConstraintSummary {
     /// unsupported_property, unparsable_formula, state_budget, depth_budget, early_stop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unchecked_reason: Option<String>,
+    /// States the claim's traversal stored, when the engine reports it.
+    ///
+    /// A caller deciding whether to raise the budget needs the ratio, not a sentence: "used up"
+    /// does not say whether the claim came four thousand states short or four million.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub states_used: Option<usize>,
+    /// States the claim was allowed, when the engine reports it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub states_allowed: Option<usize>,
     /// The requirement body is grounded on an archived change, so no formula describes this plan.
     pub historical: bool,
     /// The archived change that owns the body, when `historical` is set.

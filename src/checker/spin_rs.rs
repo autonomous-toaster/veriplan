@@ -2,16 +2,35 @@ use crate::checker::{ConstraintSummary, VerificationResult, Violation};
 use crate::ir::*;
 use crate::translator;
 
-/// Default state budget for the in-process engine.
+/// State budget for the in-process engine when the caller does not set one.
+pub(crate) const DEFAULT_STATE_BUDGET: usize = 200_000;
+
+/// Read the state budget a caller set.
 ///
-/// The engine has no wall-clock deadline, so a model whose state space does not close runs
-/// without bound. A budget makes the run terminate; while the engine cannot report that it
-/// stopped early, reaching the budget is treated as 'unchecked' rather than 'passed'.
-fn default_state_budget() -> usize {
-    std::env::var("VERIPLAN_MAX_STATES")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(200_000)
+/// A value the caller set is never replaced silently. Zero is the one value that means "do not
+/// run", and a value that is not a number is a caller error: either way the run says so instead of
+/// running with a positive budget nobody asked for. The engine divides the budget across the
+/// claims it checks, so the per-claim share is reported with the claim rather than inferred here.
+pub(crate) fn state_budget_from(raw: Option<&str>) -> anyhow::Result<usize> {
+    match raw {
+        None => Ok(DEFAULT_STATE_BUDGET),
+        Some(text) => {
+            let parsed: usize = text.trim().parse().map_err(|_| {
+                anyhow::anyhow!("VERIPLAN_MAX_STATES is not a state count: {text:?}")
+            })?;
+            if parsed == 0 {
+                anyhow::bail!(
+                    "VERIPLAN_MAX_STATES is 0, which no search can run under; unset it for the default of {DEFAULT_STATE_BUDGET}"
+                );
+            }
+            Ok(parsed)
+        }
+    }
+}
+
+/// The state budget the in-process engine is given, from the environment.
+fn default_state_budget() -> anyhow::Result<usize> {
+    state_budget_from(std::env::var("VERIPLAN_MAX_STATES").ok().as_deref())
 }
 
 pub(crate) fn run_spin_rs_check(
@@ -21,7 +40,31 @@ pub(crate) fn run_spin_rs_check(
     conv_report: ConvertibilityReport,
 ) -> VerificationResult {
     let promela = super::promela::generate_promela(plan, constraints);
-    let budget = default_state_budget();
+    let budget = match default_state_budget() {
+        Ok(budget) => budget,
+        Err(e) => {
+            // A budget the caller set and we cannot honour is a refusal, not a reason to pick one.
+            return VerificationResult {
+                plan_name: plan_name.to_string(),
+                phase: "model_check".into(),
+                convertible: true,
+                convertibility_report: Some(conv_report),
+                valid: None,
+                violations: vec![],
+                total_constraints: constraints.len(),
+                satisfied_constraints: 0,
+                unmodelled_constraints: constraints
+                    .iter()
+                    .filter(|c| !c.modelled() && !c.historical())
+                    .count(),
+                unchecked_constraints: constraints.iter().filter(|c| c.modelled()).count(),
+                historical_constraints: constraints.iter().filter(|c| c.historical()).count(),
+                backend: "spin-rs".into(),
+                constraints_summary: vec![],
+                skip_reason: Some(format!("{e}")),
+            };
+        }
+    };
 
     let config = spin_rs::CheckerConfig {
         max_states: budget,
@@ -96,6 +139,8 @@ pub(crate) fn run_spin_rs_check(
                 unchecked: false,
                 modelled: false,
                 unchecked_reason: None,
+                states_used: None,
+                states_allowed: None,
                 historical: c.historical.is_some(),
                 historical_owner: c.historical.clone(),
                 unmodelled_reason: c.unmodelled_reason.clone(),
@@ -161,6 +206,10 @@ pub(crate) fn run_spin_rs_check(
             unchecked: status.unchecked,
             modelled: true,
             unchecked_reason: status.reason,
+            // The engine named this claim, so its own numbers are the ones to report. A decided
+            // claim carries none: the whole-model entry is about the run, not about this claim.
+            states_used: claim_entry.map(|u| u.states_used),
+            states_allowed: claim_entry.and_then(|u| u.budget),
             historical: false,
             historical_owner: None,
             unmodelled_reason: None,
@@ -172,7 +221,7 @@ pub(crate) fn run_spin_rs_check(
         (
             None,
             Some(format!(
-                "no constraint was proved or refuted ({} unmodelled, {} unchecked{}, {} states explored)",
+                "no constraint was proved or refuted ({} unmodelled, {} unchecked{}, {} states explored under a run budget of {budget} shared across the claims checked)",
                 unmodelled,
                 unchecked,
                 check_result
