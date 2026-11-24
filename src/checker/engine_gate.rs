@@ -204,15 +204,14 @@ fn with_claim(mut source: String, claim: &str) -> String {
 }
 /// The safety canary: a branch on every task, recorded exactly.
 ///
-/// The states the pinned engine spends when a claim names one flag and every task carries a
-/// branch. Engines that project claim-visible state take these to 92 and 124, measured on two later
-/// tags; neither is pinned. Each also stopped refuting a construct this pin refutes - an `unless`
-/// handler and a do-loop assertion - and the construct corpus refused both. A projection that loses
-/// a refutation is worth less than a count that stays high.
+/// The states the pinned engine spends when a claim names one flag and every task carries a branch.
+/// At spin-rs v0.5.35 these were 694 and 2 806; the projection that arrived with v0.5.41 takes them
+/// to 92 and 124, and the table was lowered to match once the construct corpus agreed with `pan` on
+/// all 56 fixtures. Three tags were refused before that one - an `unless` handler, a do-loop
+/// assertion, and a second read-position - so a fall here is only good news with the corpus green.
 ///
-/// A fall here means a pin arrived that keeps the verdicts, and the table is then lowered
-/// deliberately; a rise is a regression.
-const BRANCHING_CANARY: &[(usize, usize)] = &[(6, 694), (8, 2_806)];
+/// A rise from here is a regression; a further fall means the engine improved again.
+const BRANCHING_CANARY: &[(usize, usize)] = &[(6, 92), (8, 124)];
 
 /// The detector behind the gate reads a curve, so it is tested on recorded curves rather than on
 /// a live model.
@@ -252,13 +251,14 @@ fn the_branching_canary_matches_the_pinned_engine() {
                  means the engine now projects this claim and the table needs lowering, a rise is a \
                  regression"
         );
-        // On this pin the fixture is exponential, and that is the defect the canary records. When a
-        // pin arrives that projects this claim and keeps the verdicts, the count above falls and this
-        // becomes None; the assertion is then inverted as part of lowering the table.
+        // The healthy state is linear, because the projection is on. Reading Some(tasks) here means
+        // the projection stopped applying; the count assertion above would move too, and this one says
+        // which of the two happened rather than only that a number changed.
         assert_eq!(
             first_non_linear(&[(tasks, measured)]),
-            Some(tasks),
-            "the canary for {tasks} tasks is no longer exponential, so it no longer records the defect"
+            None,
+            "the canary for {tasks} tasks is exponential again, so the state projection stopped \
+             applying to this claim"
         );
     }
 }
@@ -271,7 +271,7 @@ fn the_branching_canary_matches_the_pinned_engine() {
 /// when a claim names that flag, so "the bits exist" and "the claim can see them" collapse into one
 /// condition. Recorded because the single-claim liveness fixture above can sit still forever and
 /// still be measuring nothing.
-const BLIND_CLAIM_PRODUCT: &[(usize, usize)] = &[(8, 154), (12, 234)];
+const BLIND_CLAIM_PRODUCT: &[(usize, usize)] = &[(8, 47), (12, 67)];
 
 /// A chain whose first two tasks carry a failure flag, under a claim that names neither.
 fn chain_with_two_flags_and_a_blind_claim(tasks: usize) -> String {
