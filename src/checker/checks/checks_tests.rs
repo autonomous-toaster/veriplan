@@ -249,6 +249,160 @@ mod tests {
             );
         }
     }
+
+    /// The same two tasks, with the given requirement bodies.
+    fn plan_with_statements(statements: &[&str]) -> PlanIR {
+        let mut plan = make_test_plan();
+        plan.requirements = statements
+            .iter()
+            .enumerate()
+            .map(|(idx, statement)| Requirement {
+                id: format!("R{idx}"),
+                grounded_in: None,
+                statement: (*statement).to_string(),
+                strength: Rfc2119Strength::Must,
+                category: crate::translator::classify(statement),
+                ltl: None,
+                scenarios: vec![],
+                source: SourceLocation {
+                    file: "spec.md".into(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    start_line: idx + 1,
+                    end_line: idx + 1,
+                },
+            })
+            .collect();
+        plan
+    }
+
+    const THREE_SEQUENTIAL: [&str; 3] = [
+        "T1.1 SHALL parse BEFORE T1.2 SHALL derive.",
+        "T1.1 SHALL resolve BEFORE T1.2 SHALL emit.",
+        "T1.1 SHALL check BEFORE T1.2 SHALL register.",
+    ];
+
+    fn diversity_details(plan: &PlanIR) -> Vec<String> {
+        check_diversity(plan)
+            .into_iter()
+            .filter(|i| i.check == "low_diversity")
+            .map(|i| i.detail)
+            .collect()
+    }
+
+    fn pattern_ungrounded_detail(statement: &str) -> String {
+        let plan = plan_with_statements(&[statement]);
+        let (blockers, _, _) = check_classifiability(&plan, true);
+        blockers
+            .iter()
+            .find(|b| b.check == "pattern_ungrounded")
+            .map(|b| b.detail.clone())
+            .unwrap_or_default()
+    }
+
+    /// Three modelled ordering constraints are one category, so the advisory fires.
+    #[test]
+    fn modelled_sequential_plan_reports_low_diversity() {
+        let details = diversity_details(&plan_with_statements(&THREE_SEQUENTIAL));
+        assert_eq!(
+            details.len(),
+            1,
+            "expected one low_diversity item: {details:?}"
+        );
+        assert!(
+            details[0].contains("sequential(3)"),
+            "the distribution must count the three modelled constraints: {}",
+            details[0]
+        );
+    }
+
+    /// The distribution describes the model. A body that yields no formula adds no verification, so
+    /// it must not enter the tally — counting it let a requirement that checks nothing silence the
+    /// advisory.
+    #[test]
+    fn unmodelled_requirement_adds_no_diversity() {
+        let mut statements = THREE_SEQUENTIAL.to_vec();
+        statements.push("IF a client supplies a slug THEN the registry SHALL ignore the value.");
+
+        let details = diversity_details(&plan_with_statements(&statements));
+        assert_eq!(
+            details.len(),
+            1,
+            "an unmodelled conditional must not silence low_diversity: {details:?}"
+        );
+        assert!(
+            details[0].contains("sequential(3)"),
+            "the unmodelled conditional must not enter the distribution: {}",
+            details[0]
+        );
+    }
+
+    /// The same body becomes a constraint once it names two tasks, and that is what silences the
+    /// advisory — verification, not prose.
+    #[test]
+    fn modelled_non_sequential_constraint_silences_diversity() {
+        let mut statements = THREE_SEQUENTIAL.to_vec();
+        statements.push("IF T1.1 fails THEN T1.2 SHALL retry.");
+
+        let details = diversity_details(&plan_with_statements(&statements));
+        assert!(
+            details.is_empty(),
+            "a second category ends the advisory: {details:?}"
+        );
+    }
+
+    /// The predicate keywords are matched by the classifier, so a body using one is not "ungrounded
+    /// for want of a keyword". Each pair category names the argument it lacks.
+    #[test]
+    fn a_pair_category_names_the_argument_it_lacks() {
+        let conditional = pattern_ungrounded_detail(
+            "IF a client supplies a slug THEN the registry SHALL ignore it.",
+        );
+        assert!(
+            conditional.contains("trigger task and a consequent task"),
+            "a conditional must name its two arguments: {conditional}"
+        );
+
+        let exclusive =
+            pattern_ungrounded_detail("The registry SHALL persist AT MOST ONE slug source.");
+        assert!(
+            exclusive.contains("pair the constraint keeps apart"),
+            "an exclusive must name the pair: {exclusive}"
+        );
+
+        let concurrent =
+            pattern_ungrounded_detail("The registry SHALL index CONCURRENTLY at boot.");
+        assert!(
+            concurrent.contains("one concurrent phase"),
+            "a concurrent must name its two tasks: {concurrent}"
+        );
+    }
+
+    /// One task id is not a pair: the constraint cannot be built, so the body is reported rather
+    /// than passing as a modelled constraint that carries no formula.
+    #[test]
+    fn one_task_id_is_not_enough_for_a_conditional() {
+        let detail = pattern_ungrounded_detail("IF T1.1 fails THEN the registry SHALL back off.");
+        assert!(
+            detail.contains("trigger task and a consequent task"),
+            "a conditional citing one task must report it: {detail}"
+        );
+    }
+
+    /// A body with no temporal keyword keeps the generic message: it is missing a keyword, not an
+    /// argument of a pair category.
+    #[test]
+    fn a_body_without_a_pair_keyword_keeps_the_generic_message() {
+        let detail = pattern_ungrounded_detail("The system SHALL hold the header ALWAYS.");
+        assert!(
+            detail.contains("add task IDs for model verification"),
+            "the generic message must remain for a non-pair category: {detail}"
+        );
+        assert!(
+            !detail.contains("trigger task"),
+            "a global body must not be told it lacks a trigger: {detail}"
+        );
+    }
 }
 
 #[test]

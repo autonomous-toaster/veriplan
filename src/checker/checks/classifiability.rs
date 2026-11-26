@@ -56,18 +56,27 @@ pub fn check_classifiability(
             continue;
         }
 
-        let cat = if cat != ConstraintCategory::NonFormalizable
-            && cat != ConstraintCategory::PatternUngrounded
-        {
+        // A modelled constraint is built from tasks, so it needs task ids: one to name a task, and
+        // two for the pair categories (the pair kept apart, or the trigger and the consequent). A body
+        // that cites fewer yields no formula, and is reported here rather than passing silently.
+        let classified = cat.clone();
+        let needed = match classified {
+            ConstraintCategory::Exclusive
+            | ConstraintCategory::Conditional
+            | ConstraintCategory::ConcurrentEvents => 2,
+            ConstraintCategory::NonFormalizable | ConstraintCategory::PatternUngrounded => 0,
+            _ => 1,
+        };
+        let cat = if needed == 0 {
+            classified.clone()
+        } else {
             let available = ids_for(req, &task_ids);
             let refs = translator::extract_task_refs_bare(&req.statement, &available);
-            if refs.is_empty() {
+            if refs.len() < needed {
                 ConstraintCategory::PatternUngrounded
             } else {
-                cat
+                classified.clone()
             }
-        } else {
-            cat
         };
 
         if cat == ConstraintCategory::NonFormalizable {
@@ -132,18 +141,14 @@ pub fn check_classifiability(
             ));
         } else if cat == ConstraintCategory::PatternUngrounded {
             formalizable_count += 1;
+            let (detail, fix) = ungrounded_argument(classified, &req.statement);
             blockers.push(make_item(
                 "blocker",
                 "pattern_ungrounded",
                 format!("Requirement '{}'", req.id),
                 format!("{}:{}", req.source.file, req.source.start_line),
-                format!(
-                    "SHALL '{}' has a temporal pattern but no task references — add task IDs for model verification",
-                    truncate(&req.statement, 80)
-                ),
-                Some(
-                    "Add task ID references (e.g., T1.2) to enable model verification".into(),
-                ),
+                detail,
+                Some(fix),
             ));
         } else {
             formalizable_count += 1;
@@ -162,6 +167,40 @@ pub fn check_classifiability(
     }
 
     (blockers, warnings, info)
+}
+
+/// Why a body with a temporal keyword is not modelled, and what would make it modelable.
+///
+/// The three non-sequential categories are built from a pair of tasks, so a body that cites fewer
+/// than two task ids yields no formula. "Add task IDs" leaves the author to guess which two the
+/// keyword needs; naming the argument is the whole remedy.
+fn ungrounded_argument(classified: ConstraintCategory, statement: &str) -> (String, String) {
+    let quoted = format!("SHALL '{}'", truncate(statement, 80));
+    match classified {
+        ConstraintCategory::Conditional => (
+            format!(
+                "{quoted} is conditional, so this body needs two task ids — a trigger task and a consequent task — and cites fewer"
+            ),
+            "cite the trigger and the consequent, e.g. 'IF T1.1 fails THEN T1.2 SHALL retry'".into(),
+        ),
+        ConstraintCategory::Exclusive => (
+            format!(
+                "{quoted} is exclusive, so this body needs two task ids — the pair the constraint keeps apart — and cites fewer"
+            ),
+            "cite the pair, e.g. 'AT MOST ONE of T1.1 and T1.2 SHALL be active'".into(),
+        ),
+        ConstraintCategory::ConcurrentEvents => (
+            format!(
+                "{quoted} is concurrent, so this body needs two task ids in one concurrent phase, and cites fewer"
+            ),
+            "cite two tasks of one [concurrent] phase, e.g. 'T1.1 SHALL run CONCURRENTLY with T1.2'"
+                .into(),
+        ),
+        _ => (
+            format!("{quoted} has a temporal pattern but no task references — add task IDs for model verification"),
+            "Add task ID references (e.g., T1.2) to enable model verification".into(),
+        ),
+    }
 }
 
 /// The task ids a requirement may cite: this change's tasks, plus the tasks of the change that

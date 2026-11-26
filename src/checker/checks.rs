@@ -295,18 +295,24 @@ fn check_then_steps_rfc2119(sc: &crate::ir::Scenario) -> Vec<CheckItem> {
 
 /// Check 6: Constraint diversity.
 pub fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
+    // The tally counts the constraints the model carries, not the keywords the prose mentions. A
+    // requirement that yields no formula adds no verification, so counting its category let a body
+    // that checks nothing silence this advisory.
     let mut cat_counts: HashMap<&str, usize> = HashMap::new();
-    for req in &plan.requirements {
-        let label = match translator::classify(&req.statement) {
+    for constraint in translator::translate_all(plan) {
+        if !constraint.modelled() {
+            continue;
+        }
+        let label = match constraint.category {
             ConstraintCategory::FixedTime => "fixed_time",
             ConstraintCategory::SequentialOrder => "sequential",
             ConstraintCategory::ConcurrentEvents => "concurrent",
             ConstraintCategory::Conditional => "conditional",
             ConstraintCategory::Exclusive => "exclusive",
             ConstraintCategory::Global => "global",
-            ConstraintCategory::NonFormalizable => "non_formalizable",
-            ConstraintCategory::PatternUngrounded => "pattern_ungrounded",
-            ConstraintCategory::Informational => continue,
+            ConstraintCategory::NonFormalizable
+            | ConstraintCategory::PatternUngrounded
+            | ConstraintCategory::Informational => continue,
         };
         *cat_counts.entry(label).or_insert(0) += 1;
     }
@@ -323,18 +329,8 @@ pub fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
     }
 
     let mut info = Vec::new();
-    let formalizable_count = cat_counts
-        .iter()
-        .filter(|(k, _)| **k != "non_formalizable")
-        .map(|(_, v)| v)
-        .sum::<usize>();
-
-    let categories_used = cat_counts
-        .iter()
-        .filter(|(k, _)| **k != "non_formalizable")
-        .count();
-
-    if categories_used <= 1 && formalizable_count >= 3 {
+    // Every counted constraint carries a formula, so the total is the modelled total.
+    if cat_counts.len() <= 1 && total >= 3 {
         info.push(make_item(
             "info",
             "low_diversity",
@@ -344,7 +340,15 @@ pub fn check_diversity(plan: &PlanIR) -> Vec<CheckItem> {
                 "Constraint distribution: {}. Consider adding other constraint types for stronger verification",
                 summary.join(", ")
             ),
-            Some("Add exclusive (mutex), conditional (if-then), or concurrent constraints".into()),
+            // The atoms of the model are tasks, so a non-sequential category needs two task ids.
+            // Naming the keywords alone sent an author to a behavioural IF...THEN that yields no
+            // constraint at all. The line is advisory: a constraint the plan does not need is worse.
+            Some(
+                "Add a non-sequential constraint that cites two task ids, e.g. 'T1.1 and T1.2 SHALL \
+                 NOT run concurrently' or 'IF T1.1 fails THEN T1.2 SHALL retry'. Advisory: a \
+                 constraint the plan does not need is worse than this line"
+                    .into(),
+            ),
         ));
     }
 
